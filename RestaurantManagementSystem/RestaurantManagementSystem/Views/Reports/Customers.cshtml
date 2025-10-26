@@ -34,29 +34,58 @@
         </div>
     </form>
 
+    <style>
+        .report-tile { border-radius: 8px; color: #fff; min-height: 150px; display:block; }
+        .report-tile .tile-content { height:100%; }
+        .report-tile h2 { font-weight:700; }
+        .tile-blue { background: linear-gradient(135deg,#4f93ff 0%,#2b6de9 100%); }
+        .tile-green { background: linear-gradient(135deg,#2ad399 0%,#0fb07a 100%); }
+        .tile-purple { background: linear-gradient(135deg,#9b7bff 0%,#6a4bff 100%); }
+        /* table highlight */
+        .table.table-sm tbody tr:hover { background-color: rgba(0,0,0,0.03); }
+    @@media (max-width: 767px) { .report-tile { min-height:120px; } }
+    </style>
+
     <div class="row">
-        <div class="col-md-3">
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Total Customers</h5>
-                    <p class="display-6">@Model.Summary.TotalCustomers</p>
-                    <small class="text-muted">New: @Model.Summary.NewCustomers | Returning: @Model.Summary.ReturningCustomers</small>
+        <div class="col-md-4">
+            <div class="report-tile tile-blue mb-3">
+                <div class="tile-content d-flex flex-column justify-content-center align-items-start p-3">
+                    <div class="d-flex w-100 justify-content-between align-items-start">
+                        <div>
+                            <h6 class="text-uppercase text-muted mb-1">Total Customers</h6>
+                            <h2 class="mb-0">@Model.Summary.TotalCustomers</h2>
+                            <small class="text-light">New: @Model.Summary.NewCustomers &middot; Returning: @Model.Summary.ReturningCustomers</small>
+                        </div>
+                        <div style="width:90px; height:48px;"><canvas id="customersSparkline"></canvas></div>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Avg Visits</h5>
-                    <p class="display-6">@Model.Summary.AverageVisitsPerCustomer</p>
+        <div class="col-md-4">
+            <div class="report-tile tile-purple mb-3">
+                <div class="tile-content d-flex flex-column justify-content-center align-items-start p-3">
+                    <div class="d-flex w-100 justify-content-between align-items-start">
+                        <div>
+                            <h6 class="text-uppercase text-muted mb-1">Avg Visits</h6>
+                            <h2 class="mb-0">@Model.Summary.AverageVisitsPerCustomer</h2>
+                            <small class="text-light">Visits per customer (avg)</small>
+                        </div>
+                        <div style="width:90px; height:48px;"><canvas id="visitsSparkline"></canvas></div>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Total Revenue</h5>
-                    <p class="display-6">@Model.Summary.TotalRevenue.ToString("C")</p>
+        <div class="col-md-4">
+            <div class="report-tile tile-green mb-3">
+                <div class="tile-content d-flex flex-column justify-content-center align-items-start p-3">
+                    <div class="d-flex w-100 justify-content-between align-items-start">
+                        <div>
+                            <h6 class="text-uppercase text-muted mb-1">Total Revenue</h6>
+                            <h2 class="mb-0">@Model.Summary.TotalRevenue.ToString("C")</h2>
+                            <small class="text-light">Revenue across selected period</small>
+                        </div>
+                        <div style="width:90px; height:48px;"><canvas id="revenueSparkline"></canvas></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -135,10 +164,37 @@
     <script>
         (function(){
             var visits = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.VisitFrequencies.Select(x=> new { x.Period, x.Visits, x.Revenue })));
-            var ctx = document.getElementById('visitFrequencyChart').getContext('2d');
-            var labels = visits.map(v=>v.Period);
-            var data = visits.map(v=>v.Visits);
-            new Chart(ctx, { type: 'line', data: { labels: labels, datasets: [{ label: 'Visits', data: data, borderColor: '#007bff', fill:false }] }, options: { responsive:true } });
+
+            // main visit frequency chart
+            var ctx = document.getElementById('visitFrequencyChart');
+            if (ctx) {
+                var vctx = ctx.getContext('2d');
+                var labels = visits.map(v=>v.Period);
+                var data = visits.map(v=>v.Visits);
+                new Chart(vctx, {
+                    type: 'line',
+                    data: { labels: labels, datasets: [{ label: 'Visits', data: data, borderColor: '#007bff', backgroundColor: 'rgba(0,123,255,0.08)', fill:true }] },
+                    options: { responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+                });
+            }
+
+            // small sparklines for tiles (customers, visits, revenue)
+            function createSparkline(canvasId, dataPoints, color) {
+                var el = document.getElementById(canvasId);
+                if (!el) return;
+                new Chart(el.getContext('2d'), {
+                    type: 'line',
+                    data: { labels: dataPoints.map((_,i)=>i), datasets: [{ data: dataPoints, borderColor: color, backgroundColor: color, fill:false, tension:0.3 }] },
+                    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, elements:{point:{radius:0}}, scales:{x:{display:false}, y:{display:false}} }
+                });
+            }
+
+            var visitVals = visits.map(v=>v.Visits);
+            var revenueVals = visits.map(v=>parseFloat(v.Revenue || 0));
+            // customers sparkline: if VisitFrequencies not containing distinct customers, use visits as proxy
+            createSparkline('customersSparkline', visitVals, '#ffffff');
+            createSparkline('visitsSparkline', visitVals, '#ffffff');
+            createSparkline('revenueSparkline', revenueVals, '#ffffff');
         })();
     </script>
 }
