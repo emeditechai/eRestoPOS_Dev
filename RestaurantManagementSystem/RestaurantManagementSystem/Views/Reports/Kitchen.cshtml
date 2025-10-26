@@ -56,6 +56,32 @@
         </div>
     </form>
 
+    <!-- DataTables assets (re-enabled) -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css" />
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
+    <!-- Station summary sparklines & quick filters -->
+    <div class="row mb-3">
+        <div class="col-12 d-flex align-items-center justify-content-between">
+            <div>
+                <div class="btn-group" role="group" aria-label="Status filters">
+                    <button type="button" class="btn btn-sm btn-outline-secondary status-filter" data-status="">All</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary status-filter" data-status="Pending">Pending</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary status-filter" data-status="Completed">Completed</button>
+                </div>
+            </div>
+            <div class="d-flex gap-2" id="station-summaries">
+                @foreach(var st in Model.AvailableStations)
+                {
+                    <div class="me-2 text-center" style="min-width:120px;">
+                        <div class="small text-muted">@st</div>
+                        <canvas id="spark-@Html.Raw(st.Replace(" ","-"))" width="120" height="36"></canvas>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
     <div class="row">
         <div class="col-md-3">
             <div class="report-tile tile-blue mb-3">
@@ -145,9 +171,55 @@
 @section Scripts {
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-        $(function(){
-            $('#kotTable').DataTable({"pageLength":50, "order": [[6, 'desc']]});
-        });
+        (function(){
+            var items = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Items.Select(i => new { i.Station, RequestedAt = i.RequestedAt.ToString("o"), Status = i.Status } )));
+
+            // init DataTable
+            var table = $('#kotTable').DataTable({"pageLength":50, "order": [[6, 'desc']]});
+
+            // status filter buttons
+            $('.status-filter').on('click', function(){
+                var status = $(this).data('status') || '';
+                $('.status-filter').removeClass('active');
+                $(this).addClass('active');
+                if(!status) {
+                    table.column(5).search('').draw();
+                } else {
+                    table.column(5).search('^' + status + '$', true, false).draw();
+                }
+            });
+
+            // build per-station sparklines (daily counts)
+            try {
+                var stations = {};
+                items.forEach(function(it){
+                    var s = it.Station || 'Unassigned';
+                    stations[s] = stations[s] || [];
+                    stations[s].push(new Date(it.RequestedAt));
+                });
+
+                Object.keys(stations).forEach(function(st){
+                    var dates = stations[st];
+                    if(dates.length === 0) return;
+                    // bucket by day
+                    var counts = {};
+                    dates.forEach(function(d){
+                        var key = d.toISOString().slice(0,10);
+                        counts[key] = (counts[key] || 0) + 1;
+                    });
+                    var labels = Object.keys(counts).sort();
+                    var data = labels.map(function(k){ return counts[k]; });
+                    var canvasId = '#spark-' + st.replace(/\s+/g,'-');
+                    var el = document.querySelector(canvasId);
+                    if (!el) return;
+                    new Chart(el.getContext('2d'), {
+                        type: 'line',
+                        data: { labels: labels, datasets: [{ data: data, borderColor: '#ffffff', backgroundColor: 'rgba(255,255,255,0.12)', fill:true, tension:0.3 }] },
+                        options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{display:false}}, elements:{point:{radius:0}} }
+                    });
+                });
+            } catch(e){ console.warn('sparkline error', e); }
+        })();
     </script>
 }
 

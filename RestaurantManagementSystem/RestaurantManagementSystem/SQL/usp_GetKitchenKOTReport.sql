@@ -18,15 +18,15 @@ BEGIN
         oi.Quantity,
         ISNULL(s.Name, '') AS Station,
         CASE WHEN kti.CompletionTime IS NOT NULL THEN 'Completed' ELSE 'Pending' END AS Status,
-        kti.StartTime AS RequestedAt
+        COALESCE(kti.StartTime, o.CreatedAt) AS RequestedAt
     FROM OrderItems oi
     INNER JOIN dbo.Orders o ON oi.OrderId = o.Id
     LEFT JOIN dbo.MenuItems i ON oi.MenuItemId = i.Id
     LEFT JOIN [dbo].[KitchenStations] s ON i.KitchenStationId = s.Id
     LEFT JOIN Tables t ON o.TableTurnoverId = t.Id
-    INNER JOIN [dbo].[KitchenTicketItems] kti on kti.OrderItemId = oi.Id
-        AND kti.StartTime >= @Start AND kti.StartTime < @End
-    WHERE (@Station IS NULL OR @Station = '' OR s.Name = @Station)
-    ORDER BY kti.StartTime DESC;
+    LEFT JOIN [dbo].[KitchenTicketItems] kti on kti.OrderItemId = oi.Id
+    WHERE (COALESCE(kti.StartTime, o.CreatedAt) >= @Start AND COALESCE(kti.StartTime, o.CreatedAt) < @End)
+      AND (@Station IS NULL OR @Station = '' OR s.Name = @Station)
+    ORDER BY COALESCE(kti.StartTime, o.CreatedAt) DESC;
 END
 GO
