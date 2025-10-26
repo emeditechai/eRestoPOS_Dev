@@ -206,7 +206,9 @@ CREATE PROCEDURE [dbo].[usp_CreateOrder]
     @UserId INT,
     @CustomerName NVARCHAR(100) = NULL,
     @CustomerPhone NVARCHAR(20) = NULL,
-    @SpecialInstructions NVARCHAR(500) = NULL
+    @SpecialInstructions NVARCHAR(500) = NULL,
+    @OrderByUserId INT = NULL,
+    @OrderByUserName NVARCHAR(200) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -224,7 +226,7 @@ BEGIN
     BEGIN TRANSACTION;
     
     BEGIN TRY
-        -- Create new order
+        -- Create new order (store who created the order)
         INSERT INTO [Orders] (
             [OrderNumber],
             [TableTurnoverId],
@@ -234,6 +236,8 @@ BEGIN
             [CustomerName],
             [CustomerPhone],
             [SpecialInstructions],
+            [Order_by_UserID],
+            [Order_by_UserName],
             [CreatedAt],
             [UpdatedAt]
         ) VALUES (
@@ -245,6 +249,8 @@ BEGIN
             @CustomerName,
             @CustomerPhone,
             @SpecialInstructions,
+            @OrderByUserId,
+            @OrderByUserName,
             GETDATE(),
             GETDATE()
         );

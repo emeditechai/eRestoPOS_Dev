@@ -129,6 +129,9 @@ namespace RestaurantManagementSystem.Controllers
                                     command.Parameters.AddWithValue("@TableTurnoverId", model.TableTurnoverId ?? (object)DBNull.Value);
                                     command.Parameters.AddWithValue("@OrderType", model.OrderType);
                                     command.Parameters.AddWithValue("@UserId", GetCurrentUserId());
+                                    // Pass through the authenticated user id and name for auditing who created the order
+                                    command.Parameters.AddWithValue("@OrderByUserId", GetCurrentUserId());
+                                    command.Parameters.AddWithValue("@OrderByUserName", GetCurrentUserName());
                                     command.Parameters.AddWithValue("@CustomerName", string.IsNullOrEmpty(model.CustomerName) ? (object)DBNull.Value : model.CustomerName);
                                     command.Parameters.AddWithValue("@CustomerPhone", string.IsNullOrEmpty(model.CustomerPhone) ? (object)DBNull.Value : model.CustomerPhone);
                                     command.Parameters.AddWithValue("@SpecialInstructions", string.IsNullOrEmpty(model.SpecialInstructions) ? (object)DBNull.Value : model.SpecialInstructions);
@@ -2498,9 +2501,27 @@ namespace RestaurantManagementSystem.Controllers
         }
         private int GetCurrentUserId()
         {
-            // In a real application, get this from authentication
-            // For now, hardcode to 1 (assuming ID 1 is an admin/host user)
+            try
+            {
+                var claim = HttpContext?.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+                if (claim != null && int.TryParse(claim.Value, out int uid)) return uid;
+            }
+            catch { }
+            // Fallback to admin for legacy behavior
             return 1;
+        }
+
+        private string GetCurrentUserName()
+        {
+            try
+            {
+                var name = HttpContext?.User?.Identity?.Name;
+                if (!string.IsNullOrEmpty(name)) return name;
+                var fullNameClaim = HttpContext?.User?.FindFirst("FullName");
+                if (fullNameClaim != null) return fullNameClaim.Value;
+            }
+            catch { }
+            return "System Admin";
         }
 
         [HttpPost]
