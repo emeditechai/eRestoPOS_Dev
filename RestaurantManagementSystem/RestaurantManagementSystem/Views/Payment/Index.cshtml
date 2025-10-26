@@ -102,6 +102,24 @@
                                     <div class="col-6 text-end">₹@Model.TipAmount.ToString("F2")</div>
                                 </div>
                             }
+                            @{ 
+                                // Prefer explicit stored TotalRoundoff. If it's zero but the order is fully paid and
+                                // payments exist, compute an implied roundoff as TotalAmount - PaidAmount (this
+                                // catches cases where payments stored canonical pre-round amounts but the
+                                // Roundoff column wasn't persisted).
+                                decimal displayRoundoff = Model.TotalRoundoff;
+                                if (displayRoundoff == 0m && Model.RemainingAmount == 0m && Model.Payments != null && Model.Payments.Any())
+                                {
+                                    displayRoundoff = Math.Round(Model.TotalAmount - Model.PaidAmount, 2, MidpointRounding.AwayFromZero);
+                                }
+                            }
+                            @if (displayRoundoff != 0)
+                            {
+                                <div class="row mb-2">
+                                    <div class="col-6 text-end text-muted">Roundoff Adjustment:</div>
+                                    <div class="col-6 text-end">₹@displayRoundoff.ToString("F2")</div>
+                                </div>
+                            }
                             <hr class="my-2">
                             <div class="row mb-2">
                                 <div class="col-6 text-end fw-semibold">Total:</div>
@@ -118,6 +136,22 @@
                                     ₹@Model.RemainingAmount.ToString("F2")
                                 </div>
                             </div>
+                            @* Show expected roundoff if there is a remaining amount (pre-payment) *@
+                            @if (Model.RemainingAmount > 0)
+                            {
+                                var preRound = Model.RemainingAmount;
+                                // Use AwayFromZero to ensure .5 rounds up to the next whole rupee
+                                var rounded = Math.Round(preRound, 0, MidpointRounding.AwayFromZero);
+                                var expectedRoundoff = Math.Round(rounded - preRound, 2, MidpointRounding.AwayFromZero);
+                                <div class="row mb-2">
+                                    <div class="col-6 text-end text-muted">Roundoff (if paid now):</div>
+                                    <div class="col-6 text-end">₹@expectedRoundoff.ToString("+0.00;-0.00;0.00")</div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-6 text-end fw-semibold">Total to Process:</div>
+                                    <div class="col-6 text-end fw-semibold">₹@rounded.ToString("F0")</div>
+                                </div>
+                            }
                                 </div>
                             </div>
                         </div>

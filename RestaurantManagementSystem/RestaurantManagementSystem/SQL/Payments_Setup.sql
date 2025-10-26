@@ -115,8 +115,8 @@ BEGIN
         o.TipAmount,
         o.DiscountAmount,
         o.TotalAmount,
-        ISNULL(SUM(p.Amount + p.TipAmount), 0) AS PaidAmount,
-        (o.TotalAmount - ISNULL(SUM(p.Amount + p.TipAmount), 0)) AS RemainingAmount,
+    ISNULL(SUM(p.Amount + p.TipAmount + ISNULL(p.RoundoffAdjustmentAmt,0)), 0) AS PaidAmount,
+    (o.TotalAmount - ISNULL(SUM(p.Amount + p.TipAmount + ISNULL(p.RoundoffAdjustmentAmt,0)), 0)) AS RemainingAmount,
         ISNULL(t.TableName, 'N/A') AS TableName,
         o.Status
     FROM 
@@ -223,6 +223,7 @@ CREATE PROCEDURE [dbo].[usp_ProcessPayment]
     @CGST_Perc DECIMAL(10,4) = NULL,
     @SGST_Perc DECIMAL(10,4) = NULL,
     @Amount_ExclGST DECIMAL(18,2) = NULL
+    ,@RoundoffAdjustmentAmt DECIMAL(18,2) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -270,6 +271,7 @@ BEGIN
             CGST_Perc,
             SGST_Perc,
             Amount_ExclGST,
+            RoundoffAdjustmentAmt,
             CreatedAt,
             UpdatedAt
         )
@@ -294,6 +296,7 @@ BEGIN
             @CGST_Perc,
             @SGST_Perc,
             @Amount_ExclGST,
+            @RoundoffAdjustmentAmt,
             GETDATE(),
             GETDATE()
         );
@@ -304,7 +307,7 @@ BEGIN
         DECLARE @TotalPaid DECIMAL(18,2);
         DECLARE @OrderTotal DECIMAL(18,2);
         
-        SELECT @TotalPaid = ISNULL(SUM(Amount + TipAmount), 0)
+    SELECT @TotalPaid = ISNULL(SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)), 0)
         FROM Payments
         WHERE OrderId = @OrderId AND Status = 1; -- Approved payments only
         

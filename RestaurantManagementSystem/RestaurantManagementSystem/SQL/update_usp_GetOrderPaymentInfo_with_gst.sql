@@ -18,8 +18,8 @@ BEGIN
         o.TipAmount,
         o.DiscountAmount,
         o.TotalAmount,
-        ISNULL(SUM(p.Amount + p.TipAmount), 0) AS PaidAmount,
-        (o.TotalAmount - ISNULL(SUM(p.Amount + p.TipAmount), 0)) AS RemainingAmount,
+    ISNULL(SUM(p.Amount + p.TipAmount + ISNULL(p.RoundoffAdjustmentAmt,0)), 0) AS PaidAmount,
+    (o.TotalAmount - ISNULL(SUM(p.Amount + p.TipAmount + ISNULL(p.RoundoffAdjustmentAmt,0)), 0)) AS RemainingAmount,
         ISNULL(t.TableName, 'N/A') AS TableName,
         o.Status
     FROM 
@@ -65,9 +65,10 @@ BEGIN
         p.PaymentMethodId,
         pm.Name AS PaymentMethod,
         pm.DisplayName AS PaymentMethodDisplay,
-        p.Amount,
+    p.Amount,
         p.TipAmount,
         p.Status,
+    p.RoundoffAdjustmentAmt,
         p.ReferenceNumber,
         p.LastFourDigits,
         p.CardType,

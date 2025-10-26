@@ -23,7 +23,8 @@ CREATE PROCEDURE [dbo].[usp_ProcessPayment]
     @GST_Perc DECIMAL(5,2) = NULL,
     @CGST_Perc DECIMAL(5,2) = NULL,
     @SGST_Perc DECIMAL(5,2) = NULL,
-    @Amount_ExclGST DECIMAL(18,2) = NULL
+        @Amount_ExclGST DECIMAL(18,2) = NULL,
+        @RoundoffAdjustmentAmt DECIMAL(18,2) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -96,7 +97,8 @@ BEGIN
             GST_Perc,
             CGST_Perc,
             SGST_Perc,
-            Amount_ExclGST,
+                Amount_ExclGST,
+                RoundoffAdjustmentAmt,
             CreatedAt,
             UpdatedAt
         )
@@ -121,6 +123,7 @@ BEGIN
             @CGST_Perc,
             @SGST_Perc,
             @Amount_ExclGST,
+                @RoundoffAdjustmentAmt,
             GETDATE(),
             GETDATE()
         );

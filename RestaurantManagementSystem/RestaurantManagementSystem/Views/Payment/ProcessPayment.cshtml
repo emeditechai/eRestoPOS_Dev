@@ -31,6 +31,8 @@
                         <input type="hidden" asp-for="RemainingAmount" />
                         <input type="hidden" asp-for="Subtotal" />
                         <input type="hidden" asp-for="GSTPercentage" />
+                        <input type="hidden" asp-for="RoundoffAdjustmentAmt" id="RoundoffAdjustmentAmt" />
+                        <input type="hidden" asp-for="OriginalAmount" id="OriginalAmount" />
                         
                         <!-- Payment Summary Card -->
                         <div class="card mb-4 bg-light rounded-3">
@@ -103,7 +105,7 @@
                         </div>
 
                         <!-- Payment Amount Section (after discount) -->
-                        <h5 class="mb-3 fw-semibold">3. Enter Payment Amount</h5>
+                        <h5 class="mb-3 fw-semibold">3. Total to Process (Amount customer will pay)</h5>
                         <div class="mb-4">
                             <div class="input-group input-group-lg mb-3">
                                 <span class="input-group-text bg-light fw-bold">₹</span>
@@ -246,6 +248,10 @@
                                     <div class="col-6">Tip Amount:</div>
                                     <div class="col-6 text-end">₹<span id="summaryTip">0.00</span></div>
                                 </div>
+                                <div class="row mb-2">
+                                    <div class="col-6">Roundoff Adjustment:</div>
+                                    <div class="col-6 text-end">₹<span id="summaryRoundoff">0.00</span></div>
+                                </div>
                                 <div class="row">
                                     <div class="col-6"><strong>Total to Process:</strong></div>
                                     <div class="col-6 text-end"><strong>₹<span id="summaryTotal">0.00</span></strong></div>
@@ -363,6 +369,7 @@
             $('.quick-amount').click(function() {
                 var amount = $(this).data('amount');
                 $('#Amount').val(amount.toFixed(2));
+                manualAmountOverride = true;
                 
                 // Visual feedback
                 $('.quick-amount').removeClass('active');
@@ -432,14 +439,41 @@
 
             // Update payment summary display (discount already applied by adjusting Amount)
             function updatePaymentSummary() {
-                var amount = parseFloat($('#Amount').val()) || 0;
-                var tip = parseFloat($('#TipAmount').val()) || 0;
+                // Calculate the canonical pre-round amount from order subtotal / discount / GST
+                var baseSubtotal = parseFloat($('#Subtotal').val()) || 0;
+                var gstPerc = parseFloat($('#GSTPercentage').val()) || 0;
                 var discount = parseFloat($('#DiscountAmount').val()) || 0;
-                var total = amount + tip; // Discount already reflected in amount
-                $('#summaryAmount').text('₹' + amount.toFixed(2));
+
+                var discountedSubtotal = baseSubtotal - discount;
+                if (discountedSubtotal < 0) discountedSubtotal = 0;
+                var paymentGstAmount = parseFloat((Math.round(discountedSubtotal * gstPerc / 100 * 100 + (discountedSubtotal * gstPerc / 100 >= 0 ? 0.0000001 : -0.0000001)) / 100).toFixed(2));
+                var preRoundTotal = discountedSubtotal + paymentGstAmount;
+
+                var tip = parseFloat($('#TipAmount').val()) || 0;
+                preRoundTotal = preRoundTotal + tip;
+
+                // Displayed amount is what the cashier/customer will actually pay (the 'Total to Process' field).
+                // If the user has not overridden the amount, show rounded total; otherwise keep user-entered value.
+                var displayedAmount = parseFloat($('#Amount').val());
+                if (!manualAmountOverride) {
+                    displayedAmount = Math.round(preRoundTotal);
+                    $('#Amount').val(displayedAmount.toFixed(2));
+                } else {
+                    if (isNaN(displayedAmount)) displayedAmount = Math.round(preRoundTotal);
+                }
+
+                var roundoff = +(displayedAmount - preRoundTotal);
+
+                // Update hidden form fields so server receives both values
+                $('#OriginalAmount').val(preRoundTotal.toFixed(2));
+                $('#RoundoffAdjustmentAmt').val(roundoff.toFixed(2));
+
+                // Update summary: show canonical payment amount, roundoff, and final total to process
+                $('#summaryAmount').text('₹' + preRoundTotal.toFixed(2));
                 $('#summaryTip').text('₹' + tip.toFixed(2));
                 $('#summaryDiscount').text((discount).toFixed(2));
-                $('#summaryTotal').text('₹' + total.toFixed(2));
+                $('#summaryRoundoff').text('₹' + roundoff.toFixed(2));
+                $('#summaryTotal').text('₹' + displayedAmount.toFixed(2));
             }
 
             function recalcDiscountAndAmount(){
@@ -506,6 +540,8 @@
 
             // Client-side validation: require card info when payment method is Card/Credit/Debit
             $('#processPaymentForm').on('submit', function(e) {
+                // Ensure roundoff and summary values are fresh before any validation/submission
+                updatePaymentSummary();
                 // Determine selected payment method text
                 var pmText = $('#paymentMethodSelect option:selected').text().toLowerCase();
                 var requiresCard = pmText.includes('card') || pmText.includes('credit') || pmText.includes('debit');

@@ -73,6 +73,33 @@
                     <td>Subtotal:</td>
                     <td class="text-end">₹@Model.Subtotal.ToString("F2")</td>
                 </tr>
+                @* If there is remaining amount to be paid, show expected roundoff and total-to-process before payment *@
+                @if (Model.RemainingAmount > 0)
+                {
+                    var pre = Model.RemainingAmount;
+                    // Use explicit rounding rule so small negative/positive differences are consistent
+                    var rounded = Math.Round(pre, 0, MidpointRounding.AwayFromZero);
+                    var expected = Math.Round(rounded - pre, 2);
+                    <tr>
+                        <td>Payment Amount:</td>
+                        <td class="text-end">₹@pre.ToString("F2")</td>
+                    </tr>
+                    @if (expected != 0)
+                    {
+                        <tr>
+                            <td>Roundoff (if paid now):</td>
+                            <td class="text-end">₹@expected.ToString("+0.00;-0.00;0.00")</td>
+                        </tr>
+                    }
+                    <tr>
+                        <td><strong>Total to Process:</strong></td>
+                        <td class="text-end"><strong>₹@rounded.ToString("F0")</strong></td>
+                    </tr>
+                }
+                else
+                {
+                }
+                
                 @if (Model.GSTPercentage > 0)
                 {
                     <tr>
@@ -117,6 +144,24 @@
                         <td class="text-end">₹@Model.TipAmount.ToString("F2")</td>
                     </tr>
                 }
+                @{
+                    // Prefer stored roundoff. If zero and order fully paid, compute implied roundoff
+                    // from totals so printed bill shows the adjustment.
+                    decimal displayRoundoff = Model.TotalRoundoff;
+                    if (displayRoundoff == 0m && Model.RemainingAmount == 0m && Model.Payments != null && Model.Payments.Any())
+                    {
+                        // Sum of payment amounts (as recorded) vs order total -> difference is roundoff (Total - Paid)
+                        var paidSum = Model.PaidAmount;
+                        displayRoundoff = Math.Round(Model.TotalAmount - paidSum, 2, MidpointRounding.AwayFromZero);
+                    }
+                }
+                @if (displayRoundoff != 0)
+                {
+                    <tr>
+                        <td>Roundoff Adjustment:</td>
+                        <td class="text-end">₹@displayRoundoff.ToString("F2")</td>
+                    </tr>
+                }
                 <tr class="table-active">
                     <td><strong>Total:</strong></td>
                     <td class="text-end"><strong>₹@Model.TotalAmount.ToString("F2")</strong></td>
@@ -132,6 +177,22 @@
                     </td>
                 </tr>
             </table>
+            @* Debug panel - show raw values when ?debug=1 is appended to the URL *@
+            @if (ViewContext.HttpContext.Request.Query["debug"] == "1")
+            {
+                var preDbg = Model.RemainingAmount;
+                var roundedDbg = Math.Round(preDbg, 0, MidpointRounding.AwayFromZero);
+                var expectedDbg = Math.Round(roundedDbg - preDbg, 2);
+                <div class="alert alert-warning mt-2 small">
+                    <strong>DEBUG:</strong>
+                    <div>RemainingAmount: @Model.RemainingAmount</div>
+                    <div>TotalAmount: @Model.TotalAmount</div>
+                    <div>PaidAmount: @Model.PaidAmount</div>
+                    <div>TotalRoundoff (stored): @Model.TotalRoundoff</div>
+                    <div>ComputedRounded (AwayFromZero): @roundedDbg</div>
+                    <div>ComputedExpectedRoundoff: @expectedDbg</div>
+                </div>
+            }
         </div>
     </div>
 
@@ -182,6 +243,10 @@
                                 @if (p.GSTAmount.HasValue && p.GSTAmount.Value > 0)
                                 {
                                     <div><strong>GST:</strong> ₹@p.GSTAmount.Value.ToString("F2") (@(p.GST_Perc?.ToString("F2") ?? "-")%)</div>
+                                }
+                                @if (p.RoundoffAdjustmentAmt.HasValue && p.RoundoffAdjustmentAmt.Value != 0)
+                                {
+                                    <div><strong>Roundoff:</strong> ₹@p.RoundoffAdjustmentAmt.Value.ToString("F2")</div>
                                 }
                             </td>
                         </tr>

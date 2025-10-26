@@ -71,6 +71,9 @@ namespace RestaurantManagementSystem.Models
         
         [Range(0, 10000)]
         public decimal? Amount_ExclGST { get; set; }
+
+    [Range(-1000, 1000)]
+    public decimal? RoundoffAdjustmentAmt { get; set; }
         
         public int Status { get; set; } // 0=Pending, 1=Approved, 2=Rejected, 3=Voided
         

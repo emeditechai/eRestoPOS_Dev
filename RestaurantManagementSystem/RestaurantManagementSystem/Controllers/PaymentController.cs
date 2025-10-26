@@ -105,7 +105,7 @@ namespace RestaurantManagementSystem.Controllers
                         WHERE Id = @OrderId 
                         AND Status < 3 -- Not already completed
                         AND (
-                            SELECT ISNULL(SUM(Amount + TipAmount), 0) 
+                            SELECT ISNULL(SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)), 0) 
                             FROM Payments 
                             WHERE OrderId = @OrderId AND Status = 1
                         ) >= TotalAmount", connection))
@@ -151,7 +151,7 @@ namespace RestaurantManagementSystem.Controllers
                             FROM Orders o
                             WHERE o.Status < 3
                             AND (
-                                SELECT ISNULL(SUM(p.Amount + p.TipAmount), 0) 
+                                SELECT ISNULL(SUM(p.Amount + p.TipAmount + ISNULL(p.RoundoffAdjustmentAmt,0)), 0) 
                                 FROM Payments p 
                                 WHERE p.OrderId = o.Id AND p.Status = 1
                             ) >= o.TotalAmount
@@ -425,7 +425,9 @@ END", connection))
                             
                             command.Parameters.AddWithValue("@OrderId", model.OrderId);
                             command.Parameters.AddWithValue("@PaymentMethodId", model.PaymentMethodId);
-                            command.Parameters.AddWithValue("@Amount", totalPaymentAmountWithGST); // Store exact payment amount (discounted subtotal + GST)
+                            // Send canonical (pre-round) payment amount to the DB; the UI shows 'Total to Process' (rounded) to cashier/customer.
+                            var paymentAmountToStore = model.OriginalAmount > 0 ? model.OriginalAmount : totalPaymentAmountWithGST;
+                            command.Parameters.AddWithValue("@Amount", paymentAmountToStore); // Store canonical payment amount (discounted subtotal + GST)
                             command.Parameters.AddWithValue("@TipAmount", model.TipAmount);
                             command.Parameters.AddWithValue("@ReferenceNumber", string.IsNullOrEmpty(model.ReferenceNumber) ? (object)DBNull.Value : model.ReferenceNumber);
                             command.Parameters.AddWithValue("@LastFourDigits", string.IsNullOrEmpty(model.LastFourDigits) ? (object)DBNull.Value : model.LastFourDigits);
@@ -444,6 +446,8 @@ END", connection))
                             command.Parameters.AddWithValue("@CGST_Perc", paymentCgstPercentage);
                             command.Parameters.AddWithValue("@SGST_Perc", paymentSgstPercentage);
                             command.Parameters.AddWithValue("@Amount_ExclGST", paymentAmountExclGST); // Amount excluding GST
+                            // Roundoff adjustment (client calculated)
+                            command.Parameters.AddWithValue("@RoundoffAdjustmentAmt", model.RoundoffAdjustmentAmt);
                             
                             // Note: ForceApproval will be handled after payment creation if discount is applied
                             
@@ -540,7 +544,7 @@ END", connection))
                                                     WHERE Id = @OrderId
                                                       AND Status < 3
                                                       AND (
-                                                          TotalAmount - ISNULL((SELECT SUM(Amount + TipAmount) FROM Payments WHERE OrderId = @OrderId AND Status = 1), 0)
+                                                          TotalAmount - ISNULL((SELECT SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)) FROM Payments WHERE OrderId = @OrderId AND Status = 1), 0)
                                                       ) <= 0.01
                                                 ", connection))
                                                 {
@@ -549,6 +553,35 @@ END", connection))
                                                 }
                                             }
                                             catch { /* ignore order update failures */ }
+                                            
+                                                    // Persist aggregate roundoff into Orders.RoundoffAdjustmentAmt so order-level
+                                                    // roundoff is easily queryable (user added this column to Orders table).
+                                                    try
+                                                    {
+                                                        if (!reader.IsClosed) reader.Close();
+                                                        using (var roundoffSumCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                                            SELECT ISNULL(SUM(ISNULL(RoundoffAdjustmentAmt,0)), 0) FROM Payments WHERE OrderId = @OrderId AND Status = 1
+                                                        ", connection))
+                                                        {
+                                                            roundoffSumCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
+                                                            var sumObj = roundoffSumCmd.ExecuteScalar();
+                                                            decimal totalRoundoffForOrder = 0m;
+                                                            if (sumObj != null && sumObj != DBNull.Value)
+                                                            {
+                                                                totalRoundoffForOrder = Convert.ToDecimal(sumObj);
+                                                            }
+
+                                                            using (var updateOrderRoundoffCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                                                UPDATE Orders SET RoundoffAdjustmentAmt = @Roundoff, UpdatedAt = GETDATE() WHERE Id = @OrderId
+                                                            ", connection))
+                                                            {
+                                                                updateOrderRoundoffCmd.Parameters.AddWithValue("@Roundoff", totalRoundoffForOrder);
+                                                                updateOrderRoundoffCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
+                                                                updateOrderRoundoffCmd.ExecuteNonQuery();
+                                                            }
+                                                        }
+                                                    }
+                                                    catch { /* ignore roundoff persistence failures to avoid blocking payment success */ }
                                         }
                                         else // Pending
                                         {
@@ -594,6 +627,7 @@ END", connection))
                                                     UpdatedAt = GETDATE(),
                                                     TaxAmount = @NewGSTAmount,
                                                     TotalAmount = @NewTotalAmount
+                                                    
                                                 WHERE Id = @OrderId", connection))
                                             {
                                                 discountCmd.Parameters.AddWithValue("@Disc", model.DiscountAmount);
@@ -612,7 +646,7 @@ END", connection))
                                                     WHERE Id = @OrderId
                                                       AND Status < 3
                                                       AND (
-                                                          TotalAmount - ISNULL((SELECT SUM(Amount + TipAmount) FROM Payments WHERE OrderId = @OrderId AND Status = 1), 0)
+                                                          TotalAmount - ISNULL((SELECT SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)) FROM Payments WHERE OrderId = @OrderId AND Status = 1), 0)
                                                       ) <= 0.01
                                                 ", connection))
                                                 {
@@ -653,7 +687,7 @@ END", connection))
                     SELECT 
                         o.OrderNumber, 
                         o.TotalAmount, 
-                        (o.TotalAmount - ISNULL(SUM(p.Amount + p.TipAmount), 0)) AS RemainingAmount
+                        (o.TotalAmount - ISNULL(SUM(p.Amount + p.TipAmount + ISNULL(p.RoundoffAdjustmentAmt,0)), 0)) AS RemainingAmount
                     FROM Orders o
                     LEFT JOIN Payments p ON o.Id = p.OrderId AND p.Status = 1 -- Approved payments only
                     WHERE o.Id = @OrderId
@@ -899,7 +933,7 @@ END", connection))
                                             WHERE Id = @OrderId
                                               AND Status < 3
                                               AND (
-                                                  SELECT ISNULL(SUM(Amount + TipAmount), 0) FROM Payments WHERE OrderId = @OrderId AND Status = 1
+                                                  SELECT ISNULL(SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)), 0) FROM Payments WHERE OrderId = @OrderId AND Status = 1
                                               ) >= TotalAmount
                                         ", connection))
                                         {
@@ -1722,6 +1756,7 @@ END", connection))
                         int ordCGSTPerc = OrdinalOrMinus(reader, "CGST_Perc");
                         int ordSGSTPerc = OrdinalOrMinus(reader, "SGST_Perc");
                         int ordAmountExcl = OrdinalOrMinus(reader, "Amount_ExclGST");
+                        int ordRoundoff = OrdinalOrMinus(reader, "RoundoffAdjustmentAmt");
 
                         while (reader.Read())
                         {
@@ -1751,6 +1786,7 @@ END", connection))
                             if (ordCGSTPerc >= 0 && !reader.IsDBNull(ordCGSTPerc)) payment.CGST_Perc = reader.GetDecimal(ordCGSTPerc);
                             if (ordSGSTPerc >= 0 && !reader.IsDBNull(ordSGSTPerc)) payment.SGST_Perc = reader.GetDecimal(ordSGSTPerc);
                             if (ordAmountExcl >= 0 && !reader.IsDBNull(ordAmountExcl)) payment.Amount_ExclGST = reader.GetDecimal(ordAmountExcl);
+                            if (ordRoundoff >= 0 && !reader.IsDBNull(ordRoundoff)) payment.RoundoffAdjustmentAmt = reader.GetDecimal(ordRoundoff);
 
                             model.Payments.Add(payment);
                             
@@ -1766,6 +1802,63 @@ END", connection))
                                 }
                             }
                         }
+
+                        // Sum roundoff adjustments across all payments for order-level display
+                        model.TotalRoundoff = model.Payments.Sum(p => p.RoundoffAdjustmentAmt ?? 0m);
+
+                        // Fallback 1: if payments resultset did not include RoundoffAdjustmentAmt (old SP),
+                        // query Payments table directly to get the persisted roundoff sum. This makes the
+                        // view robust even if the stored-proc/resultset schema is older than code.
+                        try
+                        {
+                            if (model.TotalRoundoff == 0m)
+                            {
+                                using (var roundSumCmd = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT ISNULL(SUM(RoundoffAdjustmentAmt), 0) FROM Payments WHERE OrderId = @OrderId AND Status = 1", connection))
+                                {
+                                    roundSumCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                    var roundObj = roundSumCmd.ExecuteScalar();
+                                    if (roundObj != null && roundObj != DBNull.Value)
+                                    {
+                                        var roundVal = Convert.ToDecimal(roundObj);
+                                        if (roundVal != 0m)
+                                        {
+                                            model.TotalRoundoff = roundVal;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch { /* ignore fallback failures */ }
+
+                        // Fallback 2: If still zero, compute an implied roundoff per payment by rounding
+                        // each payment's (Amount + TipAmount) to the nearest whole rupee using
+                        // MidpointRounding.AwayFromZero and take the difference. This covers cases where
+                        // the DB/stored-proc did not persist RoundoffAdjustmentAmt but payment.Amount holds
+                        // the canonical pre-round amount (OriginalAmount) and the displayed/collected
+                        // value was the rounded integer. Using this implied roundoff lets the UI show
+                        // the adjustment even without DB schema changes.
+                        try
+                        {
+                            if (model.TotalRoundoff == 0m && model.Payments != null && model.Payments.Any())
+                            {
+                                decimal impliedSum = 0m;
+                                foreach (var p in model.Payments)
+                                {
+                                    var amt = p.Amount + p.TipAmount;
+                                    // Round each payment to nearest whole rupee using AwayFromZero
+                                    var rounded = Math.Round(amt, 0, MidpointRounding.AwayFromZero);
+                                    var delta = Math.Round(rounded - amt, 2, MidpointRounding.AwayFromZero);
+                                    impliedSum += delta;
+                                }
+
+                                // If implied roundoff is non-zero (payments were effectively rounded), use it
+                                if (impliedSum != 0m)
+                                {
+                                    model.TotalRoundoff = impliedSum;
+                                }
+                            }
+                        }
+                        catch { /* ignore implied computation failures */ }
                         
                         // Set GST information from payments data if available, otherwise calculate
                         if (totalGSTFromPayments > 0)
@@ -1799,6 +1892,63 @@ END", connection))
                                 RequiresApproval = reader.GetBoolean(5)
                             });
                         }
+                        // Additionally, if the Orders table has a stored RoundoffAdjustmentAmt (order-level), prefer it
+                        try
+                        {
+                            using (var ordRoundCmd = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT ISNULL(RoundoffAdjustmentAmt, 0) FROM Orders WHERE Id = @OrderId", connection))
+                            {
+                                ordRoundCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                var ordRoundObj = ordRoundCmd.ExecuteScalar();
+                                if (ordRoundObj != null && ordRoundObj != DBNull.Value)
+                                {
+                                    var ordRound = Convert.ToDecimal(ordRoundObj);
+                                    if (ordRound != 0m)
+                                    {
+                                        model.TotalRoundoff = ordRound;
+                                    }
+                                }
+                            }
+                        }
+                        catch { /* ignore order-level roundoff read errors */ }
+
+                        // Recompute paid amount and remaining amount from the payments list to ensure
+                        // any RoundoffAdjustmentAmt present on Payments is included even if the first
+                        // resultset (or the stored proc) didn't include it.
+                        try
+                        {
+                            var paidFromPayments = model.Payments.Sum(p => p.Amount + p.TipAmount + (p.RoundoffAdjustmentAmt ?? 0m));
+                            // If we have a meaningful sum from payments, prefer it over the reader's PaidAmount
+                            if (paidFromPayments > 0m)
+                            {
+                                model.PaidAmount = paidFromPayments;
+                            }
+
+                            // Ensure RemainingAmount and TotalRoundoff are consistent
+                            model.RemainingAmount = Math.Round(model.TotalAmount - model.PaidAmount, 2, MidpointRounding.AwayFromZero);
+
+                            // If Orders.RoundoffAdjustmentAmt exists but TotalRoundoff is zero, use it
+                            if (model.TotalRoundoff == 0m)
+                            {
+                                try
+                                {
+                                    using (var ordRoundCmd2 = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT ISNULL(RoundoffAdjustmentAmt, 0) FROM Orders WHERE Id = @OrderId", connection))
+                                    {
+                                        ordRoundCmd2.Parameters.AddWithValue("@OrderId", orderId);
+                                        var ordRoundObj2 = ordRoundCmd2.ExecuteScalar();
+                                        if (ordRoundObj2 != null && ordRoundObj2 != DBNull.Value)
+                                        {
+                                            var ordRound2 = Convert.ToDecimal(ordRoundObj2);
+                                            if (ordRound2 != 0m)
+                                            {
+                                                model.TotalRoundoff = ordRound2;
+                                            }
+                                        }
+                                    }
+                                }
+                                catch { /* ignore */ }
+                            }
+                        }
+                        catch { /* ignore recompute errors */ }
                     }
                 }
                 

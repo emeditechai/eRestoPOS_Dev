@@ -96,20 +96,62 @@
             var sgstPercent = Math.Round(gstPercent - cgstPercent, 2);
             var discount = (Model.DiscountAmount > 0) ? Model.DiscountAmount : 0M;
             var total = Model.TotalAmount;
-            var grandRounded = Math.Round(total);
-            var roundOff = grandRounded - total;
+            // If there's a remaining amount (pre-payment), show expected payment + roundoff for the customer.
+            var preRemaining = Model.RemainingAmount;
+            var paidPreRoundFallback = Model.Payments != null && Model.Payments.Any() ? Model.Payments.Sum(p => p.Amount) : 0m;
+            var roundOff = 0M;
+            var grandRounded = 0M;
+            var paidPreRoundComputed = 0M;
+            if (preRemaining > 0)
+            {
+                // When showing a pre-payment preview, compute the roundoff as the difference
+                // between the nearest whole-rupee amount and the exact remaining amount.
+                paidPreRoundComputed = preRemaining;
+                var rounded = Math.Round(preRemaining, 0, MidpointRounding.AwayFromZero);
+                roundOff = Math.Round(rounded - preRemaining, 2, MidpointRounding.AwayFromZero);
+                grandRounded = rounded;
+            }
+            else
+            {
+                // Use stored total roundoff when available. If it's zero but order is fully paid
+                // and payments exist, compute an implied roundoff as TotalAmount - PaidSum.
+                try { roundOff = Model.TotalRoundoff; } catch { roundOff = 0M; }
+                paidPreRoundComputed = paidPreRoundFallback;
+                if (roundOff == 0m && Model.RemainingAmount == 0m && paidPreRoundFallback > 0m)
+                {
+                    roundOff = Math.Round(total - paidPreRoundFallback, 2, MidpointRounding.AwayFromZero);
+                }
+                grandRounded = Math.Round(total + roundOff, 0, MidpointRounding.AwayFromZero);
+            }
         }
-
         <div class="row"><div>Sub Total</div><div class="right">₹@subtotal.ToString("F2")</div></div>
+        <div class="row"><div>Payment Amount</div><div class="right">₹@paidPreRoundComputed.ToString("F2")</div></div>
         <div class="row"><div>CGST @cgstPercent% </div><div class="right">₹@cgstAmt.ToString("F2")</div></div>
         <div class="row"><div>SGST @sgstPercent% </div><div class="right">₹@sgstAmt.ToString("F2")</div></div>
         @if (discount > 0)
         {
             <div class="row"><div>Discount</div><div class="right">-₹@discount.ToString("F2")</div></div>
         }
-        <div class="row"><div>Round off</div><div class="right">₹@roundOff.ToString("F2")</div></div>
-        <div class="row bold"><div style="font-size:15px;">Grand Total</div><div class="right" style="font-size:16px;">₹@grandRounded.ToString("F0")</div></div>
+    <div class="row"><div>Round off</div><div class="right">₹@roundOff.ToString("+0.00;-0.00;0.00")</div></div>
+    <div class="row bold"><div style="font-size:15px;">Grand Total</div><div class="right" style="font-size:16px;">₹@grandRounded.ToString("F0")</div></div>
     </div>
+
+    @* Optional debug block: append ?debug=1 to the print URL to display raw numeric values for troubleshooting *@
+    @if (ViewContext.HttpContext.Request.Query["debug"] == "1")
+    {
+        var preRemDbg = Model.RemainingAmount;
+        var roundedDbg = Math.Round(preRemDbg, 0, MidpointRounding.AwayFromZero);
+        var expectedDbg = Math.Round(roundedDbg - preRemDbg, 2);
+        <div style="background:#fff7e6;border:1px solid #ffd59e;padding:8px;margin-top:8px;font-size:12px;">
+            <strong>DEBUG</strong>
+            <div>RemainingAmount: @Model.RemainingAmount</div>
+            <div>TotalAmount: @Model.TotalAmount</div>
+            <div>PaidAmount: @Model.PaidAmount</div>
+            <div>TotalRoundoff (stored): @Model.TotalRoundoff</div>
+            <div>ComputedRounded (AwayFromZero): @roundedDbg</div>
+            <div>ComputedExpectedRoundoff: @expectedDbg</div>
+        </div>
+    }
 
     <div class="dashed"></div>
     <div class="center tiny">

@@ -23,6 +23,7 @@ CREATE PROCEDURE [dbo].[usp_ProcessPayment]
     @CGST_Perc DECIMAL(5,2) = NULL,
     @SGST_Perc DECIMAL(5,2) = NULL,
     @Amount_ExclGST DECIMAL(10,2) = NULL
+    ,@RoundoffAdjustmentAmt DECIMAL(10,2) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -70,6 +71,7 @@ BEGIN
             CGST_Perc,
             SGST_Perc,
             Amount_ExclGST,
+            RoundoffAdjustmentAmt,
             CreatedAt,
             UpdatedAt
         )
@@ -94,6 +96,7 @@ BEGIN
             @CGST_Perc,
             @SGST_Perc,
             @Amount_ExclGST,
+            @RoundoffAdjustmentAmt,
             GETDATE(),
             GETDATE()
         );
@@ -104,7 +107,7 @@ BEGIN
         DECLARE @TotalPaid DECIMAL(10,2);
         DECLARE @OrderTotal DECIMAL(10,2);
         
-        SELECT @TotalPaid = ISNULL(SUM(Amount + TipAmount), 0)
+    SELECT @TotalPaid = ISNULL(SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)), 0)
         FROM Payments
         WHERE OrderId = @OrderId AND Status = 1; -- Approved payments only
         

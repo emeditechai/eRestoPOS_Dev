@@ -31,6 +31,9 @@ namespace RestaurantManagementSystem.Models
         public List<Payment> Payments { get; set; } = new List<Payment>();
         public List<OrderItemViewModel> OrderItems { get; set; } = new List<OrderItemViewModel>();
         public List<SplitBill> SplitBills { get; set; } = new List<SplitBill>();
+        
+        // Sum of roundoff adjustments across payments for display on index/print
+        public decimal TotalRoundoff { get; set; }
     }
     
     public class PaymentMethodViewModel
@@ -62,6 +65,10 @@ namespace RestaurantManagementSystem.Models
         [Display(Name = "Amount")]
         [Range(0.01, 10000)]
         public decimal Amount { get; set; }
+
+    // Original calculated amount before rounding (sent to DB as the payment amount)
+    [Display(Name = "Original Amount")]
+    public decimal OriginalAmount { get; set; }
         
         [Display(Name = "Tip Amount")]
         [Range(0, 10000)]
@@ -109,6 +116,10 @@ namespace RestaurantManagementSystem.Models
         // Helper properties
         public bool IsCardPayment { get; set; }
         public bool IsUPIPayment { get; set; }
+        
+        // Roundoff adjustment (client-calculated, submitted with form)
+        [Display(Name = "Roundoff Adjustment")]
+        public decimal RoundoffAdjustmentAmt { get; set; }
     }
     
     public class VoidPaymentViewModel
