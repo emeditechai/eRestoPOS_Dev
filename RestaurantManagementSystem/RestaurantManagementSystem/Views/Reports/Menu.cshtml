@@ -34,37 +34,59 @@
         </div>
     </form>
 
-    <div class="row">
-        <div class="col-md-3">
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Total Items Sold</h5>
-                    <p class="display-6">@Model.Summary.TotalItemsSold</p>
-                </div>
+    <div class="row report-tiles-row">
+        <style>
+            /* Menu report tiles: colorful gradients and uniform sizing */
+            .report-tiles-row .report-tile {
+                padding: 1.25rem;
+                border-radius: .6rem;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                height: 150px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: .25rem;
+                color: #fff;
+            }
+            .report-tiles-row .report-tile .card-title { margin:0; font-weight:600; opacity:.95; }
+            .report-tiles-row .report-tile .value { font-weight:800; font-size:2.1rem; line-height:1; }
+            .report-tiles-row .report-tile .value.display-6 { font-size:2.1rem; }
+
+            /* Gradient variants */
+            .tile-blue { background: linear-gradient(135deg,#1e90ff 0%,#2bb6ff 100%); }
+            .tile-teal { background: linear-gradient(135deg,#13c2c2 0%,#2bd4d4 100%); }
+            .tile-gold { background: linear-gradient(135deg,#f6d365 0%,#fda085 100%); color:#2b2b2b; }
+            .tile-slate { background: linear-gradient(135deg,#6c757d 0%,#8a949a 100%); }
+
+            /* responsive adjustments */
+            @@media (max-width: 768px) {
+                .report-tiles-row .report-tile { height: 120px; padding: 1rem; }
+                .report-tiles-row .report-tile .value { font-size: 1.6rem; }
+            }
+        </style>
+
+        <div class="col-md-3 mb-3">
+            <div class="report-tile tile-blue">
+                <h5 class="card-title">Total Items Sold</h5>
+                <div class="value display-6">@Model.Summary.TotalItemsSold</div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Total Revenue</h5>
-                    <p class="display-6">@Model.Summary.TotalRevenue.ToString("C")</p>
-                </div>
+        <div class="col-md-3 mb-3">
+            <div class="report-tile tile-teal text-white">
+                <h5 class="card-title">Total Revenue</h5>
+                <div class="value display-6">@Model.Summary.TotalRevenue.ToString("C")</div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Average Price</h5>
-                    <p class="display-6">@Model.Summary.AveragePrice.ToString("C")</p>
-                </div>
+        <div class="col-md-3 mb-3">
+            <div class="report-tile tile-gold">
+                <h5 class="card-title">Average Price</h5>
+                <div class="value display-6">@Model.Summary.AveragePrice.ToString("C")</div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Overall GP</h5>
-                    <p class="display-6">@Model.Summary.OverallGP.ToString("P2")</p>
-                </div>
+        <div class="col-md-3 mb-3">
+            <div class="report-tile tile-slate">
+                <h5 class="card-title">Overall GP</h5>
+                <div class="value display-6">@Model.Summary.OverallGP.ToString("P2")</div>
             </div>
         </div>
     </div>
