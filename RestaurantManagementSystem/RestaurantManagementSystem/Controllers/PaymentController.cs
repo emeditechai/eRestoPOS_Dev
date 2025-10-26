@@ -8,6 +8,7 @@ using System.Data;
 using Microsoft.Data.SqlClient;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Security.Claims;
 
 namespace RestaurantManagementSystem.Controllers
 {
@@ -2158,13 +2159,27 @@ END", connection))
         
         private int GetCurrentUserId()
         {
-            // In a real app, this would come from authentication
+            try
+            {
+                var claim = HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier);
+                if (claim != null && int.TryParse(claim.Value, out int uid)) return uid;
+            }
+            catch { /* ignore and fallback */ }
+            // Fallback to admin (legacy behavior) if no authenticated user is present
             return 1;
         }
-        
+
         private string GetCurrentUserName()
         {
-            // In a real app, this would come from authentication
+            try
+            {
+                var name = HttpContext?.User?.Identity?.Name;
+                if (!string.IsNullOrEmpty(name)) return name;
+
+                var fullNameClaim = HttpContext?.User?.FindFirst("FullName");
+                if (fullNameClaim != null) return fullNameClaim.Value;
+            }
+            catch { }
             return "System Admin";
         }
         
