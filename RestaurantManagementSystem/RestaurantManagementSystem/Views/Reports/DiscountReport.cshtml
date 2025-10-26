@@ -23,41 +23,48 @@
             </div>
         </form>
 
+        <style>
+            /* Small, report-specific tile styles to add color and contrast */
+            .report-tile { padding: 1.1rem; border-radius: .6rem; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+            .report-tile .label { opacity: .9; font-size: .85rem; }
+            .report-tile .value { font-weight: 700; }
+        </style>
+
         <div class="row mb-4">
-            <div class="col-md-2">
-                <div class="stat-tile p-3 bg-light rounded border">
-                    <div class="text-muted small">Discounted Orders</div>
-                    <div class="h5 mb-0">@Model.Summary.TotalDiscountedOrders</div>
+            <div class="col-md-2 mb-3">
+                <div class="report-tile bg-primary text-white">
+                    <div class="label">Discounted Orders</div>
+                    <div class="value display-6">@Model.Summary.TotalDiscountedOrders</div>
                 </div>
             </div>
-            <div class="col-md-2">
-                <div class="stat-tile p-3 bg-light rounded border">
-                    <div class="text-muted small">Total Discount</div>
-                    <div class="h5 mb-0">₹@Model.Summary.TotalDiscountAmount.ToString("N2")</div>
+            <div class="col-md-2 mb-3">
+                <div class="report-tile bg-success text-white">
+                    <div class="label">Total Discount</div>
+                    <div class="value display-6">₹@Model.Summary.TotalDiscountAmount.ToString("N2")</div>
                 </div>
             </div>
-            <div class="col-md-2">
-                <div class="stat-tile p-3 bg-light rounded border">
-                    <div class="text-muted small">Avg Discount</div>
-                    <div class="h5 mb-0">₹@Model.Summary.AvgDiscountPerOrder.ToString("N2")</div>
+            <div class="col-md-2 mb-3">
+                <div class="report-tile bg-warning text-dark">
+                    <div class="label">Avg Discount</div>
+                    <div class="value display-6">₹@Model.Summary.AvgDiscountPerOrder.ToString("N2")</div>
                 </div>
             </div>
-            <div class="col-md-2">
-                <div class="stat-tile p-3 bg-light rounded border">
-                    <div class="text-muted small">Max Discount</div>
-                    <div class="h5 mb-0">₹@Model.Summary.MaxDiscount.ToString("N2")</div>
+            <div class="col-md-2 mb-3">
+                <div class="report-tile bg-danger text-white">
+                    <div class="label">Max Discount</div>
+                    <div class="value display-6">₹@Model.Summary.MaxDiscount.ToString("N2")</div>
                 </div>
             </div>
-            <div class="col-md-2">
-                <div class="stat-tile p-3 bg-light rounded border">
-                    <div class="text-muted small">Gross Before</div>
-                    <div class="h6 mb-0">₹@Model.Summary.TotalGrossBeforeDiscount.ToString("N0")</div>
+            <div class="col-md-2 mb-3">
+                <div class="report-tile bg-info text-dark">
+                    <div class="label">Gross Before</div>
+                    <div class="value display-6">₹@Model.Summary.TotalGrossBeforeDiscount.ToString("N0")</div>
                 </div>
             </div>
-            <div class="col-md-2">
-                <div class="stat-tile p-3 bg-light rounded border">
-                    <div class="text-muted small">Discount % Gross</div>
-                    <div class="h5 mb-0">@Model.Summary.DiscountPercentageOfGross.ToString("N2")%</div>
+            <div class="col-md-2 mb-3">
+                <div class="report-tile bg-secondary text-white">
+                    <div class="label">Discount % Gross</div>
+                    <div class="value display-6">@Model.Summary.DiscountPercentageOfGross.ToString("N2")%</div>
                 </div>
             </div>
         </div>
