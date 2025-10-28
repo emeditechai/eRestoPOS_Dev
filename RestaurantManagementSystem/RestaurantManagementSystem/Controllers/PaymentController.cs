@@ -470,18 +470,25 @@ END", connection))
                                     if (paymentId > 0)
                                     {
                                         // Decide whether this payment should be pending based on settings and payment details
+                                        // New rule: If a discount was applied, respect the discount-approval setting only.
+                                        // That is, when discounts DO NOT require approval (discountApprovalRequired == false),
+                                        // the payment must NOT be forced pending even if the payment method (e.g. card)
+                                        // normally requires approval. This ensures that when Discount Approval is disabled,
+                                        // a full payment (including discount) completes the order immediately.
                                         bool needsApproval = false;
 
-                                        // If a discount was applied and discount approvals are required
-                                        if (model.DiscountAmount > 0 && discountApprovalRequired)
+                                        if (model.DiscountAmount > 0)
                                         {
-                                            needsApproval = true;
+                                            // Only require approval for discount payments when discount approvals are enabled
+                                            needsApproval = discountApprovalRequired;
                                         }
-
-                                        // If payment method requires card info (a card payment) and card approvals are required
-                                        if (requiresCardInfo && cardPaymentApprovalRequired)
+                                        else
                                         {
-                                            needsApproval = true;
+                                            // No discount involved — fall back to card-approval rules
+                                            if (requiresCardInfo && cardPaymentApprovalRequired)
+                                            {
+                                                needsApproval = true;
+                                            }
                                         }
 
                                         // If needsApproval is true, ensure the payment is pending (Status = 0)
@@ -707,6 +714,10 @@ END", connection))
                                             }
                                             else
                                             {
+                                                // When discount approvals are NOT required, count all payments (regardless of Status)
+                                                // towards the order total for the purpose of marking the order Completed. This
+                                                // ensures that any payment method (card, UPI, cash, etc.) that results in the
+                                                // order being fully paid will cause the order to be completed immediately.
                                                 finalSql = @"UPDATE Orders
                                                 SET Status = 3,
                                                     CompletedAt = CASE WHEN Status < 3 AND CompletedAt IS NULL THEN GETDATE() ELSE CompletedAt END,
@@ -714,7 +725,7 @@ END", connection))
                                                 WHERE Id = @OrderId
                                                   AND Status < 3
                                                   AND (
-                                                      TotalAmount - ISNULL((SELECT SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)) FROM Payments WHERE OrderId = @OrderId AND Status IN (0,1)), 0)
+                                                      TotalAmount - ISNULL((SELECT SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)) FROM Payments WHERE OrderId = @OrderId), 0)
                                                   ) <= 0.05";
 
                                             }
@@ -722,7 +733,45 @@ END", connection))
                                             using (var finalCompleteCmd = new Microsoft.Data.SqlClient.SqlCommand(finalSql, connection))
                                             {
                                                 finalCompleteCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
-                                                finalCompleteCmd.ExecuteNonQuery();
+                                                int rows = finalCompleteCmd.ExecuteNonQuery();
+
+                                                // If no rows were affected, try a slightly more tolerant fallback to handle
+                                                // small numeric/rounding differences between server and client math. This
+                                                // fallback only runs when the first attempt didn't mark the order completed.
+                                                if (rows == 0)
+                                                {
+                                                    string fallbackSql;
+                                                    if (discountApprovalRequired)
+                                                    {
+                                                        fallbackSql = @"UPDATE Orders
+                                                        SET Status = 3,
+                                                            CompletedAt = CASE WHEN Status < 3 AND CompletedAt IS NULL THEN GETDATE() ELSE CompletedAt END,
+                                                            UpdatedAt = GETDATE()
+                                                        WHERE Id = @OrderId
+                                                          AND Status < 3
+                                                          AND (
+                                                              TotalAmount - ISNULL((SELECT SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)) FROM Payments WHERE OrderId = @OrderId AND (Status = 1 OR (Status = 0 AND ISNULL(DiscAmount,0) = 0))), 0)
+                                                          ) <= 0.50";
+                                                    }
+                                                    else
+                                                    {
+                                                        fallbackSql = @"UPDATE Orders
+                                                        SET Status = 3,
+                                                            CompletedAt = CASE WHEN Status < 3 AND CompletedAt IS NULL THEN GETDATE() ELSE CompletedAt END,
+                                                            UpdatedAt = GETDATE()
+                                                        WHERE Id = @OrderId
+                                                          AND Status < 3
+                                                          AND (
+                                                              TotalAmount - ISNULL((SELECT SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)) FROM Payments WHERE OrderId = @OrderId), 0)
+                                                          ) <= 0.50";
+                                                    }
+
+                                                    using (var fallbackCmd = new Microsoft.Data.SqlClient.SqlCommand(fallbackSql, connection))
+                                                    {
+                                                        fallbackCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
+                                                        fallbackCmd.ExecuteNonQuery();
+                                                    }
+                                                }
                                             }
                                         }
                                         catch { /* don't block the happy path if this fails */ }
