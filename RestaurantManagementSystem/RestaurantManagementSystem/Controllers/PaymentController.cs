@@ -1055,35 +1055,36 @@ END", connection))
                                         ", connection))
                                         {
                                             checkCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                            decimal orderTotal = 0m, approvedSum = 0m, pendingSum = 0m;
                                             using (var r2 = checkCmd.ExecuteReader())
                                             {
                                                 if (r2.Read())
                                                 {
-                                                    decimal orderTotal = r2.IsDBNull(0) ? 0m : r2.GetDecimal(0);
-                                                    decimal approvedSum = r2.IsDBNull(1) ? 0m : r2.GetDecimal(1);
-                                                    decimal pendingSum = r2.IsDBNull(2) ? 0m : r2.GetDecimal(2);
+                                                    orderTotal = r2.IsDBNull(0) ? 0m : r2.GetDecimal(0);
+                                                    approvedSum = r2.IsDBNull(1) ? 0m : r2.GetDecimal(1);
+                                                    pendingSum = r2.IsDBNull(2) ? 0m : r2.GetDecimal(2);
                                                     _logger?.LogInformation("ApprovePayment: order {OrderId} total={OrderTotal} approvedSum={ApprovedSum} pendingSum={PendingSum}", orderId, orderTotal, approvedSum, pendingSum);
-
-                                                    // If approved payments cover the order (within tolerance), mark completed
-                                                    if (approvedSum >= orderTotal - 0.05m)
-                                                    {
-                                                        using (var completeCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                                                            UPDATE Orders
-                                                            SET Status = 3,
-                                                                CompletedAt = CASE WHEN Status < 3 AND CompletedAt IS NULL THEN GETDATE() ELSE CompletedAt END,
-                                                                UpdatedAt = GETDATE()
-                                                            WHERE Id = @OrderId AND Status < 3
-                                                        ", connection))
-                                                        {
-                                                            completeCmd.Parameters.AddWithValue("@OrderId", orderId);
-                                                            completeCmd.ExecuteNonQuery();
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        _logger?.LogInformation("ApprovePayment: order {OrderId} not completed after approval - shortfall={Shortfall}", orderId, Math.Max(0, (double)(orderTotal - approvedSum)));
-                                                    }
                                                 }
+                                            }
+
+                                            // If approved payments cover the order (within tolerance), mark completed
+                                            if (approvedSum >= orderTotal - 0.05m)
+                                            {
+                                                using (var completeCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                                    UPDATE Orders
+                                                    SET Status = 3,
+                                                        CompletedAt = CASE WHEN Status < 3 AND CompletedAt IS NULL THEN GETDATE() ELSE CompletedAt END,
+                                                        UpdatedAt = GETDATE()
+                                                    WHERE Id = @OrderId AND Status < 3
+                                                ", connection))
+                                                {
+                                                    completeCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                                    completeCmd.ExecuteNonQuery();
+                                                }
+                                            }
+                                            else
+                                            {
+                                                _logger?.LogInformation("ApprovePayment: order {OrderId} not completed after approval - shortfall={Shortfall}", orderId, Math.Max(0, (double)(orderTotal - approvedSum)));
                                             }
                                         }
                                     }
@@ -1312,34 +1313,35 @@ END", connection))
                                         ", connection))
                                         {
                                             checkCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                            decimal orderTotal = 0m, approvedSum = 0m, pendingSum = 0m;
                                             using (var r2 = checkCmd.ExecuteReader())
                                             {
                                                 if (r2.Read())
                                                 {
-                                                    decimal orderTotal = r2.IsDBNull(0) ? 0m : r2.GetDecimal(0);
-                                                    decimal approvedSum = r2.IsDBNull(1) ? 0m : r2.GetDecimal(1);
-                                                    decimal pendingSum = r2.IsDBNull(2) ? 0m : r2.GetDecimal(2);
+                                                    orderTotal = r2.IsDBNull(0) ? 0m : r2.GetDecimal(0);
+                                                    approvedSum = r2.IsDBNull(1) ? 0m : r2.GetDecimal(1);
+                                                    pendingSum = r2.IsDBNull(2) ? 0m : r2.GetDecimal(2);
                                                     _logger?.LogInformation("ApprovePaymentAjax: order {OrderId} total={OrderTotal} approvedSum={ApprovedSum} pendingSum={PendingSum}", orderId, orderTotal, approvedSum, pendingSum);
-
-                                                    if (approvedSum >= orderTotal - 0.05m)
-                                                    {
-                                                        using (var completeCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                                                            UPDATE Orders
-                                                            SET Status = 3,
-                                                                CompletedAt = CASE WHEN Status < 3 AND CompletedAt IS NULL THEN GETDATE() ELSE CompletedAt END,
-                                                                UpdatedAt = GETDATE()
-                                                            WHERE Id = @OrderId AND Status < 3
-                                                        ", connection))
-                                                        {
-                                                            completeCmd.Parameters.AddWithValue("@OrderId", orderId);
-                                                            completeCmd.ExecuteNonQuery();
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        _logger?.LogInformation("ApprovePaymentAjax: order {OrderId} not completed after approval - shortfall={Shortfall}", orderId, Math.Max(0, (double)(orderTotal - approvedSum)));
-                                                    }
                                                 }
+                                            }
+
+                                            if (approvedSum >= orderTotal - 0.05m)
+                                            {
+                                                using (var completeCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                                    UPDATE Orders
+                                                    SET Status = 3,
+                                                        CompletedAt = CASE WHEN Status < 3 AND CompletedAt IS NULL THEN GETDATE() ELSE CompletedAt END,
+                                                        UpdatedAt = GETDATE()
+                                                    WHERE Id = @OrderId AND Status < 3
+                                                ", connection))
+                                                {
+                                                    completeCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                                    completeCmd.ExecuteNonQuery();
+                                                }
+                                            }
+                                            else
+                                            {
+                                                _logger?.LogInformation("ApprovePaymentAjax: order {OrderId} not completed after approval - shortfall={Shortfall}", orderId, Math.Max(0, (double)(orderTotal - approvedSum)));
                                             }
                                         }
                                     }
