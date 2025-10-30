@@ -11,18 +11,71 @@
     .navbar .dropdown-menu { position: absolute; }
     /* Disabled anchor-style buttons (payment link) */
     .btn-disabled { pointer-events: none; opacity: 0.65; cursor: default !important; }
+    /* Page watermark when order fully paid */
+    .page-watermark {
+      position: absolute;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-20deg);
+      pointer-events: none;
+      user-select: none;
+      z-index: 1500;
+      -webkit-print-color-adjust: exact;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .page-watermark .watermark-circle {
+      width: 340px;
+      height: 340px;
+      border-radius: 50%;
+      border: 10px solid rgba(220,20,60,0.18); /* soft red ring */
+      background: rgba(255,255,255,0.0);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.04) inset;
+    }
+    .page-watermark .watermark-circle span {
+      display: block;
+      color: rgba(220,20,60,0.95); /* vivid red */
+      font-size: 4.2rem;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      transform: translateY(6px); /* slight vertical adjustment */
+    }
+    @@media (max-width: 768px) {
+      .page-watermark .watermark-circle { width: 180px; height: 180px; border-width: 6px; }
+      .page-watermark .watermark-circle span { font-size: 2.2rem; }
+      .page-watermark { top: 50%; }
+    }
+    /* Hide watermark when printing header/footer areas might overlap; keep visible on print */
+    @@media print {
+      .page-watermark .watermark-circle { width: 520px; height: 520px; border-width: 14px; }
+      .page-watermark .watermark-circle span { font-size: 6.2rem; color: rgba(200,0,0,0.95); }
+    }
   </style>
 }
-<div class="container-fluid py-3" id="orderDetailsApp" data-order-id="@Model.Id">
+@{
+  var isFullyPaid = Model.IsFullyPaid;
+  var paymentClass = "btn btn-sm btn-success" + (isFullyPaid ? " btn-disabled" : "");
+}
+<div class="container-fluid py-3 position-relative" id="orderDetailsApp" data-order-id="@Model.Id" data-is-fully-paid="@isFullyPaid.ToString().ToLower()">
+  @if (isFullyPaid)
+  {
+    <div class="page-watermark" aria-hidden="true">
+      <div class="watermark-circle"><span>PAID</span></div>
+    </div>
+  }
   <div class="row g-3">
     <div class="col-lg-8 col-12">
       <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
         <form id="orderItemAddForm" class="row row-cols-auto g-2 align-items-center flex-grow-1" autocomplete="off">
           @Html.AntiForgeryToken()
           <input type="hidden" id="orderId" value="@Model.Id" />
-          <div class="col flex-grow-1" style="min-width:200px;">
+            <div class="col flex-grow-1" style="min-width:200px;">
             <label for="menuItemInput" class="visually-hidden">Menu Item</label>
-            <input list="menuItems" id="menuItemInput" class="form-control form-control-sm" placeholder="Search menu (name)..." required />
+            <input list="menuItems" id="menuItemInput" class="form-control form-control-sm" placeholder="Search menu (name)..." required disabled="@(isFullyPaid ? "disabled" : null)" />
             <datalist id="menuItems">
                 @foreach (var mi in Model.AvailableMenuItems)
                 {
@@ -35,13 +88,13 @@
             <input type="number" id="menuItemQty" class="form-control form-control-sm" min="1" value="1" required />
           </div>
             <div class="col">
-            <button type="submit" class="btn btn-sm btn-primary" id="addItemBtn"><i class="fas fa-plus"></i> Add</button>
-          </div>
+              <button type="submit" class="btn btn-sm btn-primary" id="addItemBtn" disabled="@(isFullyPaid ? "disabled" : null)"><i class="fas fa-plus"></i> Add</button>
+            </div>
         </form>
         <div class="ms-auto d-flex gap-2">
           <button type="button" id="fireItemsBtn" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#fireItemsModal"><i class="fas fa-fire"></i> Fire To Kitchen</button>
           <a asp-action="Dashboard" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back</a>
-          <a asp-controller="Payment" asp-action="Index" asp-route-id="@Model.Id" class="btn btn-sm btn-success"><i class="fas fa-credit-card"></i> Payment</a>
+            <a asp-controller="Payment" asp-action="Index" asp-route-id="@Model.Id" class="@paymentClass" aria-disabled="@(isFullyPaid ? "true" : null)" tabindex="@(isFullyPaid ? "-1" : null)"><i class="fas fa-credit-card"></i> Payment</a>
         </div>
       </div>
       <div class="card shadow-sm mb-3">
@@ -72,16 +125,16 @@
                   <div class="fw-semibold">@it.MenuItemName</div>
                   <div class="d-flex gap-1 mt-1">
                     <input type="text" class="form-control form-control-sm item-note" value="@it.SpecialInstructions" placeholder="Note" disabled />
-                    <button type="button" class="btn btn-sm btn-outline-secondary edit-row" title="Edit"><i class="fas fa-edit"></i></button>
-                    <button type="button" class="btn btn-sm btn-outline-success save-row d-none" title="Apply"><i class="fas fa-check"></i></button>
-                    <button type="button" class="btn btn-sm btn-outline-warning cancel-row d-none" title="Cancel"><i class="fas fa-undo"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary edit-row @(isFullyPaid ? "d-none" : "")" title="Edit"><i class="fas fa-edit"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-success save-row d-none @(isFullyPaid ? "d-none" : "")" title="Apply"><i class="fas fa-check"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-warning cancel-row d-none @(isFullyPaid ? "d-none" : "")" title="Cancel"><i class="fas fa-undo"></i></button>
                   </div>
                 </td>
                 <td class="text-center"><input type="number" class="form-control form-control-sm item-qty" value="@it.Quantity" min="1" disabled /></td>
                 <td class="text-end">₹@it.UnitPrice.ToString("F2")</td>
                 <td class="text-end subtotal-cell">₹@it.Subtotal.ToString("F2")</td>
                 <td><span class="badge bg-@(it.Status==0?"primary":it.Status==1?"warning text-dark":it.Status==2?"info":it.Status==3?"success":"secondary")">@it.StatusDisplay</span></td>
-                <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm remove-existing"><i class="fas fa-times"></i></button></td>
+                <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm remove-existing @(isFullyPaid ? "d-none" : "")"><i class="fas fa-times"></i></button></td>
               </tr>
             }
           </tbody>
@@ -203,10 +256,12 @@
       function $(sel, ctx) { return (ctx || document).querySelector(sel); }
       function $all(sel, ctx) { return Array.from((ctx || document).querySelectorAll(sel)); }
 
-      const saveBtn = document.getElementById('saveOrderBtn');
+    const saveBtn = document.getElementById('saveOrderBtn');
       const itemsBody = document.getElementById('orderItemsBody');
       const paymentBtn = document.querySelector('a[href*="/Payment/Index/"]');
   const fireBtn = document.getElementById('fireItemsBtn');
+    const orderApp = document.getElementById('orderDetailsApp');
+    const isFullyPaid = orderApp ? (orderApp.dataset.isFullyPaid === 'true') : false;
 
       function setSaveEnabled(enabled) {
         if (!saveBtn) return;
@@ -254,6 +309,19 @@
         setPaymentEnabled(hasSavedItems());
         // Fire to kitchen enabled only when there are saved items
         setFireEnabled(hasSavedItems());
+        // If the order is fully paid and completed, enforce disabled UI state
+        if (isFullyPaid) {
+          // Disable payment and fire permanently on this view
+          setPaymentEnabled(false);
+          setFireEnabled(false);
+          // Disable add input and button
+          const menuInput = document.getElementById('menuItemInput');
+          const addBtn = document.getElementById('addItemBtn');
+          if (menuInput) menuInput.disabled = true;
+          if (addBtn) addBtn.disabled = true;
+          // Hide edit/remove controls
+          document.querySelectorAll('.edit-row, .remove-existing, .save-row, .cancel-row').forEach(el => el.classList.add('d-none'));
+        }
       }
 
       // When new rows are added or removed, enable Save (new items) or update Payment state

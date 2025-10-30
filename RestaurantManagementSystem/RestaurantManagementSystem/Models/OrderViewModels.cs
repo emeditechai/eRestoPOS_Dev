@@ -119,6 +119,12 @@ namespace RestaurantManagementSystem.Models
         public List<MenuCategoryViewModel> MenuCategories { get; set; } = new List<MenuCategoryViewModel>();
         public List<CourseType> AvailableCourses { get; set; } = new List<CourseType>();
         public List<MenuItem> AvailableMenuItems { get; set; } = new List<MenuItem>();
+        // Payment aggregates
+        public decimal PaidAmount { get; set; }
+        public decimal RemainingAmount { get; set; }
+    // Treat any order with Status == 3 (Completed) as locked/paid for UI purposes.
+    // This ensures completed orders cannot be edited regardless of small rounding diffs.
+    public bool IsFullyPaid => Status == 3;
     }
     }
     

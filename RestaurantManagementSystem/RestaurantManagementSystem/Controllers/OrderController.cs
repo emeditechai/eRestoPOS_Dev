@@ -2306,11 +2306,12 @@ namespace RestaurantManagementSystem.Controllers
                 }
             }
             
+            // paid/remaining will be computed after totals (GST/Discount) are finalized below
+
             // Use a new connection for kitchen ticket items to avoid DataReader issues
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
-                
                 // Get kitchen ticket items
                 foreach (var ticket in order.KitchenTickets)
                 {
@@ -2497,6 +2498,26 @@ namespace RestaurantManagementSystem.Controllers
                 // Log and continue silently so page still loads
                 
             }
+            // After totals are finalized, compute paid amount (approved payments only) and remaining
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        SELECT ISNULL(SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)), 0) FROM Payments WHERE OrderId = @OrderId AND Status = 1
+                    ", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@OrderId", id);
+                        var obj = cmd.ExecuteScalar();
+                        decimal paid = 0m;
+                        if (obj != null && obj != DBNull.Value) paid = Convert.ToDecimal(obj);
+                        order.PaidAmount = paid;
+                        order.RemainingAmount = Math.Round(order.TotalAmount - paid, 2, MidpointRounding.AwayFromZero);
+                    }
+                }
+            }
+            catch { /* ignore payment read failures */ }
             return order;
         }
         private int GetCurrentUserId()
