@@ -65,9 +65,12 @@
             min-height: 24px !important;
             line-height: 1.2 !important;
         }
+    /* Ensure page main content is not hidden behind fixed navbar (update if navbar height changes) */
+    /* Navbar height ~56px on desktop; increase if your brand/header is taller */
+    main[role="main"] { padding-top: 56px; }
     </style>
     <header>
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-dark bg-gradient mb-3" style="background-color: #1a3c5b; border-bottom: 3px solid #f8b133; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+    <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-dark bg-gradient mb-3 fixed-top" style="position:fixed; top:0; left:0; right:0; width:100%; background-color: #1a3c5b; border-bottom: 3px solid #f8b133; box-shadow: 0 4px 8px rgba(0,0,0,0.1); z-index:1050;">
             <div class="container-fluid">
                 <a class="navbar-brand fw-bold" asp-area="" asp-controller="Home" asp-action="Index" style="color: #ffffff;">
                     <i class="fas fa-utensils me-1"></i>Restaurant Management
