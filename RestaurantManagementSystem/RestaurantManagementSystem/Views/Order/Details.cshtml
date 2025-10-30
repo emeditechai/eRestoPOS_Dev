@@ -14,45 +14,47 @@
     /* Page watermark when order fully paid */
     .page-watermark {
       position: absolute;
-      top: 40%;
+      top: 50%;
       left: 50%;
-      transform: translate(-50%, -50%) rotate(-20deg);
+      transform: translate(-50%, -50%) rotate(-18deg);
       pointer-events: none;
       user-select: none;
-      z-index: 1500;
+      z-index: 50; /* lower so it does not fully obscure UI controls */
       -webkit-print-color-adjust: exact;
       display: flex;
       align-items: center;
       justify-content: center;
+      opacity: 0.55; /* overall subtle opacity */
     }
     .page-watermark .watermark-circle {
-      width: 340px;
-      height: 340px;
+      width: 220px; /* smaller, less intrusive */
+      height: 220px;
       border-radius: 50%;
-      border: 10px solid rgba(220,20,60,0.18); /* soft red ring */
+      border: 6px solid rgba(220,20,60,0.12); /* very soft red ring */
       background: rgba(255,255,255,0.0);
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 6px 18px rgba(0,0,0,0.04) inset;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.03) inset;
     }
     .page-watermark .watermark-circle span {
       display: block;
-      color: rgba(220,20,60,0.95); /* vivid red */
-      font-size: 4.2rem;
-      font-weight: 900;
-      letter-spacing: 0.12em;
-      transform: translateY(6px); /* slight vertical adjustment */
+      color: rgba(220,20,60,0.35); /* faint red text */
+      font-size: 2.6rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      transform: translateY(4px); /* slight vertical adjustment */
     }
     @@media (max-width: 768px) {
-      .page-watermark .watermark-circle { width: 180px; height: 180px; border-width: 6px; }
-      .page-watermark .watermark-circle span { font-size: 2.2rem; }
+      .page-watermark .watermark-circle { width: 160px; height: 160px; border-width: 5px; }
+      .page-watermark .watermark-circle span { font-size: 1.8rem; }
       .page-watermark { top: 50%; }
     }
     /* Hide watermark when printing header/footer areas might overlap; keep visible on print */
     @@media print {
-      .page-watermark .watermark-circle { width: 520px; height: 520px; border-width: 14px; }
-      .page-watermark .watermark-circle span { font-size: 6.2rem; color: rgba(200,0,0,0.95); }
+      /* For print, keep it visible but still subtle */
+      .page-watermark .watermark-circle { width: 320px; height: 320px; border-width: 10px; }
+      .page-watermark .watermark-circle span { font-size: 4.2rem; color: rgba(200,0,0,0.45); }
     }
   </style>
 }
@@ -93,6 +95,8 @@
         </form>
         <div class="ms-auto d-flex gap-2">
           <button type="button" id="fireItemsBtn" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#fireItemsModal"><i class="fas fa-fire"></i> Fire To Kitchen</button>
+          @{ var hasKOT = Model.KitchenTickets != null && Model.KitchenTickets.Any(); }
+          <a asp-action="KOTBill" asp-route-id="@Model.Id" class="btn btn-sm btn-outline-info @(hasKOT ? "" : "btn-disabled")" title="Print KOT Bill" target="_blank" rel="noopener noreferrer" aria-disabled="@(hasKOT? "false" : "true")"> <i class="fas fa-print"></i> KOT Bill</a>
           <a asp-action="Dashboard" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back</a>
             <a asp-controller="Payment" asp-action="Index" asp-route-id="@Model.Id" class="@paymentClass" aria-disabled="@(isFullyPaid ? "true" : null)" tabindex="@(isFullyPaid ? "-1" : null)"><i class="fas fa-credit-card"></i> Payment</a>
         </div>
