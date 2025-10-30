@@ -87,7 +87,10 @@
             <div class="card">
                 <div class="card-header bg-light d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Active Orders (All Pending Orders)</h5>
-                    <small class="text-muted">Shows all orders that are not yet completed or paid</small>
+                    <div class="d-flex align-items-center" style="gap:.5rem">
+                        <small class="text-muted">Shows all orders that are not yet completed or paid</small>
+                        <span class="badge bg-primary text-white rounded-pill px-3" title="Active orders">@((Model.ActiveOrders?.Count() ?? 0).ToString()) Records</span>
+                    </div>
                 </div>
                 <div class="card-body">
                     @if (Model.ActiveOrders.Any())
