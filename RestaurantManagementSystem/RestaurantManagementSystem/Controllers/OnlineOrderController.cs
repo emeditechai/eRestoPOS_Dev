@@ -667,8 +667,24 @@ END", connection))
                     ORDER BY mi.Name, os.Name
                 ";
                 
-                model.Mappings = connection.Query<ExternalMenuItemMappingViewModel>(query, 
-                    new { OrderSourceId = model.OrderSourceId }).ToList();
+                try
+                {
+                    model.Mappings = connection.Query<ExternalMenuItemMappingViewModel>(query,
+                        new { OrderSourceId = model.OrderSourceId }).ToList();
+                }
+                catch (Microsoft.Data.SqlClient.SqlException sqlEx)
+                {
+                    // If the ExternalMenuItemMappings table is missing (error 208), fallback gracefully
+                    if (sqlEx.Number == 208)
+                    {
+                        model.Mappings = new List<ExternalMenuItemMappingViewModel>();
+                        TempData["WarningMessage"] = "External menu mappings table not found in DB; skipping mappings list.";
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
             }
             
             return View(model);
