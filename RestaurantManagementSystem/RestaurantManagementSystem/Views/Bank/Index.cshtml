@@ -1,0 +1,182 @@
+
+@model IEnumerable<RestaurantManagementSystem.Models.BankViewModel>
+@{
+    ViewData["Title"] = "Bank Master";
+}
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h2 class="mb-1">
+                        <i class="fas fa-university text-primary me-2"></i>
+                        Bank Master
+                    </h2>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb">
+                            <li class="breadcrumb-item"><a asp-controller="Home" asp-action="Index">Home</a></li>
+                            <li class="breadcrumb-item active" aria-current="page">Bank Master</li>
+                        </ol>
+                    </nav>
+                </div>
+                <div class="btn-group" role="group" aria-label="Actions">
+                    <a asp-action="Create" class="btn btn-success">
+                        <i class="fas fa-plus me-1"></i>
+                        Add New Bank
+                    </a>
+                    <a asp-action="ExportCsv" class="btn btn-outline-secondary" title="Export CSV">
+                        <i class="fas fa-file-csv"></i>
+                    </a>
+                    <a asp-action="Print" target="_blank" class="btn btn-outline-secondary" title="Print / PDF">
+                        <i class="fas fa-print"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-table me-2"></i>
+                            Banks List
+                        </h5>
+                        <div class="text-muted small">
+                            Total: @Model.Count() | Active: @Model.Count(b => b.Status)
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    @if (Model.Any())
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0" id="banksTable">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Bank Name</th>
+                                        <th class="text-center">Status</th>
+                                        <th class="text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var bank in Model)
+                                    {
+                                        <tr class="@(bank.Status ? "" : "table-secondary")">
+                                            <td>
+                                                <div class="fw-semibold">@bank.BankName</div>
+                                            </td>
+                                            <td class="text-center">
+                                                <button type="button" 
+                                                        class="btn btn-sm @(bank.Status ? "btn-success" : "btn-outline-secondary")"
+                                                        onclick="toggleStatus(@bank.Id)"
+                                                        title="Click to @(bank.Status ? "deactivate" : "activate")">
+                                                    <i class="fas @(bank.Status ? "fa-check" : "fa-times")"></i>
+                                                    @(bank.Status ? "Active" : "Inactive")
+                                                </button>
+                                            </td>
+                                            <td class="text-center">
+                                                <div class="btn-group" role="group">
+                                                    <a asp-action="Edit" asp-route-id="@bank.Id" 
+                                                       class="btn btn-outline-primary btn-sm" 
+                                                       title="Edit">
+                                                        <i class="fas fa-edit"></i>
+                                                    </a>
+                                                    <a asp-action="Delete" asp-route-id="@bank.Id" 
+                                                       class="btn btn-outline-danger btn-sm" 
+                                                       title="Delete">
+                                                        <i class="fas fa-trash"></i>
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center p-5">
+                            <div class="mb-3">
+                                <i class="fas fa-university fa-3x text-muted"></i>
+                            </div>
+                            <h5 class="text-muted mb-3">No Banks Found</h5>
+                            <p class="text-muted mb-4">Get started by creating your first bank record.</p>
+                            <a asp-action="Create" class="btn btn-primary">
+                                <i class="fas fa-plus me-1"></i>
+                                Create Bank
+                            </a>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @Html.AntiForgeryToken()
+    <script>
+        $(document).ready(function() {
+            // Initialize DataTable if there are records
+            if ($('#banksTable tbody tr').length > 0) {
+                $('#banksTable').DataTable({
+                    responsive: true,
+                    pageLength: 25,
+                    order: [[0, 'asc']],
+                    columnDefs: [
+                        { orderable: false, targets: [2] }
+                    ],
+                    language: {
+                        search: "Search banks:",
+                        lengthMenu: "Show _MENU_ banks per page",
+                        info: "Showing _START_ to _END_ of _TOTAL_ banks",
+                        infoEmpty: "No banks available",
+                        emptyTable: "No banks found"
+                    }
+                });
+            }
+        });
+
+        function toggleStatus(bankId) {
+            toastr.info('Are you sure you want to change the status of this bank?<br/><br/>' +
+                '<button type="button" class="btn btn-success btn-sm me-2" onclick="confirmToggleStatus(' + bankId + ')">Yes, Change Status</button>' +
+                '<button type="button" class="btn btn-secondary btn-sm" onclick="toastr.clear()">Cancel</button>', 
+                'Confirm Status Change', {
+                allowHtml: true,
+                closeButton: false,
+                timeOut: 0,
+                extendedTimeOut: 0,
+                tapToDismiss: false
+            });
+        }
+
+        function confirmToggleStatus(bankId) {
+            toastr.clear();
+            toastr.info('Updating status...', 'Please wait');
+            $.ajax({
+                url: '@Url.Action("ToggleStatus", "Bank")',
+                type: 'POST',
+                data: { id: bankId },
+                headers: { 'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val() },
+                success: function(response) {
+                    toastr.clear();
+                    if (response.success) {
+                        toastr.success(response.message, 'Success');
+                        setTimeout(function() { location.reload(); }, 900);
+                    } else {
+                        toastr.error(response.message, 'Error');
+                    }
+                },
+                error: function() {
+                    toastr.clear();
+                    toastr.error('An error occurred while updating the status.', 'Error');
+                }
+            });
+        }
+    </script>
+}
