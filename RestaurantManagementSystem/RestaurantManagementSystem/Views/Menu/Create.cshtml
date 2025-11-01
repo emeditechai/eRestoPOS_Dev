@@ -48,6 +48,13 @@
                                             <input asp-for="PLUCode" class="form-control form-control-sm" placeholder="Enter PLU code" required />
                                             <span asp-validation-for="PLUCode" class="text-danger small"></span>
                                         </div>
+                                        <div class="form-group mb-2">
+                                            <label asp-for="MenuItemGroupId" class="form-label small mb-1">Item Group</label>
+                                            <select asp-for="MenuItemGroupId" class="form-select form-select-sm" asp-items="ViewBag.MenuItemGroups">
+                                                <option value="">-- Select Item Group --</option>
+                                            </select>
+                                            <span asp-validation-for="MenuItemGroupId" class="text-danger small"></span>
+                                        </div>
                                         
                                         <div class="form-group mb-2">
                                             <label asp-for="Name" class="form-label small mb-1">Item Name</label>

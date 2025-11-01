@@ -144,7 +144,12 @@
                                             </div>
                                         </div>
                                         <div class="col-6">
-                                            <!-- This can be used for another field if needed -->
+                                            <div class="card bg-light h-100">
+                                                <div class="card-body p-2">
+                                                    <label class="small text-muted mb-0">Item Group</label>
+                                                    <p class="mb-0 fw-bold small">@(Model.MenuItemGroup?.ItemGroup ?? "Not specified")</p>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
 

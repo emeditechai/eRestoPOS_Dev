@@ -292,6 +292,7 @@ namespace RestaurantManagementSystem.Controllers
             // Ingredients tab removed; do not populate ViewBag.Ingredients
             ViewBag.Modifiers = GetAllModifiers();
             ViewBag.KitchenStations = GetKitchenStationSelectList();
+            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
             
             return View(new MenuItemViewModel { PreparationTimeMinutes = 1 });
         }
@@ -335,9 +336,33 @@ namespace RestaurantManagementSystem.Controllers
                         }
                     }
 
-                    
+                    // Validate MenuItemGroupId if provided
+                    if (model.MenuItemGroupId.HasValue)
+                    {
+                        using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                        {
+                            connection.Open();
+                            using (var validateGroup = new Microsoft.Data.SqlClient.SqlCommand(
+                                "SELECT COUNT(*) FROM [dbo].[menuitemgroup] WHERE ID = @Id AND is_active = 1", connection))
+                            {
+                                validateGroup.Parameters.AddWithValue("@Id", model.MenuItemGroupId.Value);
+                                int count = (int)validateGroup.ExecuteScalar();
+                                if (count == 0)
+                                {
+                                    ModelState.AddModelError("MenuItemGroupId", $"Selected Item Group (ID: {model.MenuItemGroupId}) does not exist or is not active.");
 
-                    
+                                    // Repopulate and return
+                                    ViewBag.Categories = GetCategorySelectList();
+                                    ViewBag.SubCategories = GetSubCategorySelectList();
+                                    ViewBag.Allergens = GetAllAllergens();
+                                    ViewBag.Modifiers = GetAllModifiers();
+                                    ViewBag.KitchenStations = GetKitchenStationSelectList();
+                                    ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+                                    return View(model);
+                                }
+                            }
+                        }
+                    }
 
                     // Server-side duplicate PLUCode check (prevent duplicate PLU on Create)
                     if (!string.IsNullOrWhiteSpace(model.PLUCode))
@@ -435,6 +460,7 @@ namespace RestaurantManagementSystem.Controllers
             // Ingredients tab removed; do not populate ViewBag.Ingredients
             ViewBag.Modifiers = GetAllModifiers();
             ViewBag.KitchenStations = GetKitchenStationSelectList();
+            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
             
             return View(model);
         }
@@ -458,6 +484,7 @@ namespace RestaurantManagementSystem.Controllers
                 Price = menuItem.Price,
                 CategoryId = menuItem.CategoryId,
                 SubCategoryId = menuItem.SubCategoryId,
+                MenuItemGroupId = menuItem.MenuItemGroupId,
                 ImagePath = menuItem.ImagePath,
                 IsAvailable = menuItem.IsAvailable,
                 NotAvailable = menuItem.NotAvailable,
@@ -511,6 +538,7 @@ namespace RestaurantManagementSystem.Controllers
             // Ingredients tab removed; do not populate ViewBag.Ingredients
             ViewBag.Modifiers = GetAllModifiers();
             ViewBag.KitchenStations = GetKitchenStationSelectList();
+            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
             
             return View(viewModel);
         }
@@ -559,6 +587,35 @@ namespace RestaurantManagementSystem.Controllers
                         }
                     }
                     
+                    // Validate MenuItemGroupId if provided
+                    if (model.MenuItemGroupId.HasValue)
+                    {
+                        using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                        {
+                            connection.Open();
+                            using (var validateGroup = new Microsoft.Data.SqlClient.SqlCommand(
+                                "SELECT COUNT(*) FROM [dbo].[menuitemgroup] WHERE ID = @Id AND is_active = 1", connection))
+                            {
+                                validateGroup.Parameters.AddWithValue("@Id", model.MenuItemGroupId.Value);
+                                int count = (int)validateGroup.ExecuteScalar();
+                                if (count == 0)
+                                {
+                                    ModelState.AddModelError("MenuItemGroupId", $"Selected Item Group (ID: {model.MenuItemGroupId}) does not exist or is not active.");
+
+                                    // Repopulate ViewBag data for redisplay
+                                    ViewBag.Categories = GetCategorySelectList();
+                                    ViewBag.SubCategories = GetSubCategorySelectList(model.CategoryId);
+                                    ViewBag.Allergens = GetAllAllergens();
+                                    ViewBag.Modifiers = GetAllModifiers();
+                                    ViewBag.KitchenStations = GetKitchenStationSelectList();
+                                    ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+
+                                    return View(model);
+                                }
+                            }
+                        }
+                    }
+
                     // Server-side duplicate PLUCode check (prevent duplicate PLU on Edit)
                     if (!string.IsNullOrWhiteSpace(model.PLUCode))
                     {
@@ -580,6 +637,7 @@ namespace RestaurantManagementSystem.Controllers
                                     ViewBag.Allergens = GetAllAllergens();
                                     ViewBag.Modifiers = GetAllModifiers();
                                     ViewBag.KitchenStations = GetKitchenStationSelectList();
+                                    ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
 
                                     return View(model);
                                 }
@@ -660,6 +718,7 @@ namespace RestaurantManagementSystem.Controllers
             // Ingredients tab removed; do not populate ViewBag.Ingredients
             ViewBag.Modifiers = GetAllModifiers();
             ViewBag.KitchenStations = GetKitchenStationSelectList();
+            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
             
             return View(model);
         }
@@ -836,13 +895,19 @@ namespace RestaurantManagementSystem.Controllers
                 // Check if SubCategoryId column exists and SubCategories table exists
                 bool hasSubCategoryColumn = false;
                 bool hasSubCategoriesTable = false;
+                bool hasMenuItemGroupColumn = false;
+                bool hasMenuItemGroupTable = false;
                 
                 using (var checkCommand = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT 
                         (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
                          WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'SubCategoryId') as HasColumn,
                         (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES 
-                         WHERE TABLE_NAME = 'SubCategories') as HasTable", connection))
+                         WHERE TABLE_NAME = 'SubCategories') as HasTable,
+                        (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                         WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'menuitemgroupID') as HasGroupCol,
+                        (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES 
+                         WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'menuitemgroup') as HasGroupTable", connection))
                 {
                     using (var reader = checkCommand.ExecuteReader())
                     {
@@ -850,6 +915,8 @@ namespace RestaurantManagementSystem.Controllers
                         {
                             hasSubCategoryColumn = reader.GetInt32("HasColumn") > 0;
                             hasSubCategoriesTable = reader.GetInt32("HasTable") > 0;
+                            hasMenuItemGroupColumn = reader.GetInt32("HasGroupCol") > 0;
+                            hasMenuItemGroupTable = reader.GetInt32("HasGroupTable") > 0;
                         }
                     }
                 }
@@ -859,6 +926,8 @@ namespace RestaurantManagementSystem.Controllers
                 string query;
                 if (hasSubCategoryColumn && hasSubCategoriesTable)
                 {
+                    var joinGroup = hasMenuItemGroupColumn && hasMenuItemGroupTable ? "LEFT JOIN [dbo].[menuitemgroup] mg ON m.[menuitemgroupID] = mg.[ID]" : string.Empty;
+                    var selectGroupCols = hasMenuItemGroupColumn && hasMenuItemGroupTable ? ", m.[menuitemgroupID] AS MenuItemGroupId, mg.[itemgroup] AS ItemGroupName" : ", NULL AS MenuItemGroupId, NULL AS ItemGroupName";
                     query = $@"
                         SELECT 
                             m.[Id], 
@@ -880,14 +949,18 @@ namespace RestaurantManagementSystem.Controllers
                             m.[DiscountPercentage],
                             m.[KitchenStationId],
                             m.[TargetGP]
+                            {selectGroupCols}
                         FROM [dbo].[MenuItems] m
                         INNER JOIN [dbo].[Categories] c ON m.[CategoryId] = c.[Id]
                         LEFT JOIN {subCategoriesTable} sc ON m.[SubCategoryId] = sc.[Id]
+                        {joinGroup}
                         ORDER BY m.[Name]";
                 }
                 else
                 {
-                    query = @"
+                    var selectGroupCols = hasMenuItemGroupColumn && hasMenuItemGroupTable ? ", m.[menuitemgroupID] AS MenuItemGroupId, mg.[itemgroup] AS ItemGroupName" : ", NULL AS MenuItemGroupId, NULL AS ItemGroupName";
+                    var joinGroup = hasMenuItemGroupColumn && hasMenuItemGroupTable ? "LEFT JOIN [dbo].[menuitemgroup] mg ON m.[menuitemgroupID] = mg.[ID]" : string.Empty;
+                    query = $@"
                         SELECT 
                             m.[Id], 
                             ISNULL(m.[PLUCode], '') AS PLUCode,
@@ -908,8 +981,10 @@ namespace RestaurantManagementSystem.Controllers
                             m.[DiscountPercentage],
                             m.[KitchenStationId],
                             m.[TargetGP]
+                            {selectGroupCols}
                         FROM [dbo].[MenuItems] m
                         INNER JOIN [dbo].[Categories] c ON m.[CategoryId] = c.[Id]
+                        {joinGroup}
                         ORDER BY m.[Name]";
                 }
                 
@@ -935,6 +1010,10 @@ namespace RestaurantManagementSystem.Controllers
                                         SubCategoryId = SafeGetNullableInt(reader, "SubCategoryId"),
                                         SubCategory = SafeGetNullableInt(reader, "SubCategoryId").HasValue ? 
                                             new SubCategory { Name = SafeGetString(reader, "SubCategoryName") ?? "N/A" } : null,
+                                        MenuItemGroupId = HasColumn(reader, "MenuItemGroupId") ? SafeGetNullableInt(reader, "MenuItemGroupId") : null,
+                                        MenuItemGroup = HasColumn(reader, "ItemGroupName") && SafeGetString(reader, "ItemGroupName") != null && SafeGetNullableInt(reader, "MenuItemGroupId").HasValue
+                                            ? new MenuItemGroup { ID = SafeGetNullableInt(reader, "MenuItemGroupId").GetValueOrDefault(), ItemGroup = SafeGetString(reader, "ItemGroupName") }
+                                            : null,
                                         ImagePath = SafeGetString(reader, "ImagePath"),
                                         IsAvailable = SafeGetBoolean(reader, "IsAvailable"),
                                         NotAvailable = HasColumn(reader, "NotAvailable") ? SafeGetBoolean(reader, "NotAvailable") : false,
@@ -985,13 +1064,19 @@ namespace RestaurantManagementSystem.Controllers
                 // Check if SubCategoryId column exists and SubCategories table exists
                 bool hasSubCategoryColumn = false;
                 bool hasSubCategoriesTable = false;
+                bool hasMenuItemGroupColumn = false;
+                bool hasMenuItemGroupTable = false;
                 
                 using (var checkCommand = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT 
                         (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
                          WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'SubCategoryId') as HasColumn,
                         (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES 
-                         WHERE TABLE_NAME = 'SubCategories') as HasTable", connection))
+                         WHERE TABLE_NAME = 'SubCategories') as HasTable,
+                        (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                         WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'menuitemgroupID') as HasGroupCol,
+                        (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES 
+                         WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'menuitemgroup') as HasGroupTable", connection))
                 {
                     using (var reader = checkCommand.ExecuteReader())
                     {
@@ -999,6 +1084,8 @@ namespace RestaurantManagementSystem.Controllers
                         {
                             hasSubCategoryColumn = reader.GetInt32("HasColumn") > 0;
                             hasSubCategoriesTable = reader.GetInt32("HasTable") > 0;
+                            hasMenuItemGroupColumn = reader.GetInt32("HasGroupCol") > 0;
+                            hasMenuItemGroupTable = reader.GetInt32("HasGroupTable") > 0;
                         }
                     }
                 }
@@ -1008,6 +1095,8 @@ namespace RestaurantManagementSystem.Controllers
                 string query;
                 if (hasSubCategoryColumn && hasSubCategoriesTable)
                 {
+                    var joinGroup = hasMenuItemGroupColumn && hasMenuItemGroupTable ? "LEFT JOIN [dbo].[menuitemgroup] mg ON m.[menuitemgroupID] = mg.[ID]" : string.Empty;
+                    var selectGroupCols = hasMenuItemGroupColumn && hasMenuItemGroupTable ? ", m.[menuitemgroupID] AS MenuItemGroupId, mg.[itemgroup] AS ItemGroupName" : ", NULL AS MenuItemGroupId, NULL AS ItemGroupName";
                     query = $@"
                         SELECT 
                             m.[Id], 
@@ -1030,14 +1119,18 @@ namespace RestaurantManagementSystem.Controllers
                             m.[TargetGP],
                             m.[GSTPercentage],
                             m.[IsGstApplicable]
+                            {selectGroupCols}
                         FROM [dbo].[MenuItems] m
                         INNER JOIN [dbo].[Categories] c ON m.[CategoryId] = c.[Id]
                         LEFT JOIN {subCategoriesTable} sc ON m.[SubCategoryId] = sc.[Id]
+                        {joinGroup}
                         WHERE m.[Id] = @Id";
                 }
                 else
                 {
-                    query = @"
+                    var selectGroupCols = hasMenuItemGroupColumn && hasMenuItemGroupTable ? ", m.[menuitemgroupID] AS MenuItemGroupId, mg.[itemgroup] AS ItemGroupName" : ", NULL AS MenuItemGroupId, NULL AS ItemGroupName";
+                    var joinGroup = hasMenuItemGroupColumn && hasMenuItemGroupTable ? "LEFT JOIN [dbo].[menuitemgroup] mg ON m.[menuitemgroupID] = mg.[ID]" : string.Empty;
+                    query = $@"
                         SELECT 
                             m.[Id], 
                             m.[PLUCode], 
@@ -1059,8 +1152,10 @@ namespace RestaurantManagementSystem.Controllers
                             m.[TargetGP],
                             m.[GSTPercentage],
                             m.[IsGstApplicable]
+                            {selectGroupCols}
                         FROM [dbo].[MenuItems] m
                         INNER JOIN [dbo].[Categories] c ON m.[CategoryId] = c.[Id]
+                        {joinGroup}
                         WHERE m.[Id] = @Id";
                 }
                 
@@ -1084,6 +1179,10 @@ namespace RestaurantManagementSystem.Controllers
                                 SubCategoryId = SafeGetNullableInt(reader, "SubCategoryId"),
                                 SubCategory = SafeGetNullableInt(reader, "SubCategoryId").HasValue ? 
                                     new SubCategory { Name = SafeGetString(reader, "SubCategoryName") ?? "N/A" } : null,
+                                MenuItemGroupId = HasColumn(reader, "MenuItemGroupId") ? SafeGetNullableInt(reader, "MenuItemGroupId") : null,
+                                MenuItemGroup = HasColumn(reader, "ItemGroupName") && SafeGetString(reader, "ItemGroupName") != null && SafeGetNullableInt(reader, "MenuItemGroupId").HasValue
+                                    ? new MenuItemGroup { ID = SafeGetNullableInt(reader, "MenuItemGroupId").GetValueOrDefault(), ItemGroup = SafeGetString(reader, "ItemGroupName") }
+                                    : null,
                                 ImagePath = SafeGetString(reader, "ImagePath"),
                                 IsAvailable = SafeGetBoolean(reader, "IsAvailable"),
                                 NotAvailable = HasColumn(reader, "NotAvailable") ? SafeGetBoolean(reader, "NotAvailable") : false,
@@ -1183,11 +1282,18 @@ namespace RestaurantManagementSystem.Controllers
                 
                 // Check if SubCategoryId column exists
                 bool hasSubCategoryColumn = false;
+                bool hasMenuItemGroupColumn = false;
                 using (var checkCommand = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
                     WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'SubCategoryId'", connection))
                 {
                     hasSubCategoryColumn = (int)checkCommand.ExecuteScalar() > 0;
+                }
+                using (var checkGroupCommand = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'menuitemgroupID'", connection))
+                {
+                    hasMenuItemGroupColumn = (int)checkGroupCommand.ExecuteScalar() > 0;
                 }
                 
                 // Build INSERT query for dbo schema
@@ -1197,22 +1303,28 @@ namespace RestaurantManagementSystem.Controllers
                     insertQuery = @"
                         INSERT INTO [dbo].[MenuItems] (PLUCode, Name, Description, Price, CategoryId, SubCategoryId, ImagePath,
                                   IsAvailable, PrepTime, CalorieCount, 
-                                  IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable)
+                                  IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{0})
                         VALUES (@PLUCode, @Name, @Description, @Price, @CategoryId, @SubCategoryId, @ImagePath,
                             @IsAvailable, @PreparationTimeMinutes, @CalorieCount, 
-                            @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable);
+                            @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{1});
                         SELECT SCOPE_IDENTITY();";
+                    insertQuery = string.Format(insertQuery,
+                        hasMenuItemGroupColumn ? ",, menuitemgroupID".Replace(",,", ",") : string.Empty,
+                        hasMenuItemGroupColumn ? ",, @MenuItemGroupId".Replace(",,", ",") : string.Empty);
                 }
                 else
                 {
                     insertQuery = @"
                         INSERT INTO [dbo].[MenuItems] (PLUCode, Name, Description, Price, CategoryId, ImagePath,
                                   IsAvailable, PrepTime, CalorieCount, 
-                                  IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable)
+                                  IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{0})
                         VALUES (@PLUCode, @Name, @Description, @Price, @CategoryId, @ImagePath,
                             @IsAvailable, @PreparationTimeMinutes, @CalorieCount, 
-                            @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable);
+                            @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{1});
                         SELECT SCOPE_IDENTITY();";
+                    insertQuery = string.Format(insertQuery,
+                        hasMenuItemGroupColumn ? ",, menuitemgroupID".Replace(",,", ",") : string.Empty,
+                        hasMenuItemGroupColumn ? ",, @MenuItemGroupId".Replace(",,", ",") : string.Empty);
                 }
                 
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(insertQuery, connection))
@@ -1285,6 +1397,31 @@ namespace RestaurantManagementSystem.Controllers
                         command.Parameters.AddWithValue("@GSTPercentage", DBNull.Value);
                     command.Parameters.AddWithValue("@IsGstApplicable", model.IsGstApplicable);
                     command.Parameters.AddWithValue("@NotAvailable", model.NotAvailable);
+                    
+                    // Add MenuItemGroupId parameter only if column exists
+                    if (hasMenuItemGroupColumn)
+                    {
+                        if (model.MenuItemGroupId.HasValue)
+                        {
+                            using (var validate = new Microsoft.Data.SqlClient.SqlCommand("SELECT COUNT(*) FROM [dbo].[menuitemgroup] WHERE ID = @Id AND is_active = 1", connection))
+                            {
+                                validate.Parameters.AddWithValue("@Id", model.MenuItemGroupId.Value);
+                                int count = (int)validate.ExecuteScalar();
+                                if (count > 0)
+                                {
+                                    command.Parameters.AddWithValue("@MenuItemGroupId", model.MenuItemGroupId.Value);
+                                }
+                                else
+                                {
+                                    command.Parameters.AddWithValue("@MenuItemGroupId", DBNull.Value);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            command.Parameters.AddWithValue("@MenuItemGroupId", DBNull.Value);
+                        }
+                    }
                     
                     var result = command.ExecuteScalar();
                     menuItemId = Convert.ToInt32(result);
@@ -1440,6 +1577,12 @@ namespace RestaurantManagementSystem.Controllers
                 connection.Open();
                 
                 // Build UPDATE query for dbo schema
+                bool hasMenuItemGroupColumn = false;
+                using (var checkGroup = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'menuitemgroupID'", connection))
+                {
+                    hasMenuItemGroupColumn = (int)checkGroup.ExecuteScalar() > 0;
+                }
+
                 string updateQuery = @"
                     UPDATE [dbo].[MenuItems]
                     SET Name = @Name,
@@ -1458,8 +1601,9 @@ namespace RestaurantManagementSystem.Controllers
                         KitchenStationId = @KitchenStationId,
                         GSTPercentage = @GSTPercentage,
                         IsGstApplicable = @IsGstApplicable,
-                        NotAvailable = @NotAvailable
+                        NotAvailable = @NotAvailable{0}
                     WHERE Id = @Id";
+                updateQuery = string.Format(updateQuery, hasMenuItemGroupColumn ? ",, menuitemgroupID = @MenuItemGroupId".Replace(",,", ",") : string.Empty);
                 
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(updateQuery, connection))
                 {
@@ -1529,6 +1673,30 @@ namespace RestaurantManagementSystem.Controllers
                         command.Parameters.AddWithValue("@GSTPercentage", DBNull.Value);
                     command.Parameters.AddWithValue("@IsGstApplicable", model.IsGstApplicable);
                     command.Parameters.AddWithValue("@NotAvailable", model.NotAvailable);
+                    
+                    if (hasMenuItemGroupColumn)
+                    {
+                        if (model.MenuItemGroupId.HasValue)
+                        {
+                            using (var validate = new Microsoft.Data.SqlClient.SqlCommand("SELECT COUNT(*) FROM [dbo].[menuitemgroup] WHERE ID = @Id AND is_active = 1", connection))
+                            {
+                                validate.Parameters.AddWithValue("@Id", model.MenuItemGroupId.Value);
+                                int count = (int)validate.ExecuteScalar();
+                                if (count > 0)
+                                {
+                                    command.Parameters.AddWithValue("@MenuItemGroupId", model.MenuItemGroupId.Value);
+                                }
+                                else
+                                {
+                                    command.Parameters.AddWithValue("@MenuItemGroupId", DBNull.Value);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            command.Parameters.AddWithValue("@MenuItemGroupId", DBNull.Value);
+                        }
+                    }
                     
                     command.ExecuteNonQuery();
                 }
@@ -2362,6 +2530,52 @@ namespace RestaurantManagementSystem.Controllers
             {
                 return stations;
             }
+        }
+
+        private List<SelectListItem> GetMenuItemGroupSelectList()
+        {
+            var groups = new List<SelectListItem>();
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT ID, itemgroup FROM [dbo].[menuitemgroup] WHERE is_active = 1 ORDER BY itemgroup", connection))
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            groups.Add(new SelectListItem
+                            {
+                                Value = reader.GetInt32(0).ToString(),
+                                Text = reader.GetString(1)
+                            });
+                        }
+                    }
+
+                    // Fallback: if no active groups, show all groups
+                    if (groups.Count == 0)
+                    {
+                        using (var cmdAll = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT ID, itemgroup FROM [dbo].[menuitemgroup] ORDER BY itemgroup", connection))
+                        using (var readerAll = cmdAll.ExecuteReader())
+                        {
+                            while (readerAll.Read())
+                            {
+                                groups.Add(new SelectListItem
+                                {
+                                    Value = readerAll.GetInt32(0).ToString(),
+                                    Text = readerAll.GetString(1)
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // ignore; return empty list
+            }
+            return groups;
         }
 
         private List<ModelsMenuItemIngredientViewModel> ConvertIngredientsViewModelToModel(

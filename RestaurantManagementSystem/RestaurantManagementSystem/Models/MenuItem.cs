@@ -34,6 +34,10 @@ namespace RestaurantManagementSystem.Models
         public int? SubCategoryId { get; set; }
         public SubCategory SubCategory { get; set; }
 
+    [Display(Name = "Item Group")]
+    public int? MenuItemGroupId { get; set; }
+    public MenuItemGroup MenuItemGroup { get; set; }
+
         [Display(Name = "Image Path")]
         public string ImagePath { get; set; }
 
