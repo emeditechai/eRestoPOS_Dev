@@ -50,9 +50,10 @@
                                         </div>
                                         <div class="form-group mb-2">
                                             <label asp-for="MenuItemGroupId" class="form-label small mb-1">Item Group</label>
-                                            <select asp-for="MenuItemGroupId" class="form-select form-select-sm" asp-items="ViewBag.MenuItemGroups">
+                                            <select asp-for="MenuItemGroupId" class="form-select form-select-sm" asp-items="ViewBag.MenuItemGroups" required aria-required="true">
                                                 <option value="">-- Select Item Group --</option>
                                             </select>
+                                            <div class="invalid-feedback">Please select an item group.</div>
                                             <span asp-validation-for="MenuItemGroupId" class="text-danger small"></span>
                                         </div>
                                         
