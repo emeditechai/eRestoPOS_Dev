@@ -56,6 +56,28 @@
       .page-watermark .watermark-circle { width: 320px; height: 320px; border-width: 10px; }
       .page-watermark .watermark-circle span { font-size: 4.2rem; color: rgba(200,0,0,0.45); }
     }
+    /* Deep blue color for Order # */
+    .order-number-text {
+      color: #003d82;
+      font-weight: 600;
+    }
+    /* Colorful Order Summary styling */
+    .order-summary-card .card-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      font-weight: 600;
+    }
+    .order-summary-card .card-body {
+      background: linear-gradient(to bottom, #f8f9ff 0%, #ffffff 100%);
+    }
+    .order-summary-card dt {
+      color: #5a67d8;
+      font-weight: 600;
+    }
+    .order-summary-card dd {
+      color: #2d3748;
+      font-weight: 500;
+    }
   </style>
 }
 @{
@@ -72,11 +94,27 @@
   <div class="row g-3">
     <div class="col-lg-8 col-12">
       <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-        <form id="orderItemAddForm" class="row row-cols-auto g-2 align-items-center flex-grow-1" autocomplete="off">
+        <form id="orderItemAddForm" class="row row-cols-auto g-2 align-items-end flex-grow-1" autocomplete="off">
           @Html.AntiForgeryToken()
           <input type="hidden" id="orderId" value="@Model.Id" />
+            <div class="col" style="min-width:200px;">
+            <label for="menuItemGroupSelect" class="form-label small mb-1 fw-semibold">Item Group</label>
+            <select id="menuItemGroupSelect" class="form-select form-select-sm">
+                @if (Model.MenuItemGroups != null && Model.MenuItemGroups.Any())
+                {
+                    foreach (var g in Model.MenuItemGroups)
+                    {
+                        <option value="@g.ID" selected="@(g.ID == Model.SelectedMenuItemGroupId ? "selected" : null)">@g.ItemGroup</option>
+                    }
+                }
+                else
+                {
+                    <option value="1" selected>Default</option>
+                }
+            </select>
+          </div>
             <div class="col flex-grow-1" style="min-width:200px;">
-            <label for="menuItemInput" class="visually-hidden">Menu Item</label>
+            <label for="menuItemInput" class="form-label small mb-1 fw-semibold">Menu Item</label>
             <input list="menuItems" id="menuItemInput" class="form-control form-control-sm" placeholder="Search menu (name)..." required disabled="@(isFullyPaid ? "disabled" : null)" />
             <datalist id="menuItems">
                 @foreach (var mi in Model.AvailableMenuItems)
@@ -86,7 +124,7 @@
             </datalist>
           </div>
           <div class="col">
-            <label for="menuItemQty" class="visually-hidden">Qty</label>
+            <label for="menuItemQty" class="form-label small mb-1 fw-semibold">Qty</label>
             <input type="number" id="menuItemQty" class="form-control form-control-sm" min="1" value="1" required />
           </div>
             <div class="col">
@@ -103,13 +141,13 @@
       </div>
       <div class="card shadow-sm mb-3">
         <div class="card-header d-flex justify-content-between align-items-center py-2">
-          <div class="small"><strong>Order #:</strong> @Model.OrderNumber <span class="badge bg-secondary ms-2">@Model.StatusDisplay</span></div>
+          <div class="small"><strong class="order-number-text">Order #:</strong> <span class="order-number-text">@Model.OrderNumber</span> <span class="badge bg-secondary ms-2">@Model.StatusDisplay</span></div>
           <button id="saveOrderBtn" class="btn btn-sm btn-primary"><i class="fas fa-save"></i> Save</button>
         </div>
         <div class="card-body p-0">
-          <div class="table-responsive">
+                    <div class="table-responsive">
             <table class="table table-sm table-hover align-middle mb-0" id="orderItemsTable">
-          <thead class="table-light">
+          <thead style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
             <tr>
               <th style="width:50px"><input type="checkbox" id="selectAllFire" /></th>
               <th>Item</th>
@@ -171,7 +209,7 @@
     </div>
     <div class="col-lg-4 col-12">
       <div class="sticky-top" style="top:1rem;">
-        <div class="card mb-3 shadow-sm">
+        <div class="card mb-3 shadow-sm order-summary-card">
           <div class="card-header py-2"><i class="fas fa-info-circle me-1"></i> Order Summary</div>
           <div class="card-body small">
             <dl class="row mb-0">
@@ -184,16 +222,16 @@
             </dl>
           </div>
         </div>
-        <div class="card mb-3 shadow-sm">
-          <div class="card-header py-2"><i class="fas fa-sticky-note me-1"></i> Order Note</div>
+        <div class="card mb-3 shadow-sm" style="border-left: 4px solid #10b981;">
+          <div class="card-header py-2" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;"><i class="fas fa-sticky-note me-1"></i> Order Note</div>
           <div class="card-body small">
             @if(!string.IsNullOrWhiteSpace(Model.SpecialInstructions)){
               <div class="text-muted">@Model.SpecialInstructions</div>
             } else { <div class="text-muted fst-italic">No note provided.</div> }
           </div>
         </div>
-        <div class="card shadow-sm">
-          <div class="card-header py-2"><i class="fas fa-receipt me-1"></i> Totals</div>
+        <div class="card shadow-sm" style="border-left: 4px solid #f59e0b;">
+          <div class="card-header py-2" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white;"><i class="fas fa-receipt me-1"></i> Totals</div>
           <div class="card-body p-2">
             <table class="table table-sm mb-0">
               <tbody class="small">
@@ -201,7 +239,6 @@
                 <tr><td class="text-muted">GST (@Model.GSTPercentage.ToString("F2")%)</td><td class="text-end" id="orderTaxCell">₹@Model.TaxAmount.ToString("F2")</td></tr>
                 <tr><td class="text-muted small ps-3">CGST (@( (Model.GSTPercentage/2).ToString("F2") )%)</td><td class="text-end small">₹@Model.CGSTAmount.ToString("F2")</td></tr>
                 <tr><td class="text-muted small ps-3">SGST (@( (Model.GSTPercentage/2).ToString("F2") )%)</td><td class="text-end small">₹@Model.SGSTAmount.ToString("F2")</td></tr>
-                <tr><td class="text-muted">Tip</td><td class="text-end">₹@Model.TipAmount.ToString("F2")</td></tr>
                 <tr><td class="text-muted">Discount</td><td class="text-end">₹@Model.DiscountAmount.ToString("F2")</td></tr>
                 <tr class="table-light"><th>Total</th><th class="text-end" id="orderTotalCell">₹@Model.TotalAmount.ToString("F2")</th></tr>
               </tbody>
@@ -400,6 +437,47 @@
 
       // Initialize
       try { initState(); } catch (e) { console.error(e); }
+
+      // --- Dynamic Menu Item autosuggest filtering by group ---
+      const groupSelect = document.getElementById('menuItemGroupSelect');
+      const dataList = document.getElementById('menuItems');
+      const menuInput = document.getElementById('menuItemInput');
+
+      async function loadMenuItemsForGroup(groupId) {
+        if (!dataList) return;
+        try {
+          const resp = await fetch(`/Order/GetMenuItemsByGroup?groupId=${encodeURIComponent(groupId)}`);
+          if (!resp.ok) return;
+          const items = await resp.json();
+          // Clear datalist
+          dataList.innerHTML = '';
+          for (const it of items) {
+            const opt = document.createElement('option');
+            opt.value = it.name || it.Name;
+            const plu = (it.PLUCode || it.pluCode || '');
+            const price = (it.Price ?? it.price ?? 0).toFixed ? (it.Price ?? it.price).toFixed(2) : (Number(it.Price ?? it.price) || 0).toFixed(2);
+            opt.setAttribute('data-id', it.Id ?? it.id);
+            opt.setAttribute('data-price', price);
+            opt.setAttribute('data-plu', plu);
+            opt.textContent = `${plu} - ${it.Name ?? it.name} (₹${price})`;
+            dataList.appendChild(opt);
+          }
+          // Clear the current input so user sees filtered list
+          if (menuInput) menuInput.value = '';
+        } catch (err) {
+          console.error('Failed to load menu items by group', err);
+        }
+      }
+
+      if (groupSelect) {
+        groupSelect.addEventListener('change', (e) => {
+          const gid = e.target.value || '1';
+          loadMenuItemsForGroup(gid);
+        });
+        // initial load on page ready (default group id=1 or selected)
+        const initialGid = groupSelect.value || '1';
+        loadMenuItemsForGroup(initialGid);
+      }
     })();
   </script>
 }
