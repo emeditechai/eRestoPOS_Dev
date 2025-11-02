@@ -1006,13 +1006,16 @@ END", connection))
                 decimal discountedSubtotal = Math.Max(0, orderSubtotal - discountAmount);
                 decimal gstAmount = Math.Round(discountedSubtotal * gstPerc / 100m, 2, MidpointRounding.AwayFromZero);
                 decimal orderTotal = discountedSubtotal + gstAmount + orderTip;
+                
+                // Round order total to nearest rupee for split payment validation (matching client-side behavior)
+                decimal roundedOrderTotal = Math.Round(orderTotal, 0, MidpointRounding.AwayFromZero);
 
                 // Remove any empty lines
                 model.Items = model.Items.Where(i => (i.Amount > 0m) || (i.TipAmount > 0m)).ToList();
 
                 // If client didn't distribute roundoff, put it on the last row so sum matches the order total
                 var splitSumNominal = model.Items.Sum(i => i.Amount + i.TipAmount);
-                var impliedRoundoff = Math.Round(orderTotal - splitSumNominal, 2, MidpointRounding.AwayFromZero);
+                var impliedRoundoff = Math.Round(roundedOrderTotal - splitSumNominal, 2, MidpointRounding.AwayFromZero);
                 if (Math.Abs(impliedRoundoff) <= 0.50m && model.Items.Count > 0 && model.Items.Sum(i => i.RoundoffAdjustmentAmt) == 0)
                 {
                     model.Items[model.Items.Count - 1].RoundoffAdjustmentAmt = impliedRoundoff;
@@ -1020,11 +1023,12 @@ END", connection))
 
                 // Validate split sum within tolerance (include tips + roundoff from items)
                 decimal splitSum = model.Items.Sum(i => i.Amount + i.TipAmount + i.RoundoffAdjustmentAmt);
-                _logger?.LogInformation("Split validation: orderTotal={OrderTotal}, splitSum={SplitSum}, diff={Diff}", orderTotal, splitSum, Math.Abs(orderTotal - splitSum));
+                _logger?.LogInformation("Split validation: orderTotal={OrderTotal}, roundedOrderTotal={RoundedOrderTotal}, splitSum={SplitSum}, diff={Diff}", 
+                    orderTotal, roundedOrderTotal, splitSum, Math.Abs(roundedOrderTotal - splitSum));
                 
-                if (Math.Abs(orderTotal - splitSum) > 0.50m)
+                if (Math.Abs(roundedOrderTotal - splitSum) > 0.50m)
                 {
-                    var errMsg = $"Split payments total (₹{splitSum:F2}) does not match order total (₹{orderTotal:F2}). Difference must be ≤ ₹0.50.";
+                    var errMsg = $"Split payments total (₹{splitSum:F2}) does not match order total (₹{roundedOrderTotal:F2}). Difference must be ≤ ₹0.50.";
                     _logger?.LogWarning(errMsg);
                     TempData["ErrorMessage"] = errMsg;
                     return RedirectToAction("ProcessPayment", new { orderId = model.OrderId });
