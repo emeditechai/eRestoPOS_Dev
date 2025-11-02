@@ -121,6 +121,58 @@ namespace RestaurantManagementSystem.Models
         [Display(Name = "Roundoff Adjustment")]
         public decimal RoundoffAdjustmentAmt { get; set; }
     }
+
+    // Split payment input line
+    public class SplitPaymentItemInput
+    {
+        [Required]
+        public int PaymentMethodId { get; set; }
+
+        [Required]
+        [Range(0.01, 1000000)]
+        public decimal Amount { get; set; }
+
+        [Range(0, 1000000)]
+        public decimal TipAmount { get; set; }
+
+        [StringLength(4)]
+        public string LastFourDigits { get; set; }
+
+        public string CardType { get; set; }
+
+        [StringLength(50)]
+        public string AuthorizationCode { get; set; }
+
+        [StringLength(100)]
+        public string ReferenceNumber { get; set; }
+
+        [StringLength(100)]
+        public string UPIReference { get; set; }
+
+        [StringLength(500)]
+        public string Notes { get; set; }
+
+        public decimal RoundoffAdjustmentAmt { get; set; }
+
+        // Optional: if client computes a canonical pre-round value
+        public decimal OriginalAmount { get; set; }
+    }
+
+    // ViewModel for processing multiple payments at once
+    public class ProcessSplitPaymentsViewModel
+    {
+        public int OrderId { get; set; }
+        public string OrderNumber { get; set; }
+        public decimal Subtotal { get; set; }
+        public decimal GSTPercentage { get; set; }
+        public decimal RemainingAmount { get; set; }
+
+        // Discount to apply once for the order (amount or percent)
+        public decimal DiscountAmount { get; set; }
+        public string DiscountType { get; set; } // "amount" | "percent"
+
+        public List<SplitPaymentItemInput> Items { get; set; } = new List<SplitPaymentItemInput>();
+    }
     
     public class VoidPaymentViewModel
     {

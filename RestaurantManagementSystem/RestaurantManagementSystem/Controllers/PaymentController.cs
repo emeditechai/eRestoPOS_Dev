@@ -937,6 +937,317 @@ END", connection))
             
             return View(model);
         }
+
+        // New: Process multiple payments in one submission
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult ProcessSplitPayments(ProcessSplitPaymentsViewModel model)
+        {
+            _logger?.LogInformation("ProcessSplitPayments called for Order {OrderId} with {ItemCount} items", model?.OrderId, model?.Items?.Count ?? 0);
+            
+            if (model == null || model.Items == null || model.Items.Count == 0)
+            {
+                _logger?.LogWarning("ProcessSplitPayments: No items provided");
+                TempData["ErrorMessage"] = "Please add at least one payment.";
+                return RedirectToAction("ProcessPayment", new { orderId = model?.OrderId ?? 0 });
+            }
+
+            try
+            {
+                // Read approval settings
+                bool discountApprovalRequired = false;
+                bool cardPaymentApprovalRequired = false;
+                using (var settingsConn = new SqlConnection(_connectionString))
+                {
+                    settingsConn.Open();
+                    using (var settingsCmd = new SqlCommand(@"SELECT TOP 1 IsDiscountApprovalRequired, IsCardPaymentApprovalRequired FROM dbo.RestaurantSettings ORDER BY Id DESC", settingsConn))
+                    using (var rs = settingsCmd.ExecuteReader())
+                    {
+                        if (rs.Read())
+                        {
+                            if (!rs.IsDBNull(0)) discountApprovalRequired = rs.GetBoolean(0);
+                            if (!rs.IsDBNull(1)) cardPaymentApprovalRequired = rs.GetBoolean(1);
+                        }
+                    }
+                }
+
+                // Load order subtotal and GST percentage
+                decimal gstPerc = 5.0m; // default
+                decimal orderSubtotal = 0m;
+                decimal orderTip = 0m;
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    conn.Open();
+                    using (var gstCmd = new SqlCommand("SELECT DefaultGSTPercentage FROM dbo.RestaurantSettings", conn))
+                    {
+                        var r = gstCmd.ExecuteScalar();
+                        if (r != null && r != DBNull.Value) gstPerc = Convert.ToDecimal(r);
+                    }
+                    using (var subCmd = new SqlCommand("SELECT Subtotal, ISNULL(TipAmount,0) FROM Orders WHERE Id = @OrderId", conn))
+                    {
+                        subCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
+                        using (var rd = subCmd.ExecuteReader())
+                        {
+                            if (rd.Read())
+                            {
+                                orderSubtotal = rd.IsDBNull(0) ? 0m : rd.GetDecimal(0);
+                                orderTip = rd.IsDBNull(1) ? 0m : rd.GetDecimal(1);
+                            }
+                        }
+                    }
+                }
+
+                // Calculate discount once on subtotal (support percent)
+                decimal discountAmount = Math.Max(0, model.DiscountAmount);
+                if (!string.IsNullOrWhiteSpace(model.DiscountType) && model.DiscountType.Equals("percent", StringComparison.OrdinalIgnoreCase))
+                {
+                    discountAmount = Math.Round(orderSubtotal * discountAmount / 100m, 2, MidpointRounding.AwayFromZero);
+                }
+                decimal discountedSubtotal = Math.Max(0, orderSubtotal - discountAmount);
+                decimal gstAmount = Math.Round(discountedSubtotal * gstPerc / 100m, 2, MidpointRounding.AwayFromZero);
+                decimal orderTotal = discountedSubtotal + gstAmount + orderTip;
+
+                // Remove any empty lines
+                model.Items = model.Items.Where(i => (i.Amount > 0m) || (i.TipAmount > 0m)).ToList();
+
+                // If client didn't distribute roundoff, put it on the last row so sum matches the order total
+                var splitSumNominal = model.Items.Sum(i => i.Amount + i.TipAmount);
+                var impliedRoundoff = Math.Round(orderTotal - splitSumNominal, 2, MidpointRounding.AwayFromZero);
+                if (Math.Abs(impliedRoundoff) <= 0.50m && model.Items.Count > 0 && model.Items.Sum(i => i.RoundoffAdjustmentAmt) == 0)
+                {
+                    model.Items[model.Items.Count - 1].RoundoffAdjustmentAmt = impliedRoundoff;
+                }
+
+                // Validate split sum within tolerance (include tips + roundoff from items)
+                decimal splitSum = model.Items.Sum(i => i.Amount + i.TipAmount + i.RoundoffAdjustmentAmt);
+                _logger?.LogInformation("Split validation: orderTotal={OrderTotal}, splitSum={SplitSum}, diff={Diff}", orderTotal, splitSum, Math.Abs(orderTotal - splitSum));
+                
+                if (Math.Abs(orderTotal - splitSum) > 0.50m)
+                {
+                    var errMsg = $"Split payments total (₹{splitSum:F2}) does not match order total (₹{orderTotal:F2}). Difference must be ≤ ₹0.50.";
+                    _logger?.LogWarning(errMsg);
+                    TempData["ErrorMessage"] = errMsg;
+                    return RedirectToAction("ProcessPayment", new { orderId = model.OrderId });
+                }
+
+                // Pre-update Orders for discount, GST, Total if discount applied (same logic as single flow)
+                if (discountAmount > 0)
+                {
+                    using (var conn = new SqlConnection(_connectionString))
+                    {
+                        conn.Open();
+                        using (var discountCmd = new SqlCommand(@"
+                            DECLARE @CurrentDiscount DECIMAL(18,2);
+                            DECLARE @CurrentSubtotal DECIMAL(18,2);
+                            DECLARE @CurrentTipAmount DECIMAL(18,2);
+
+                            SELECT @CurrentDiscount = ISNULL(DiscountAmount, 0),
+                                   @CurrentSubtotal = Subtotal,
+                                   @CurrentTipAmount = ISNULL(TipAmount, 0)
+                            FROM Orders WHERE Id = @OrderId;
+
+                            DECLARE @NewDiscountAmount DECIMAL(18,2) = @CurrentDiscount + @Disc;
+                            DECLARE @NetSubtotal DECIMAL(18,2) = @CurrentSubtotal - @NewDiscountAmount;
+                            IF @NetSubtotal < 0 SET @NetSubtotal = 0;
+                            DECLARE @NewGSTAmount DECIMAL(18,2) = ROUND(@NetSubtotal * @GSTPerc / 100, 2);
+                            DECLARE @NewTotalAmount DECIMAL(18,2) = @NetSubtotal + @NewGSTAmount + @CurrentTipAmount;
+
+                            UPDATE Orders 
+                            SET DiscountAmount = @NewDiscountAmount, 
+                                UpdatedAt = GETDATE(),
+                                TaxAmount = @NewGSTAmount,
+                                TotalAmount = @NewTotalAmount
+                            WHERE Id = @OrderId;", conn))
+                        {
+                            discountCmd.Parameters.AddWithValue("@Disc", discountAmount);
+                            discountCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
+                            discountCmd.Parameters.AddWithValue("@GSTPerc", gstPerc);
+                            discountCmd.ExecuteNonQuery();
+                        }
+                    }
+                }
+
+                // Process each payment
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var tx = connection.BeginTransaction())
+                    {
+                        try
+                        {
+                            // Cache payment method flags
+                            var methodRequiresCard = new Dictionary<int, (bool requiresCard, string name)>();
+                            foreach (var methodId in model.Items.Select(i => i.PaymentMethodId).Distinct())
+                            {
+                                using (var pmCmd = new SqlCommand("SELECT RequiresCardInfo, Name FROM PaymentMethods WHERE Id=@Id", connection, tx))
+                                {
+                                    pmCmd.Parameters.AddWithValue("@Id", methodId);
+                                    using (var r = pmCmd.ExecuteReader())
+                                    {
+                                        if (r.Read())
+                                        {
+                                            methodRequiresCard[methodId] = (r.GetBoolean(0), r.GetString(1));
+                                        }
+                                    }
+                                }
+                            }
+
+                            for (int idx = 0; idx < model.Items.Count; idx++)
+                            {
+                                var item = model.Items[idx];
+                                if (!methodRequiresCard.TryGetValue(item.PaymentMethodId, out var flags))
+                                {
+                                    throw new Exception($"Invalid payment method: {item.PaymentMethodId}");
+                                }
+
+                                // Validate card info if required
+                                if (flags.requiresCard)
+                                {
+                                    if (string.IsNullOrWhiteSpace(item.LastFourDigits))
+                                        throw new Exception("Last four digits are required for card payments.");
+                                    if (string.IsNullOrWhiteSpace(item.CardType))
+                                        throw new Exception("Card type is required for card payments.");
+                                }
+
+                                // Decide approval requirements
+                                bool needsApproval;
+                                if (idx == 0 && discountAmount > 0)
+                                {
+                                    needsApproval = discountApprovalRequired; // discount carried on first line
+                                }
+                                else
+                                {
+                                    needsApproval = flags.requiresCard && cardPaymentApprovalRequired;
+                                }
+
+                                // Compute GST split (use order-level gstPerc; item-level GST already accounted in order)
+                                // For audit, store GST amounts proportionally by item amount
+                                decimal baseForSplit = Math.Max(0.01m, model.Items.Sum(it => it.Amount));
+                                decimal itemGstAmount = Math.Round(gstAmount * (item.Amount / baseForSplit), 2, MidpointRounding.AwayFromZero);
+                                decimal itemCgst = Math.Round(itemGstAmount / 2m, 2, MidpointRounding.AwayFromZero);
+                                decimal itemSgst = itemGstAmount - itemCgst;
+
+                                using (var cmd = new SqlCommand("[dbo].[usp_ProcessPayment]", connection, tx))
+                                {
+                                    cmd.CommandType = CommandType.StoredProcedure;
+                                    cmd.Parameters.AddWithValue("@OrderId", model.OrderId);
+                                    cmd.Parameters.AddWithValue("@PaymentMethodId", item.PaymentMethodId);
+                                    var amountToStore = item.OriginalAmount > 0 ? item.OriginalAmount : item.Amount;
+                                    cmd.Parameters.AddWithValue("@Amount", amountToStore);
+                                    cmd.Parameters.AddWithValue("@TipAmount", item.TipAmount);
+                                    cmd.Parameters.AddWithValue("@ReferenceNumber", string.IsNullOrEmpty(item.ReferenceNumber) ? (object)DBNull.Value : item.ReferenceNumber);
+                                    cmd.Parameters.AddWithValue("@LastFourDigits", string.IsNullOrEmpty(item.LastFourDigits) ? (object)DBNull.Value : item.LastFourDigits);
+                                    cmd.Parameters.AddWithValue("@CardType", string.IsNullOrEmpty(item.CardType) ? (object)DBNull.Value : item.CardType);
+                                    cmd.Parameters.AddWithValue("@AuthorizationCode", string.IsNullOrEmpty(item.AuthorizationCode) ? (object)DBNull.Value : item.AuthorizationCode);
+                                    cmd.Parameters.AddWithValue("@Notes", string.IsNullOrEmpty(item.Notes) ? (object)DBNull.Value : item.Notes);
+                                    cmd.Parameters.AddWithValue("@ProcessedBy", GetCurrentUserId());
+                                    cmd.Parameters.AddWithValue("@ProcessedByName", GetCurrentUserName());
+
+                                    // UPI helper
+                                    if (flags.name.Equals("UPI", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(item.UPIReference))
+                                    {
+                                        cmd.Parameters["@ReferenceNumber"].Value = item.UPIReference;
+                                    }
+
+                                    // GST fields (proportional record keeping)
+                                    cmd.Parameters.AddWithValue("@GSTAmount", itemGstAmount);
+                                    cmd.Parameters.AddWithValue("@CGSTAmount", itemCgst);
+                                    cmd.Parameters.AddWithValue("@SGSTAmount", itemSgst);
+                                    cmd.Parameters.AddWithValue("@DiscAmount", idx == 0 ? discountAmount : 0m);
+                                    cmd.Parameters.AddWithValue("@GST_Perc", gstPerc);
+                                    cmd.Parameters.AddWithValue("@CGST_Perc", gstPerc / 2m);
+                                    cmd.Parameters.AddWithValue("@SGST_Perc", gstPerc / 2m);
+                                    cmd.Parameters.AddWithValue("@Amount_ExclGST", Math.Max(0, amountToStore - itemGstAmount));
+                                    cmd.Parameters.AddWithValue("@RoundoffAdjustmentAmt", item.RoundoffAdjustmentAmt);
+
+                                    int paymentId = 0; int paymentStatus = 1; string message = string.Empty;
+                                    using (var reader = cmd.ExecuteReader())
+                                    {
+                                        if (reader.Read())
+                                        {
+                                            paymentId = reader.GetInt32(0);
+                                            paymentStatus = reader.GetInt32(1);
+                                            message = reader.GetString(2);
+                                        }
+                                    }
+
+                                    if (paymentId <= 0)
+                                    {
+                                        throw new Exception(string.IsNullOrWhiteSpace(message) ? "Failed to process one of the split payments." : message);
+                                    }
+
+                                    // Apply approval status if needed
+                                    if (needsApproval && paymentStatus == 1)
+                                    {
+                                        using (var pendCmd = new SqlCommand(@"
+                                            UPDATE Payments 
+                                            SET Status = 0, UpdatedAt = GETDATE(),
+                                                Notes = CASE WHEN ISNULL(Notes,'') = '' THEN @Note ELSE CONCAT(Notes,' | ',@Note) END
+                                            WHERE Id = @PaymentId", connection, tx))
+                                        {
+                                            string note = (idx == 0 && discountAmount > 0) ? "Discount applied - requires approval" : "Requires approval";
+                                            pendCmd.Parameters.AddWithValue("@PaymentId", paymentId);
+                                            pendCmd.Parameters.AddWithValue("@Note", note);
+                                            pendCmd.ExecuteNonQuery();
+                                        }
+                                    }
+                                    else if (!needsApproval && paymentStatus == 0)
+                                    {
+                                        using (var apprCmd = new SqlCommand(@"UPDATE Payments SET Status = 1, UpdatedAt = GETDATE() WHERE Id = @PaymentId", connection, tx))
+                                        {
+                                            apprCmd.Parameters.AddWithValue("@PaymentId", paymentId);
+                                            apprCmd.ExecuteNonQuery();
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Finalize order completion and persist aggregate roundoff
+                            using (var finalCmd = new SqlCommand(@"
+                                DECLARE @ApprovedSum DECIMAL(18,2) = ISNULL((SELECT SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)) FROM Payments WHERE OrderId = @OrderId AND Status = 1), 0);
+                                DECLARE @PendingSum DECIMAL(18,2) = ISNULL((SELECT SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt,0)) FROM Payments WHERE OrderId = @OrderId AND Status = 0), 0);
+                                DECLARE @OrderTotal DECIMAL(18,2) = ISNULL((SELECT TotalAmount FROM Orders WHERE Id = @OrderId), 0);
+
+                                IF @ApprovedSum >= @OrderTotal - 0.05
+                                BEGIN
+                                    UPDATE Orders
+                                    SET Status = 3,
+                                        CompletedAt = CASE WHEN Status < 3 AND CompletedAt IS NULL THEN GETDATE() ELSE CompletedAt END,
+                                        UpdatedAt = GETDATE()
+                                    WHERE Id = @OrderId AND Status < 3;
+                                END
+
+                                -- Persist aggregate roundoff (approved only)
+                                DECLARE @AggRoundoff DECIMAL(18,2) = ISNULL((SELECT SUM(ISNULL(RoundoffAdjustmentAmt,0)) FROM Payments WHERE OrderId = @OrderId AND Status = 1), 0);
+                                UPDATE Orders SET RoundoffAdjustmentAmt = @AggRoundoff, UpdatedAt = GETDATE() WHERE Id = @OrderId;", connection, tx))
+                            {
+                                finalCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
+                                finalCmd.ExecuteNonQuery();
+                            }
+
+                            tx.Commit();
+                            _logger?.LogInformation("Split payments transaction committed successfully for Order {OrderId}", model.OrderId);
+                        }
+                        catch (Exception txEx)
+                        {
+                            _logger?.LogError(txEx, "Split payments transaction failed for Order {OrderId}", model.OrderId);
+                            tx.Rollback();
+                            throw;
+                        }
+                    }
+                }
+
+                TempData["SuccessMessage"] = "Split payments processed successfully.";
+                _logger?.LogInformation("Split payments completed successfully for Order {OrderId}, redirecting to Index", model.OrderId);
+                return RedirectToAction("Index", new { id = model.OrderId });
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error processing split payments for Order {OrderId}", model?.OrderId);
+                TempData["ErrorMessage"] = $"Error processing payments: {ex.Message}";
+                return RedirectToAction("ProcessPayment", new { orderId = model?.OrderId ?? 0 });
+            }
+        }
         
         // Void Payment
         public IActionResult VoidPayment(int id)
