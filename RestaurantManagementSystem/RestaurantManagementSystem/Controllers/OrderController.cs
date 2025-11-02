@@ -296,9 +296,32 @@ namespace RestaurantManagementSystem.Controllers
             {
                 return NotFound();
             }
-            
+
+            // Determine BAR context: explicit query param > TempData > DB detection (KitchenTickets BAR/BOT)
+            bool isBarContext = false;
+            if (fromBar)
+            {
+                isBarContext = true;
+            }
+            else if (TempData["IsBarOrder"] as bool? == true)
+            {
+                isBarContext = true;
+            }
+            else
+            {
+                // Fallback: detect if the order has any BAR/BOT tickets
+                try
+                {
+                    isBarContext = IsBarOrder(id);
+                }
+                catch
+                {
+                    isBarContext = false; // default to non-bar if detection fails
+                }
+            }
+
             // Store bar order flag in ViewBag for the view
-            ViewBag.IsBarOrder = fromBar || TempData["IsBarOrder"] as bool? == true;
+            ViewBag.IsBarOrder = isBarContext;
             
             // Populate Menu Item Groups and items (default group = 1)
             model.AvailableMenuItems = new List<MenuItem>();
@@ -354,6 +377,32 @@ namespace RestaurantManagementSystem.Controllers
                     model.SelectedMenuItemGroupId = 1; // safe default even if table missing
                 }
 
+                // Persist initial OrderKitchenType on the order record, based on current Item Group selection (Bar/Foods)
+                // Only set this if the Orders table has the column and it's not already set.
+                try
+                {
+                    string kitchenType = "Foods";
+                    var selectedGroup = model.MenuItemGroups.FirstOrDefault(g => g.ID == model.SelectedMenuItemGroupId);
+                    if (selectedGroup != null && selectedGroup.ItemGroup != null && selectedGroup.ItemGroup.Equals("Bar", StringComparison.OrdinalIgnoreCase))
+                    {
+                        kitchenType = "Bar";
+                    }
+
+                    using (var setFlagCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType')
+                        BEGIN
+                            UPDATE o SET o.OrderKitchenType = @KitchenType
+                            FROM dbo.Orders o
+                            WHERE o.Id = @OrderId AND (o.OrderKitchenType IS NULL OR LTRIM(RTRIM(o.OrderKitchenType)) = '')
+                        END", connection))
+                    {
+                        setFlagCmd.Parameters.AddWithValue("@OrderId", id);
+                        setFlagCmd.Parameters.AddWithValue("@KitchenType", kitchenType);
+                        setFlagCmd.ExecuteNonQuery();
+                    }
+                }
+                catch { /* non-fatal */ }
+
                 // Load available menu items filtered by group if column exists; else load all
                 var sql = @"DECLARE @hasCol bit = 0;
                              IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.MenuItems') AND name = 'menuitemgroupID')
@@ -392,6 +441,53 @@ namespace RestaurantManagementSystem.Controllers
                 }
             }
             return View(model);
+        }
+
+        // Determine if an order should be treated as a Bar (BOT) order for navigation/context in Order Details
+        private bool IsBarOrder(int orderId)
+        {
+            try
+            {
+                using (var conn = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    conn.Open();
+                    // 1) Prefer explicit flag on Orders if available
+                    try
+                    {
+                        using (var orderFlagCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                            IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType')
+                            BEGIN
+                                SELECT TOP 1 1 FROM dbo.Orders WHERE Id = @OrderId AND OrderKitchenType = 'Bar'
+                            END
+                            ELSE
+                            BEGIN
+                                SELECT CAST(NULL AS INT)
+                            END", conn))
+                        {
+                            orderFlagCmd.Parameters.AddWithValue("@OrderId", orderId);
+                            var flag = orderFlagCmd.ExecuteScalar();
+                            if (flag != null && flag != DBNull.Value)
+                                return true;
+                        }
+                    }
+                    catch { /* ignore and fallback to tickets */ }
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT TOP 1 1 
+                            FROM KitchenTickets 
+                            WHERE OrderId = @OrderId 
+                              AND (KitchenStation = 'BAR' OR TicketNumber LIKE 'BOT-%')", conn))
+                    {
+                        cmd.Parameters.AddWithValue("@OrderId", orderId);
+                        var result = cmd.ExecuteScalar();
+                        if (result != null && result != DBNull.Value)
+                            return true;
+                    }
+                }
+            }
+            catch
+            {
+                // ignore and return false below
+            }
+            return false;
         }
 
         [HttpGet]
@@ -840,6 +936,43 @@ namespace RestaurantManagementSystem.Controllers
 
                                         if (orderItemId > 0)
                                         {
+                                            // Set/Update Orders.OrderKitchenType based on the added menu item's group (Bar/Foods), if the column exists
+                                            using (var setTypeCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                                DECLARE @kitchenType varchar(20) = NULL;
+                                                IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.MenuItems') AND name = 'menuitemgroupID')
+                                                BEGIN
+                                                    SELECT @kitchenType = CASE WHEN LOWER(mg.itemgroup) = 'bar' THEN 'Bar' ELSE 'Foods' END
+                                                    FROM dbo.MenuItems mi
+                                                    LEFT JOIN dbo.menuitemgroup mg ON mi.menuitemgroupID = mg.ID
+                                                    WHERE mi.Id = @MenuItemId;
+                                                END
+                                                ELSE
+                                                BEGIN
+                                                    SET @kitchenType = 'Foods';
+                                                END
+
+                                                IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType')
+                                                BEGIN
+                                                    IF (@kitchenType = 'Bar')
+                                                    BEGIN
+                                                        UPDATE o SET o.OrderKitchenType = 'Bar'
+                                                        FROM dbo.Orders o
+                                                        WHERE o.Id = @OrderId AND ISNULL(o.OrderKitchenType,'') <> 'Bar';
+                                                    END
+                                                    ELSE
+                                                    BEGIN
+                                                        UPDATE o SET o.OrderKitchenType = 'Foods'
+                                                        FROM dbo.Orders o
+                                                        WHERE o.Id = @OrderId AND ISNULL(o.OrderKitchenType,'') = '';
+                                                    END
+                                                END
+                                            ", connection, transaction))
+                                            {
+                                                setTypeCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
+                                                setTypeCmd.Parameters.AddWithValue("@MenuItemId", model.MenuItemId);
+                                                setTypeCmd.ExecuteNonQuery();
+                                            }
+
                                             // Create or update kitchen ticket after adding an item
                                             using (Microsoft.Data.SqlClient.SqlCommand kitchenCommand = new Microsoft.Data.SqlClient.SqlCommand("UpdateKitchenTicketsForOrder", connection, transaction))
                                             {

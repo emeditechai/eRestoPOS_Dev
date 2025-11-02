@@ -185,6 +185,8 @@ namespace RestaurantManagementSystem.Models
         // Filter Parameters
         public DateTime FromDate { get; set; } = DateTime.Today;
         public DateTime ToDate { get; set; } = DateTime.Today;
+        // Order type filter: All | Foods | Bar
+        public string OrderType { get; set; } = "All";
         
         // Payment History
         public List<PaymentHistoryItem> PaymentHistory { get; set; } = new List<PaymentHistoryItem>();

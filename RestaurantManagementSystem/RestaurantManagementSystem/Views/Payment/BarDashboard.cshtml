@@ -1,6 +1,6 @@
 @model PaymentDashboardViewModel
 @{
-    ViewData["Title"] = "Payment Dashboard";
+    ViewData["Title"] = "Bar Payment Dashboard";
 }
 
 <div class="container-fluid">
@@ -10,7 +10,7 @@
                 <div class="card-header bg-primary text-white">
                     <div class="d-flex justify-content-between align-items-center">
                         <h4 class="card-title mb-0">
-                            <i class="fas fa-chart-line me-2"></i>Payment Dashboard
+                            <i class="fas fa-chart-line me-2"></i>Bar Payment Dashboard
                         </h4>
                         <small>Today: @DateTime.Today.ToString("MMM dd, yyyy")</small>
                     </div>
@@ -72,7 +72,7 @@
                     <div class="card mb-4">
                         <div class="card-header bg-primary text-white">
                             <h5 class="card-title mb-0">
-                                <i class="fas fa-credit-card me-2"></i>Today's Payment Methods
+                                <i class="fas fa-credit-card me-2"></i>Today's Payment Methods (Bar)
                             </h5>
                         </div>
                         <div class="card-body">
@@ -127,8 +127,8 @@
                             {
                                 <div class="text-center py-3">
                                     <i class="fas fa-credit-card fa-3x text-muted mb-3"></i>
-                                    <h6 class="text-muted">No Payments Today</h6>
-                                    <p class="text-muted mb-0">No payment transactions have been processed today.</p>
+                                    <h6 class="text-muted">No Bar Payments Today</h6>
+                                    <p class="text-muted mb-0">No payment transactions have been processed today for the bar.</p>
                                 </div>
                             }
                         </div>
@@ -138,11 +138,11 @@
                     <div class="card mb-4">
                         <div class="card-header bg-light">
                             <h5 class="card-title mb-0">
-                                <i class="fas fa-filter me-2"></i>Payment History Filter
+                                <i class="fas fa-filter me-2"></i>Bar Payment History Filter
                             </h5>
                         </div>
                         <div class="card-body">
-                            <form method="get" action="@Url.Action("Dashboard")" class="row g-3">
+                            <form method="get" action="@Url.Action("BarDashboard")" class="row g-3">
                                 <div class="col-md-4">
                                     <label for="fromDate" class="form-label">From Date</label>
                                     <input type="date" class="form-control" id="fromDate" name="fromDate" 
@@ -153,40 +153,11 @@
                                     <input type="date" class="form-control" id="toDate" name="toDate" 
                                            value="@Model.ToDate.ToString("yyyy-MM-dd")" required>
                                 </div>
-                                <div class="col-md-4">
-                                    <label for="orderType" class="form-label">Order Type</label>
-                                    <select id="orderType" name="orderType" class="form-select">
-                                        @if (Model.OrderType?.Equals("All", StringComparison.OrdinalIgnoreCase) == true)
-                                        {
-                                            <option value="All" selected>All</option>
-                                        }
-                                        else
-                                        {
-                                            <option value="All">All</option>
-                                        }
-                                        @if (Model.OrderType?.Equals("Foods", StringComparison.OrdinalIgnoreCase) == true)
-                                        {
-                                            <option value="Foods" selected>Foods</option>
-                                        }
-                                        else
-                                        {
-                                            <option value="Foods">Foods</option>
-                                        }
-                                        @if (Model.OrderType?.Equals("Bar", StringComparison.OrdinalIgnoreCase) == true)
-                                        {
-                                            <option value="Bar" selected>Bar</option>
-                                        }
-                                        else
-                                        {
-                                            <option value="Bar">Bar</option>
-                                        }
-                                    </select>
-                                </div>
                                 <div class="col-md-4 d-flex align-items-end">
                                     <button type="submit" class="btn btn-primary me-2">
                                         <i class="fas fa-search me-1"></i>Filter
                                     </button>
-                                    <a href="@Url.Action("Dashboard")" class="btn btn-outline-secondary">
+                                    <a href="@Url.Action("BarDashboard")" class="btn btn-outline-secondary">
                                         <i class="fas fa-redo me-1"></i>Reset
                                     </a>
                                 </div>
@@ -201,7 +172,7 @@
                             <div class="card-header bg-warning text-dark">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <h5 class="card-title mb-0">
-                                        <i class="fas fa-clock me-2"></i>Pending Payments - Need Approval
+                                        <i class="fas fa-clock me-2"></i>Pending Bar Payments - Need Approval
                                     </h5>
                                     <span class="badge bg-dark">@Model.PendingPayments.Count Pending</span>
                                 </div>
@@ -210,7 +181,7 @@
                                 <div class="alert alert-warning d-flex align-items-center mb-3" role="alert">
                                     <i class="fas fa-exclamation-triangle me-2"></i>
                                     <div>
-                                        The following payments are waiting for approval. Please review and approve or reject them.
+                                        The following bar payments are waiting for approval. Please review and approve or reject them.
                                     </div>
                                 </div>
                                 <div class="table-responsive">
@@ -291,9 +262,7 @@
                                                         }
                                                     </td>
                                                     <td class="text-center">
-                                                        <!-- CSRF Token for AJAX requests -->
                                                         @Html.AntiForgeryToken()
-                                                        
                                                         <div class="btn-group" role="group">
                                                             <button type="button" class="btn btn-sm btn-success me-1 btn-approve-payment" 
                                                                     data-payment-id="@pending.PaymentId" 
@@ -327,14 +296,14 @@
                         <div class="card-header bg-light">
                             <div class="d-flex justify-content-between align-items-center">
                                     <h5 class="card-title mb-0">
-                                        <i class="fas fa-history me-2"></i>Payment History
+                                        <i class="fas fa-history me-2"></i>Bar Payment History
                                     </h5>
                                     <div class="d-flex align-items-center">
                                         <span class="badge bg-primary me-3">@Model.PaymentHistory.Count Records</span>
-                                        <a class="btn btn-sm btn-outline-secondary me-2" href="@Url.Action("ExportCsv", "Payment", new { fromDate = Model.FromDate.ToString("yyyy-MM-dd"), toDate = Model.ToDate.ToString("yyyy-MM-dd"), orderType = Model.OrderType })" title="Export CSV">
+                                        <a class="btn btn-sm btn-outline-secondary me-2" href="@Url.Action("BarExportCsv", "Payment", new { fromDate = Model.FromDate.ToString("yyyy-MM-dd"), toDate = Model.ToDate.ToString("yyyy-MM-dd") })" title="Export CSV">
                                             <i class="fas fa-file-csv"></i>
                                         </a>
-                                            <a class="btn btn-sm btn-outline-secondary" target="_blank" href="@Url.Action("Print", "Payment", new { fromDate = Model.FromDate.ToString("yyyy-MM-dd"), toDate = Model.ToDate.ToString("yyyy-MM-dd"), orderType = Model.OrderType })" title="Print">
+                                        <a class="btn btn-sm btn-outline-secondary" target="_blank" href="@Url.Action("BarPrint", "Payment", new { fromDate = Model.FromDate.ToString("yyyy-MM-dd"), toDate = Model.ToDate.ToString("yyyy-MM-dd") })" title="Print">
                                             <i class="fas fa-print"></i>
                                         </a>
                                     </div>
@@ -390,27 +359,27 @@
                                                     </td>
                                                     <td>@payment.PaymentDate.ToString("MMM dd, yyyy HH:mm")</td>
                                                     <td>
-                                                        <div class="btn-group" role="group">
-                                                            <a href="@Url.Action("PrintBill", new { orderId = payment.OrderId })" 
-                                                               class="btn btn-sm btn-outline-primary" target="_blank"
-                                                               title="Print Bill">
-                                                                <i class="fas fa-print"></i>
-                                                            </a>
-                                                            <a href="@Url.Action("Index", new { id = payment.OrderId })" 
-                                                               class="btn btn-sm btn-outline-info"
-                                                               title="View Payment Details">
-                                                                <i class="fas fa-eye"></i>
-                                                            </a>
-                                                            @if (payment.DueAmount > 0)
-                                                            {
-                                                                <a href="@Url.Action("ProcessPayment", new { orderId = payment.OrderId })" 
-                                                                   class="btn btn-sm btn-outline-success"
-                                                                   title="Process Payment">
-                                                                    <i class="fas fa-credit-card"></i>
-                                                                </a>
-                                                            }
-                                                        </div>
-                                                    </td>
+                    <div class="btn-group" role="group">
+                        <a href="@Url.Action("PrintBill", new { orderId = payment.OrderId })" 
+                           class="btn btn-sm btn-outline-primary" target="_blank"
+                           title="Print Bill">
+                            <i class="fas fa-print"></i>
+                        </a>
+                        <a href="@Url.Action("Index", new { id = payment.OrderId })" 
+                           class="btn btn-sm btn-outline-info"
+                           title="View Payment Details">
+                            <i class="fas fa-eye"></i>
+                        </a>
+                        @if (payment.DueAmount > 0)
+                        {
+                            <a href="@Url.Action("ProcessPayment", new { orderId = payment.OrderId })" 
+                               class="btn btn-sm btn-outline-success"
+                               title="Process Payment">
+                                <i class="fas fa-credit-card"></i>
+                            </a>
+                        }
+                    </div>
+                </td>
                                                 </tr>
                                             }
                                         </tbody>
@@ -421,9 +390,9 @@
                             {
                                 <div class="text-center py-5">
                                     <i class="fas fa-receipt fa-3x text-muted mb-3"></i>
-                                    <h5 class="text-muted">No Payment Records Found</h5>
-                                    <p class="text-muted">No payment records found for the selected date range.</p>
-                                    <a href="@Url.Action("Dashboard")" class="btn btn-outline-primary">
+                                    <h5 class="text-muted">No Bar Payment Records Found</h5>
+                                    <p class="text-muted">No bar payment records found for the selected date range.</p>
+                                    <a href="@Url.Action("BarDashboard")" class="btn btn-outline-primary">
                                         <i class="fas fa-redo me-1"></i>View All Records
                                     </a>
                                 </div>
@@ -612,7 +581,6 @@
                 const tableNumber = $(this).data('table-number');
                 const amount = $(this).data('amount');
                 
-                // Show confirmation using toastr with custom options
                 toastr.options = {
                     closeButton: true,
                     timeOut: 0,
@@ -627,7 +595,6 @@
                     tapToDismiss: false
                 };
                 
-                // Custom HTML for the toastr notification with approval buttons
                 const toastHtml = `
                     <div>
                         <h6><strong>Confirm Payment Approval</strong></h6>
@@ -644,16 +611,13 @@
                         </div>
                     </div>`;
                 
-                // Display confirmation toast
                 const $toast = toastr.info(toastHtml);
                 
-                // Handle cancel button
                 $toast.find('.cancel-toast').on('click', function() {
                     toastr.clear($toast);
                     resetToastrDefaults();
                 });
                 
-                // Handle confirm button
                 $toast.find('.confirm-approve').on('click', function() {
                     const paymentId = $(this).data('payment-id');
                     toastr.clear($toast);
@@ -669,7 +633,6 @@
                 const tableNumber = $(this).data('table-number');
                 const amount = $(this).data('amount');
                 
-                // Show confirmation using toastr with custom options
                 toastr.options = {
                     closeButton: true,
                     timeOut: 0,
@@ -684,7 +647,6 @@
                     tapToDismiss: false
                 };
                 
-                // Custom HTML for the toastr notification with rejection form
                 const toastHtml = `
                     <div>
                         <h6><strong>Confirm Payment Rejection</strong></h6>
@@ -705,16 +667,13 @@
                         </div>
                     </div>`;
                 
-                // Display confirmation toast
                 const $toast = toastr.warning(toastHtml);
                 
-                // Handle cancel button
                 $toast.find('.cancel-toast').on('click', function() {
                     toastr.clear($toast);
                     resetToastrDefaults();
                 });
                 
-                // Handle confirm button
                 $toast.find('.confirm-reject').on('click', function() {
                     const paymentId = $(this).data('payment-id');
                     const reason = $toast.find('#reject-reason').val();
@@ -723,7 +682,6 @@
                 });
             });
             
-            // Function to approve payment via AJAX
             function approvePayment(paymentId) {
                 $.ajax({
                     url: '@Url.Action("ApprovePaymentAjax")',
@@ -734,10 +692,7 @@
                         
                         if (response.success) {
                             toastr.success(response.message);
-                            // Reload the page after a short delay to refresh the data
-                            setTimeout(function() {
-                                window.location.reload();
-                            }, 1500);
+                            setTimeout(function() { window.location.reload(); }, 1500);
                         } else {
                             toastr.error(response.message);
                         }
@@ -749,24 +704,17 @@
                 });
             }
             
-            // Function to reject payment via AJAX
             function rejectPayment(paymentId, reason) {
                 $.ajax({
                     url: '@Url.Action("RejectPaymentAjax")',
                     type: 'POST',
-                    data: { 
-                        id: paymentId,
-                        reason: reason
-                    },
+                    data: { id: paymentId, reason: reason },
                     success: function(response) {
                         resetToastrDefaults();
                         
                         if (response.success) {
                             toastr.success(response.message);
-                            // Reload the page after a short delay to refresh the data
-                            setTimeout(function() {
-                                window.location.reload();
-                            }, 1500);
+                            setTimeout(function() { window.location.reload(); }, 1500);
                         } else {
                             toastr.error(response.message);
                         }
@@ -778,7 +726,6 @@
                 });
             }
             
-            // Reset toastr default options
             function resetToastrDefaults() {
                 toastr.options = {
                     closeButton: true,
@@ -790,18 +737,13 @@
                     hideMethod: "fadeOut"
                 };
             }
-            
-            // Initialize DataTables for both tables - Check if already initialized first
+
             if ($.fn.DataTable) {
                 try {
-                    // Handle pending payments table
                     if ($('#pendingPaymentsTable').length > 0) {
-                        // Destroy existing instance if it exists
                         if ($.fn.dataTable.isDataTable('#pendingPaymentsTable')) {
                             $('#pendingPaymentsTable').DataTable().destroy();
                         }
-                        
-                        // Initialize table
                         $('#pendingPaymentsTable').DataTable({
                             order: [[0, 'desc']],
                             language: {
@@ -812,17 +754,12 @@
                             lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]]
                         });
                     }
-                    
-                    // Handle payment history table
                     if ($('#paymentHistoryTable').length > 0) {
-                        // Destroy existing instance if it exists
                         if ($.fn.dataTable.isDataTable('#paymentHistoryTable')) {
                             $('#paymentHistoryTable').DataTable().destroy();
                         }
-                        
-                        // Initialize table
                         $('#paymentHistoryTable').DataTable({
-                            order: [[7, 'desc']], // Updated to match Payment Date column index
+                            order: [[7, 'desc']],
                             language: {
                                 search: '<i class="fas fa-search"></i> _INPUT_',
                                 searchPlaceholder: 'Search history...',

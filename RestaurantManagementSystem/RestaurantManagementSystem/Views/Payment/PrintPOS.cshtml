@@ -101,6 +101,7 @@
             var roundOff = Math.Round(totalRounded - total, 2, MidpointRounding.AwayFromZero);
             var paid = Model.PaidAmount;
             var toProcessNow = Math.Max(0M, totalRounded - paid);
+            var toProcessRounded = Math.Round(toProcessNow, 0, MidpointRounding.AwayFromZero);
         }
         <div class="row"><div>Sub Total</div><div class="right">₹@subtotal.ToString("F2")</div></div>
         <div class="row"><div>CGST @cgstPercent% </div><div class="right">₹@cgstAmt.ToString("F2")</div></div>
@@ -111,9 +112,9 @@
         }
         <div class="row"><div>Round off</div><div class="right">₹@roundOff.ToString("+0.00;-0.00;0.00")</div></div>
         <div class="row bold"><div style="font-size:15px;">Grand Total</div><div class="right" style="font-size:16px;">₹@totalRounded.ToString("F0")</div></div>
-        @if (toProcessNow > 0)
+        @if (toProcessRounded > 0)
         {
-            <div class="row"><div>Payment Amount</div><div class="right">₹@toProcessNow.ToString("F0")</div></div>
+            <div class="row"><div>Payment Amount</div><div class="right">₹@toProcessRounded.ToString("F0")</div></div>
         }
     </div>
 

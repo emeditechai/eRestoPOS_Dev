@@ -34,6 +34,13 @@
 			"command": "dotnet build",
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "Build .NET project",
+			"type": "shell",
+			"command": "dotnet build",
+			"isBackground": false,
+			"group": "build"
 		}
 	]
 }

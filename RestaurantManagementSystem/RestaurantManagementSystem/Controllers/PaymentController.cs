@@ -1918,13 +1918,25 @@ END", connection))
         }
 
         // Payment Dashboard
-        public IActionResult Dashboard(DateTime? fromDate = null, DateTime? toDate = null)
+        public IActionResult Dashboard(DateTime? fromDate = null, DateTime? toDate = null, string orderType = null)
         {
             var model = new PaymentDashboardViewModel
             {
                 FromDate = fromDate ?? DateTime.Today,
-                ToDate = toDate ?? DateTime.Today
+                ToDate = toDate ?? DateTime.Today,
+                OrderType = string.IsNullOrWhiteSpace(orderType) ? "All" : orderType
             };
+
+            // Normalize order type to All | Foods | Bar
+            model.OrderType = (model.OrderType?.Trim() ?? "All");
+            if (!model.OrderType.Equals("Foods", StringComparison.OrdinalIgnoreCase)
+                && !model.OrderType.Equals("Bar", StringComparison.OrdinalIgnoreCase)
+                && !model.OrderType.Equals("All", StringComparison.OrdinalIgnoreCase))
+            {
+                model.OrderType = "All";
+            }
+
+            int filterMode = GetOrderFilterMode(model.OrderType);
 
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
@@ -1932,13 +1944,32 @@ END", connection))
 
                 // Get today's analytics
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    DECLARE @HasOrderKitchenType bit = CASE WHEN EXISTS (
+                        SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType'
+                    ) THEN 1 ELSE 0 END;
                     SELECT 
                         ISNULL(SUM(p.Amount), 0) AS TotalPayments,
                         ISNULL(SUM(p.TipAmount), 0) AS TotalTips
                     FROM Payments p
                     WHERE p.Status = 1 -- Approved payments only
-                        AND CAST(p.CreatedAt AS DATE) = CAST(GETDATE() AS DATE)", connection))
+                        AND CAST(p.CreatedAt AS DATE) = CAST(GETDATE() AS DATE)
+                        AND (
+                            @FilterMode = 0 OR
+                            (
+                                @FilterMode = 1 AND (
+                                    (@HasOrderKitchenType = 1 AND EXISTS (SELECT 1 FROM Orders o2 WHERE o2.Id = p.OrderId AND ISNULL(o2.OrderKitchenType,'Foods') <> 'Bar'))
+                                    OR (@HasOrderKitchenType = 0 AND NOT EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = p.OrderId AND kt.KitchenStation = 'BAR'))
+                                )
+                            ) OR 
+                            (
+                                @FilterMode = 2 AND (
+                                    (@HasOrderKitchenType = 1 AND EXISTS (SELECT 1 FROM Orders o2 WHERE o2.Id = p.OrderId AND o2.OrderKitchenType = 'Bar'))
+                                    OR (@HasOrderKitchenType = 0 AND EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = p.OrderId AND kt.KitchenStation = 'BAR'))
+                                )
+                            )
+                        )", connection))
                 {
+                    command.Parameters.AddWithValue("@FilterMode", filterMode);
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         if (reader.Read())
@@ -1951,11 +1982,30 @@ END", connection))
 
                 // Calculate today's GST from actual processed payments (use CGST + SGST when available)
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    DECLARE @HasOrderKitchenType bit = CASE WHEN EXISTS (
+                        SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType'
+                    ) THEN 1 ELSE 0 END;
                     SELECT ISNULL(SUM(ISNULL(p.CGSTAmount,0) + ISNULL(p.SGSTAmount,0)), 0) AS TotalGST
                     FROM Payments p
                     WHERE p.Status = 1 -- Approved payments only
-                        AND CAST(p.CreatedAt AS DATE) = CAST(GETDATE() AS DATE)", connection))
+                        AND CAST(p.CreatedAt AS DATE) = CAST(GETDATE() AS DATE)
+                        AND (
+                            @FilterMode = 0 OR
+                            (
+                                @FilterMode = 1 AND (
+                                    (@HasOrderKitchenType = 1 AND EXISTS (SELECT 1 FROM Orders o2 WHERE o2.Id = p.OrderId AND ISNULL(o2.OrderKitchenType,'Foods') <> 'Bar'))
+                                    OR (@HasOrderKitchenType = 0 AND NOT EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = p.OrderId AND kt.KitchenStation = 'BAR'))
+                                )
+                            ) OR 
+                            (
+                                @FilterMode = 2 AND (
+                                    (@HasOrderKitchenType = 1 AND EXISTS (SELECT 1 FROM Orders o2 WHERE o2.Id = p.OrderId AND o2.OrderKitchenType = 'Bar'))
+                                    OR (@HasOrderKitchenType = 0 AND EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = p.OrderId AND kt.KitchenStation = 'BAR'))
+                                )
+                            )
+                        )", connection))
                 {
+                    command.Parameters.AddWithValue("@FilterMode", filterMode);
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         if (reader.Read())
@@ -1967,6 +2017,9 @@ END", connection))
 
                 // Get today's payment method breakdown
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    DECLARE @HasOrderKitchenType bit = CASE WHEN EXISTS (
+                        SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType'
+                    ) THEN 1 ELSE 0 END;
                     SELECT 
                         pm.Id AS PaymentMethodId,
                         pm.Name AS PaymentMethodName,
@@ -1978,10 +2031,26 @@ END", connection))
                     LEFT JOIN Payments p ON pm.Id = p.PaymentMethodId 
                         AND p.Status = 1 -- Approved payments only
                         AND CAST(p.CreatedAt AS DATE) = CAST(GETDATE() AS DATE)
+                        AND (
+                            @FilterMode = 0 OR
+                            (
+                                @FilterMode = 1 AND (
+                                    (@HasOrderKitchenType = 1 AND EXISTS (SELECT 1 FROM Orders o2 WHERE o2.Id = p.OrderId AND ISNULL(o2.OrderKitchenType,'Foods') <> 'Bar'))
+                                    OR (@HasOrderKitchenType = 0 AND NOT EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = p.OrderId AND kt.KitchenStation = 'BAR'))
+                                )
+                            ) OR 
+                            (
+                                @FilterMode = 2 AND (
+                                    (@HasOrderKitchenType = 1 AND EXISTS (SELECT 1 FROM Orders o2 WHERE o2.Id = p.OrderId AND o2.OrderKitchenType = 'Bar'))
+                                    OR (@HasOrderKitchenType = 0 AND EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = p.OrderId AND kt.KitchenStation = 'BAR'))
+                                )
+                            )
+                        )
                     WHERE pm.IsActive = 1
                     GROUP BY pm.Id, pm.Name, pm.DisplayName
                     ORDER BY TotalAmount DESC", connection))
                 {
+                    command.Parameters.AddWithValue("@FilterMode", filterMode);
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -2001,6 +2070,9 @@ END", connection))
 
                 // Get payment history - showing actual processed payments with their real amounts
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    DECLARE @HasOrderKitchenType bit = CASE WHEN EXISTS (
+                        SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType'
+                    ) THEN 1 ELSE 0 END;
                     SELECT 
                         o.Id AS OrderId,
                         o.OrderNumber,
@@ -2027,11 +2099,27 @@ END", connection))
                     LEFT JOIN Tables tt ON tto.TableId = tt.Id
                     INNER JOIN Payments p ON o.Id = p.OrderId AND p.Status = 1 -- Only orders with approved payments
                     WHERE CAST(p.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
+                      AND (
+                          @FilterMode = 0 OR
+                          (
+                              @FilterMode = 1 AND (
+                                  (@HasOrderKitchenType = 1 AND ISNULL(o.OrderKitchenType,'Foods') <> 'Bar')
+                                  OR (@HasOrderKitchenType = 0 AND NOT EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = o.Id AND kt.KitchenStation = 'BAR'))
+                              )
+                          ) OR
+                          (
+                              @FilterMode = 2 AND (
+                                  (@HasOrderKitchenType = 1 AND o.OrderKitchenType = 'Bar')
+                                  OR (@HasOrderKitchenType = 0 AND EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = o.Id AND kt.KitchenStation = 'BAR'))
+                              )
+                          )
+                      )
                     GROUP BY o.Id, o.OrderNumber, tt.TableName, o.Status
                     ORDER BY MAX(p.CreatedAt) DESC", connection))
                 {
                     command.Parameters.AddWithValue("@FromDate", model.FromDate.Date);
                     command.Parameters.AddWithValue("@ToDate", model.ToDate.Date);
+                    command.Parameters.AddWithValue("@FilterMode", filterMode);
 
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
@@ -2058,6 +2146,9 @@ END", connection))
                     try
                     {
                         using (var pendingCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                            DECLARE @HasOrderKitchenType bit = CASE WHEN EXISTS (
+                                SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType'
+                            ) THEN 1 ELSE 0 END;
                             SELECT 
                                 p.Id AS PaymentId,
                                 p.OrderId,
@@ -2082,10 +2173,26 @@ END", connection))
                             LEFT JOIN PaymentMethods pm ON p.PaymentMethodId = pm.Id
                             WHERE p.Status = 0 -- Pending
                               AND CAST(p.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
+                              AND (
+                                  @FilterMode = 0 OR
+                                  (
+                                      @FilterMode = 1 AND (
+                                          (@HasOrderKitchenType = 1 AND ISNULL(o.OrderKitchenType,'Foods') <> 'Bar')
+                                          OR (@HasOrderKitchenType = 0 AND NOT EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = p.OrderId AND kt.KitchenStation = 'BAR'))
+                                      )
+                                  ) OR
+                                  (
+                                      @FilterMode = 2 AND (
+                                          (@HasOrderKitchenType = 1 AND o.OrderKitchenType = 'Bar')
+                                          OR (@HasOrderKitchenType = 0 AND EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = p.OrderId AND kt.KitchenStation = 'BAR'))
+                                      )
+                                  )
+                              )
                             ORDER BY p.CreatedAt DESC", connection))
                         {
                             pendingCmd.Parameters.AddWithValue("@FromDate", model.FromDate.Date);
                             pendingCmd.Parameters.AddWithValue("@ToDate", model.ToDate.Date);
+                            pendingCmd.Parameters.AddWithValue("@FilterMode", filterMode);
 
                             using (var rdr = pendingCmd.ExecuteReader())
                             {
@@ -2124,6 +2231,355 @@ END", connection))
             }
 
             return View(model);
+        }
+
+        // Bar Payment Dashboard - filtered to BAR orders only
+        public IActionResult BarDashboard(DateTime? fromDate = null, DateTime? toDate = null)
+        {
+            var model = new PaymentDashboardViewModel
+            {
+                FromDate = fromDate ?? DateTime.Today,
+                ToDate = toDate ?? DateTime.Today
+            };
+
+            using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+            {
+                connection.Open();
+
+                // Get today's analytics (BAR only)
+                using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    SELECT 
+                        ISNULL(SUM(p.Amount), 0) AS TotalPayments,
+                        ISNULL(SUM(p.TipAmount), 0) AS TotalTips
+                    FROM Payments p
+                    WHERE p.Status = 1 -- Approved payments only
+                        AND CAST(p.CreatedAt AS DATE) = CAST(GETDATE() AS DATE)
+                                                AND EXISTS (
+                                                        SELECT 1 FROM KitchenTickets kt 
+                                                        WHERE kt.OrderId = p.OrderId 
+                                                            AND kt.KitchenStation = 'BAR'
+                                                )", connection))
+                {
+                    using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            model.TodayTotalPayments = reader.GetDecimal(0);
+                            model.TodayTotalTips = reader.GetDecimal(1);
+                        }
+                    }
+                }
+
+                // Calculate today's GST from actual processed payments (BAR only)
+                using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    SELECT ISNULL(SUM(ISNULL(p.CGSTAmount,0) + ISNULL(p.SGSTAmount,0)), 0) AS TotalGST
+                    FROM Payments p
+                    WHERE p.Status = 1 -- Approved payments only
+                        AND CAST(p.CreatedAt AS DATE) = CAST(GETDATE() AS DATE)
+                        AND EXISTS (
+                            SELECT 1 FROM KitchenTickets kt 
+                            WHERE kt.OrderId = p.OrderId 
+                              AND kt.KitchenStation = 'BAR' 
+                              AND kt.TicketNumber LIKE 'BOT-%'
+                        )", connection))
+                {
+                    using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            model.TodayTotalGST = Math.Max(0, reader.GetDecimal(0));
+                        }
+                    }
+                }
+
+                // Get today's payment method breakdown (BAR only)
+                using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    SELECT 
+                        pm.Id AS PaymentMethodId,
+                        pm.Name AS PaymentMethodName,
+                        pm.DisplayName AS PaymentMethodDisplayName,
+                        ISNULL(SUM(p.Amount), 0) AS TotalAmount,
+                        ISNULL(SUM(ISNULL(p.CGSTAmount,0) + ISNULL(p.SGSTAmount,0)), 0) AS TotalGST,
+                        COUNT(p.Id) AS TransactionCount
+                    FROM PaymentMethods pm
+                    LEFT JOIN Payments p ON pm.Id = p.PaymentMethodId 
+                        AND p.Status = 1 -- Approved payments only
+                        AND CAST(p.CreatedAt AS DATE) = CAST(GETDATE() AS DATE)
+                                                AND EXISTS (
+                                                        SELECT 1 FROM KitchenTickets kt 
+                                                        WHERE kt.OrderId = p.OrderId 
+                                                            AND kt.KitchenStation = 'BAR'
+                                                )
+                    WHERE pm.IsActive = 1
+                    GROUP BY pm.Id, pm.Name, pm.DisplayName
+                    ORDER BY TotalAmount DESC", connection))
+                {
+                    using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            model.PaymentMethodBreakdowns.Add(new PaymentMethodBreakdown
+                            {
+                                PaymentMethodId = reader.GetInt32("PaymentMethodId"),
+                                PaymentMethodName = reader.GetString("PaymentMethodName"),
+                                PaymentMethodDisplayName = reader.GetString("PaymentMethodDisplayName"),
+                                TotalAmount = Convert.ToDecimal(reader["TotalAmount"]),
+                                TotalGST = Convert.ToDecimal(reader["TotalGST"]),
+                                TransactionCount = reader.GetInt32("TransactionCount")
+                            });
+                        }
+                    }
+                }
+
+                // AUGMENT breakdown with BOT_Payments for today
+                try
+                {
+                    using var botPM = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        SELECT LOWER(ISNULL(PaymentMethod,'')) AS Method, ISNULL(SUM(Amount),0) AS TotalAmount, COUNT(*) AS Txn
+                        FROM BOT_Payments
+                        WHERE CAST(PaymentDate AS DATE) = CAST(GETDATE() AS DATE)
+                        GROUP BY LOWER(ISNULL(PaymentMethod,''))", connection);
+                    using var r = botPM.ExecuteReader();
+                    var byName = model.PaymentMethodBreakdowns.ToDictionary(b => b.PaymentMethodName.ToLower(), b => b);
+                    while (r.Read())
+                    {
+                        var method = r.GetString(0).Trim();
+                        var amt = r.IsDBNull(1) ? 0m : r.GetDecimal(1);
+                        var txn = r.IsDBNull(2) ? 0 : r.GetInt32(2);
+                        if (string.IsNullOrEmpty(method)) continue;
+
+                        // Map common aliases
+                        var key = method;
+                        if (key == "credit" || key == "debit" || key == "card") key = "card";
+                        if (key == "upi" || key == "gpay" || key == "phonepe" || key == "paytm") key = "upi";
+                        if (key == "cash") key = "cash";
+
+                        if (byName.TryGetValue(key, out var existing))
+                        {
+                            existing.TotalAmount += amt;
+                            existing.TransactionCount += txn;
+                        }
+                        else
+                        {
+                            model.PaymentMethodBreakdowns.Add(new PaymentMethodBreakdown
+                            {
+                                PaymentMethodId = 0,
+                                PaymentMethodName = key,
+                                PaymentMethodDisplayName = char.ToUpper(key[0]) + key.Substring(1),
+                                TotalAmount = amt,
+                                TotalGST = 0,
+                                TransactionCount = txn
+                            });
+                        }
+                    }
+                }
+                catch { /* non-fatal if BOT not set up */ }
+
+                // Get payment history (BAR only - Orders/Payments)
+                using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    SELECT 
+                        o.Id AS OrderId,
+                        o.OrderNumber,
+                        ISNULL(tt.TableName, 'Takeout/Delivery') AS TableName,
+                        (SELECT ISNULL(SUM(p2.Amount), 0) FROM Payments p2 WHERE p2.OrderId = o.Id AND p2.Status = 1) AS TotalPayable,
+                        ISNULL(SUM(p.Amount), 0) AS TotalPaid,
+                        0 AS DueAmount,
+                        ISNULL(SUM(p.GSTAmount), 0) AS GSTAmount,
+                        MAX(p.CreatedAt) AS PaymentDate,
+                        o.Status AS OrderStatus,
+                        CASE o.Status 
+                            WHEN 0 THEN 'Open'
+                            WHEN 1 THEN 'In Progress'
+                            WHEN 2 THEN 'Ready'
+                            WHEN 3 THEN 'Completed'
+                            WHEN 4 THEN 'Cancelled'
+                            ELSE 'Unknown'
+                        END AS OrderStatusDisplay
+                    FROM Orders o
+                    LEFT JOIN TableTurnovers tto ON o.TableTurnoverId = tto.Id
+                    LEFT JOIN Tables tt ON tto.TableId = tt.Id
+                    INNER JOIN Payments p ON o.Id = p.OrderId AND p.Status = 1 -- Only orders with approved payments
+                    WHERE CAST(p.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
+                                            AND EXISTS (
+                                                    SELECT 1 FROM KitchenTickets kt 
+                                                    WHERE kt.OrderId = o.Id 
+                                                        AND kt.KitchenStation = 'BAR'
+                                            )
+                    GROUP BY o.Id, o.OrderNumber, tt.TableName, o.Status
+                    ORDER BY MAX(p.CreatedAt) DESC", connection))
+                {
+                    command.Parameters.AddWithValue("@FromDate", model.FromDate.Date);
+                    command.Parameters.AddWithValue("@ToDate", model.ToDate.Date);
+
+                    using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            model.PaymentHistory.Add(new PaymentHistoryItem
+                            {
+                                OrderId = reader.GetInt32("OrderId"),
+                                OrderNumber = reader.GetString("OrderNumber"),
+                                TableName = GetMergedTableDisplayName((int)reader["OrderId"], reader.GetString("TableName")),
+                                TotalPayable = Convert.ToDecimal(reader["TotalPayable"]),
+                                TotalPaid = Convert.ToDecimal(reader["TotalPaid"]),
+                                DueAmount = Convert.ToDecimal(reader["DueAmount"]),
+                                GSTAmount = Convert.ToDecimal(reader["GSTAmount"]),
+                                PaymentDate = reader.GetDateTime("PaymentDate"),
+                                OrderStatus = reader.GetInt32("OrderStatus"),
+                                OrderStatusDisplay = reader.GetString("OrderStatusDisplay")
+                            });
+                        }
+                    }
+                }
+
+                // Append BOT bills/payments to history (BAR-only BOT)
+                try
+                {
+                    using var botHist = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        SELECT 
+                            b.BillID,
+                            b.BillNo,
+                            ISNULL(o.OrderNumber, CONCAT('BOT-', CAST(b.BOT_ID AS VARCHAR(20)))) AS OrderNumber,
+                            ISNULL(tt.TableName, 'Bar') AS TableName,
+                            b.GrandTotal AS TotalPayable,
+                            b.PaidAmount AS TotalPaid,
+                            b.RemainingAmount AS DueAmount,
+                            b.GSTAmount AS GSTAmount,
+                            ISNULL(MAX(bp.PaymentDate), b.CreatedAt) AS PaymentDate,
+                            CASE WHEN b.PaymentStatus = 2 THEN 3 ELSE 1 END AS OrderStatus,
+                            CASE WHEN b.PaymentStatus = 2 THEN 'Completed' ELSE 'Pending' END AS OrderStatusDisplay
+                        FROM BOT_Bills b
+                        LEFT JOIN BOT_Payments bp ON b.BillID = bp.BillID
+                        LEFT JOIN Orders o ON b.OrderId = o.Id
+                        LEFT JOIN TableTurnovers tto ON o.TableTurnoverId = tto.Id
+                        LEFT JOIN Tables tt ON tto.TableId = tt.Id
+                        WHERE CAST(ISNULL(bp.PaymentDate, b.CreatedAt) AS DATE) BETWEEN @FromDate AND @ToDate
+                        GROUP BY b.BillID, b.BillNo, o.OrderNumber, tt.TableName, b.GrandTotal, b.PaidAmount, b.RemainingAmount, b.GSTAmount, b.CreatedAt, b.PaymentStatus, b.BOT_ID", connection);
+
+                    botHist.Parameters.AddWithValue("@FromDate", model.FromDate.Date);
+                    botHist.Parameters.AddWithValue("@ToDate", model.ToDate.Date);
+
+                    using var rdr = botHist.ExecuteReader();
+                    while (rdr.Read())
+                    {
+                        var orderNumber = rdr.IsDBNull(rdr.GetOrdinal("OrderNumber")) ? rdr.GetString(rdr.GetOrdinal("BillNo")) : rdr.GetString(rdr.GetOrdinal("OrderNumber"));
+                        var tableName = rdr.IsDBNull(rdr.GetOrdinal("TableName")) ? "Bar" : rdr.GetString(rdr.GetOrdinal("TableName"));
+                        model.PaymentHistory.Add(new PaymentHistoryItem
+                        {
+                            OrderId = rdr.GetInt32(rdr.GetOrdinal("BillID")), // use BillID as an identifier
+                            OrderNumber = orderNumber,
+                            TableName = tableName,
+                            TotalPayable = rdr.IsDBNull(rdr.GetOrdinal("TotalPayable")) ? 0m : rdr.GetDecimal(rdr.GetOrdinal("TotalPayable")),
+                            TotalPaid = rdr.IsDBNull(rdr.GetOrdinal("TotalPaid")) ? 0m : rdr.GetDecimal(rdr.GetOrdinal("TotalPaid")),
+                            DueAmount = rdr.IsDBNull(rdr.GetOrdinal("DueAmount")) ? 0m : rdr.GetDecimal(rdr.GetOrdinal("DueAmount")),
+                            GSTAmount = rdr.IsDBNull(rdr.GetOrdinal("GSTAmount")) ? 0m : rdr.GetDecimal(rdr.GetOrdinal("GSTAmount")),
+                            PaymentDate = rdr.IsDBNull(rdr.GetOrdinal("PaymentDate")) ? DateTime.MinValue : rdr.GetDateTime(rdr.GetOrdinal("PaymentDate")),
+                            OrderStatus = rdr.IsDBNull(rdr.GetOrdinal("OrderStatus")) ? 0 : rdr.GetInt32(rdr.GetOrdinal("OrderStatus")),
+                            OrderStatusDisplay = rdr.IsDBNull(rdr.GetOrdinal("OrderStatusDisplay")) ? "" : rdr.GetString(rdr.GetOrdinal("OrderStatusDisplay"))
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "BOT payment history not included in BarDashboard (likely not set up)");
+                }
+
+                // Pending payments (BAR only)
+                try
+                {
+                    using (var pendingCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                            SELECT 
+                                p.Id AS PaymentId,
+                                p.OrderId,
+                                o.OrderNumber,
+                                ISNULL(tt.TableName, 'Takeout/Delivery') AS TableName,
+                                pm.Name AS PaymentMethodName,
+                                pm.DisplayName AS PaymentMethodDisplay,
+                                ISNULL(p.Amount,0) AS Amount,
+                                ISNULL(p.TipAmount,0) AS TipAmount,
+                                ISNULL(p.DiscAmount,0) AS DiscAmount,
+                                (ISNULL(p.Amount,0) + ISNULL(p.DiscAmount,0)) AS OriginalAmount,
+                                p.CreatedAt,
+                                p.ProcessedByName,
+                                p.ReferenceNumber,
+                                p.LastFourDigits,
+                                p.CardType,
+                                p.Notes
+                            FROM Payments p
+                            INNER JOIN Orders o ON p.OrderId = o.Id
+                            LEFT JOIN TableTurnovers tto ON o.TableTurnoverId = tto.Id
+                            LEFT JOIN Tables tt ON tto.TableId = tt.Id
+                            LEFT JOIN PaymentMethods pm ON p.PaymentMethodId = pm.Id
+                            WHERE p.Status = 0 -- Pending
+                              AND CAST(p.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
+                                                            AND EXISTS (
+                                                                    SELECT 1 FROM KitchenTickets kt 
+                                                                    WHERE kt.OrderId = p.OrderId 
+                                                                        AND kt.KitchenStation = 'BAR'
+                                                            )
+                            ORDER BY p.CreatedAt DESC", connection))
+                    {
+                        pendingCmd.Parameters.AddWithValue("@FromDate", model.FromDate.Date);
+                        pendingCmd.Parameters.AddWithValue("@ToDate", model.ToDate.Date);
+
+                        using (var rdr = pendingCmd.ExecuteReader())
+                        {
+                            while (rdr.Read())
+                            {
+                                var pending = new PendingPaymentItem
+                                {
+                                    PaymentId = rdr.GetInt32(rdr.GetOrdinal("PaymentId")),
+                                    OrderId = rdr.GetInt32(rdr.GetOrdinal("OrderId")),
+                                    OrderNumber = rdr.IsDBNull(rdr.GetOrdinal("OrderNumber")) ? string.Empty : rdr.GetString(rdr.GetOrdinal("OrderNumber")),
+                                    TableName = rdr.IsDBNull(rdr.GetOrdinal("TableName")) ? "" : rdr.GetString(rdr.GetOrdinal("TableName")),
+                                    PaymentMethodName = rdr.IsDBNull(rdr.GetOrdinal("PaymentMethodName")) ? "" : rdr.GetString(rdr.GetOrdinal("PaymentMethodName")),
+                                    PaymentMethodDisplay = rdr.IsDBNull(rdr.GetOrdinal("PaymentMethodDisplay")) ? "" : rdr.GetString(rdr.GetOrdinal("PaymentMethodDisplay")),
+                                    Amount = rdr.IsDBNull(rdr.GetOrdinal("Amount")) ? 0m : rdr.GetDecimal(rdr.GetOrdinal("Amount")),
+                                    TipAmount = rdr.IsDBNull(rdr.GetOrdinal("TipAmount")) ? 0m : rdr.GetDecimal(rdr.GetOrdinal("TipAmount")),
+                                    DiscountAmount = rdr.IsDBNull(rdr.GetOrdinal("DiscAmount")) ? 0m : rdr.GetDecimal(rdr.GetOrdinal("DiscAmount")),
+                                    OriginalAmount = rdr.IsDBNull(rdr.GetOrdinal("OriginalAmount")) ? 0m : rdr.GetDecimal(rdr.GetOrdinal("OriginalAmount")),
+                                    CreatedAt = rdr.IsDBNull(rdr.GetOrdinal("CreatedAt")) ? DateTime.MinValue : rdr.GetDateTime(rdr.GetOrdinal("CreatedAt")),
+                                    ProcessedByName = rdr.IsDBNull(rdr.GetOrdinal("ProcessedByName")) ? string.Empty : rdr.GetString(rdr.GetOrdinal("ProcessedByName")),
+                                    ReferenceNumber = rdr.IsDBNull(rdr.GetOrdinal("ReferenceNumber")) ? string.Empty : rdr.GetString(rdr.GetOrdinal("ReferenceNumber")),
+                                    LastFourDigits = rdr.IsDBNull(rdr.GetOrdinal("LastFourDigits")) ? string.Empty : rdr.GetString(rdr.GetOrdinal("LastFourDigits")),
+                                    CardType = rdr.IsDBNull(rdr.GetOrdinal("CardType")) ? string.Empty : rdr.GetString(rdr.GetOrdinal("CardType")),
+                                    Notes = rdr.IsDBNull(rdr.GetOrdinal("Notes")) ? string.Empty : rdr.GetString(rdr.GetOrdinal("Notes"))
+                                };
+
+                                model.PendingPayments.Add(pending);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Error loading pending BAR payments for dashboard");
+                }
+            }
+
+            // Enhance today's totals with BOT_Payments amounts and GST from BOT_Bills
+            try
+            {
+                using var conn2 = new Microsoft.Data.SqlClient.SqlConnection(_connectionString);
+                conn2.Open();
+                using var botToday = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    SELECT 
+                        ISNULL(SUM(bp.Amount),0) AS TotalAmt,
+                        ISNULL(SUM(CASE WHEN CAST(bp.PaymentDate AS DATE) = CAST(GETDATE() AS DATE) THEN b.GSTAmount ELSE 0 END),0) AS TotalGST
+                    FROM BOT_Payments bp
+                    INNER JOIN BOT_Bills b ON bp.BillID = b.BillID
+                    WHERE CAST(bp.PaymentDate AS DATE) = CAST(GETDATE() AS DATE)
+                ", conn2);
+                using var tr = botToday.ExecuteReader();
+                if (tr.Read())
+                {
+                    model.TodayTotalPayments += (tr.IsDBNull(0) ? 0m : tr.GetDecimal(0));
+                    model.TodayTotalGST += Math.Max(0, tr.IsDBNull(1) ? 0m : tr.GetDecimal(1));
+                }
+            }
+            catch { /* ignore if BOT not present */ }
+
+            return View("BarDashboard", model);
         }
         
         // Helper methods
@@ -2535,7 +2991,86 @@ END", connection))
         }
 
         // Helper to get payment history between two dates
-        private List<PaymentHistoryItem> GetPaymentHistory(DateTime fromDate, DateTime toDate)
+        private int GetOrderFilterMode(string orderType)
+        {
+            if (orderType?.Equals("Bar", StringComparison.OrdinalIgnoreCase) == true) return 2;
+            if (orderType?.Equals("Foods", StringComparison.OrdinalIgnoreCase) == true) return 1;
+            return 0; // All
+        }
+
+        private List<PaymentHistoryItem> GetPaymentHistory(DateTime fromDate, DateTime toDate, string orderType = "All")
+        {
+            int filterMode = GetOrderFilterMode(orderType);
+            var list = new List<PaymentHistoryItem>();
+            using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+            {
+                connection.Open();
+
+                using (var command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    SELECT 
+                        o.Id AS OrderId,
+                        o.OrderNumber,
+                        ISNULL(tt.TableName, 'Takeout/Delivery') AS TableName,
+                        (SELECT ISNULL(SUM(p2.Amount), 0) FROM Payments p2 WHERE p2.OrderId = o.Id AND p2.Status = 1) AS TotalPayable,
+                        ISNULL(SUM(p.Amount), 0) AS TotalPaid,
+                        0 AS DueAmount,
+                        ISNULL(SUM(p.GSTAmount), 0) AS GSTAmount,
+                        MAX(p.CreatedAt) AS PaymentDate,
+                        o.Status AS OrderStatus,
+                        CASE o.Status 
+                            WHEN 0 THEN 'Open'
+                            WHEN 1 THEN 'In Progress'
+                            WHEN 2 THEN 'Ready'
+                            WHEN 3 THEN 'Completed'
+                            WHEN 4 THEN 'Cancelled'
+                            ELSE 'Unknown'
+                        END AS OrderStatusDisplay
+                    FROM Orders o
+                    LEFT JOIN TableTurnovers tto ON o.TableTurnoverId = tto.Id
+                    LEFT JOIN Tables tt ON tto.TableId = tt.Id
+                    INNER JOIN Payments p ON o.Id = p.OrderId AND p.Status = 1
+                    WHERE CAST(p.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
+                      AND (
+                          @FilterMode = 0 OR
+                          (@FilterMode = 1 AND NOT EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = o.Id AND kt.KitchenStation = 'BAR')) OR
+                          (@FilterMode = 2 AND EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = o.Id AND kt.KitchenStation = 'BAR'))
+                      )
+                    GROUP BY o.Id, o.OrderNumber, tt.TableName, o.Status
+                    ORDER BY MAX(p.CreatedAt) DESC", connection))
+                {
+                    command.Parameters.AddWithValue("@FromDate", fromDate.Date);
+                    command.Parameters.AddWithValue("@ToDate", toDate.Date);
+                    command.Parameters.AddWithValue("@FilterMode", filterMode);
+
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            var item = new PaymentHistoryItem
+                            {
+                                OrderId = reader.GetInt32(reader.GetOrdinal("OrderId")),
+                                OrderNumber = reader.IsDBNull(reader.GetOrdinal("OrderNumber")) ? "" : reader.GetString(reader.GetOrdinal("OrderNumber")),
+                                TableName = reader.IsDBNull(reader.GetOrdinal("TableName")) ? "" : GetMergedTableDisplayName((int)reader["OrderId"], reader.GetString(reader.GetOrdinal("TableName"))),
+                                TotalPayable = reader.IsDBNull(reader.GetOrdinal("TotalPayable")) ? 0m : Convert.ToDecimal(reader["TotalPayable"]),
+                                TotalPaid = reader.IsDBNull(reader.GetOrdinal("TotalPaid")) ? 0m : Convert.ToDecimal(reader["TotalPaid"]),
+                                DueAmount = reader.IsDBNull(reader.GetOrdinal("DueAmount")) ? 0m : Convert.ToDecimal(reader["DueAmount"]),
+                                GSTAmount = reader.IsDBNull(reader.GetOrdinal("GSTAmount")) ? 0m : Convert.ToDecimal(reader["GSTAmount"]),
+                                PaymentDate = reader.IsDBNull(reader.GetOrdinal("PaymentDate")) ? DateTime.MinValue : reader.GetDateTime(reader.GetOrdinal("PaymentDate")),
+                                OrderStatus = reader.IsDBNull(reader.GetOrdinal("OrderStatus")) ? 0 : reader.GetInt32(reader.GetOrdinal("OrderStatus")),
+                                OrderStatusDisplay = reader.IsDBNull(reader.GetOrdinal("OrderStatusDisplay")) ? "" : reader.GetString(reader.GetOrdinal("OrderStatusDisplay"))
+                            };
+
+                            list.Add(item);
+                        }
+                    }
+                }
+            }
+
+            return list;
+        }
+
+        // Helper to get BAR-only payment history between two dates
+        private List<PaymentHistoryItem> GetBarPaymentHistory(DateTime fromDate, DateTime toDate)
         {
             var list = new List<PaymentHistoryItem>();
             using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
@@ -2566,6 +3101,12 @@ END", connection))
                     LEFT JOIN Tables tt ON tto.TableId = tt.Id
                     INNER JOIN Payments p ON o.Id = p.OrderId AND p.Status = 1
                     WHERE CAST(p.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
+                      AND EXISTS (
+                          SELECT 1 FROM KitchenTickets kt 
+                          WHERE kt.OrderId = o.Id 
+                            AND kt.KitchenStation = 'BAR' 
+                            AND kt.TicketNumber LIKE 'BOT-%'
+                      )
                     GROUP BY o.Id, o.OrderNumber, tt.TableName, o.Status
                     ORDER BY MAX(p.CreatedAt) DESC", connection))
                 {
@@ -2600,14 +3141,14 @@ END", connection))
         }
 
         // GET: Payment/ExportCsv
-        public IActionResult ExportCsv(DateTime? fromDate, DateTime? toDate)
+        public IActionResult ExportCsv(DateTime? fromDate, DateTime? toDate, string orderType)
         {
             var from = fromDate ?? DateTime.Today;
             var to = toDate ?? DateTime.Today;
 
             try
             {
-                var items = GetPaymentHistory(from, to);
+                var items = GetPaymentHistory(from, to, orderType);
 
                 var csv = "OrderId,OrderNumber,TableName,TotalPayable,GSTAmount,TotalPaid,DueAmount,OrderStatus,PaymentDate\n";
                 foreach (var p in items)
@@ -2628,7 +3169,7 @@ END", connection))
         }
 
         // GET: Payment/Print
-        public IActionResult Print(DateTime? fromDate, DateTime? toDate)
+        public IActionResult Print(DateTime? fromDate, DateTime? toDate, string orderType)
         {
             var from = fromDate ?? DateTime.Today;
             var to = toDate ?? DateTime.Today;
@@ -2637,7 +3178,52 @@ END", connection))
             {
                 FromDate = from,
                 ToDate = to,
-                PaymentHistory = GetPaymentHistory(from, to)
+                OrderType = string.IsNullOrWhiteSpace(orderType) ? "All" : orderType,
+                PaymentHistory = GetPaymentHistory(from, to, orderType)
+            };
+
+            return View("Print", model);
+        }
+
+        // GET: Payment/BarExportCsv
+        public IActionResult BarExportCsv(DateTime? fromDate, DateTime? toDate)
+        {
+            var from = fromDate ?? DateTime.Today;
+            var to = toDate ?? DateTime.Today;
+
+            try
+            {
+                var items = GetBarPaymentHistory(from, to);
+
+                var csv = "OrderId,OrderNumber,TableName,TotalPayable,GSTAmount,TotalPaid,DueAmount,OrderStatus,PaymentDate\n";
+                foreach (var p in items)
+                {
+                    var safeTable = (p.TableName ?? string.Empty).Replace("\"", "\"\"");
+                    var safeOrder = (p.OrderNumber ?? string.Empty).Replace("\"", "\"\"");
+                    csv += $"{p.OrderId},\"{safeOrder}\",\"{safeTable}\",{p.TotalPayable},{p.GSTAmount},{p.TotalPaid},{p.DueAmount},\"{p.OrderStatusDisplay}\",{p.PaymentDate:O}\n";
+                }
+
+                var bytes = System.Text.Encoding.UTF8.GetBytes(csv);
+                return File(bytes, "text/csv", "bar-payment-history.csv");
+            }
+            catch (Exception ex)
+            {
+                TempData["ErrorMessage"] = "Error exporting CSV: " + ex.Message;
+                return RedirectToAction("BarDashboard");
+            }
+        }
+
+        // GET: Payment/BarPrint
+        public IActionResult BarPrint(DateTime? fromDate, DateTime? toDate)
+        {
+            var from = fromDate ?? DateTime.Today;
+            var to = toDate ?? DateTime.Today;
+
+            var model = new PaymentDashboardViewModel
+            {
+                FromDate = from,
+                ToDate = to,
+                PaymentHistory = GetBarPaymentHistory(from, to)
             };
 
             return View("Print", model);
