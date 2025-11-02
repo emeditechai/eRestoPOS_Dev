@@ -6,9 +6,9 @@
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="mb-0"><i class="fas fa-cocktail"></i> Bar Dashboard</h1>
+        <h1 class="mb-0" style="color:#7c3aed"><i class="fas fa-cocktail me-2"></i>Bar Dashboard</h1>
         <div class="d-flex align-items-center">
-            <button onclick="location.reload()" class="btn btn-primary">
+            <button onclick="location.reload()" class="btn text-white" style="background: linear-gradient(90deg, #9333ea 60%, #a855f7 100%);">
                 <i class="fas fa-sync-alt"></i> Refresh
             </button>
         </div>
@@ -17,7 +17,7 @@
     <!-- Statistics Cards -->
     <div class="row mb-4">
         <div class="col-md-2">
-            <div class="card bg-primary text-white">
+            <div class="card text-white bar-metric-card bar-grad-1">
                 <div class="card-body text-center">
                     <h5 class="card-title">Total Tickets</h5>
                     <h2 class="mb-0">@(Model.Stats.NewBOTsCount + Model.Stats.InProgressBOTsCount + Model.Stats.ReadyBOTsCount)</h2>
@@ -25,7 +25,7 @@
             </div>
         </div>
         <div class="col-md-2">
-            <div class="card bg-warning text-dark">
+            <div class="card text-white bar-metric-card bar-grad-2">
                 <div class="card-body text-center">
                     <h5 class="card-title">New</h5>
                     <h2 class="mb-0">@Model.Stats.NewBOTsCount</h2>
@@ -33,7 +33,7 @@
             </div>
         </div>
         <div class="col-md-2">
-            <div class="card bg-info text-white">
+            <div class="card text-white bar-metric-card bar-grad-3">
                 <div class="card-body text-center">
                     <h5 class="card-title">In Progress</h5>
                     <h2 class="mb-0">@Model.Stats.InProgressBOTsCount</h2>
@@ -41,7 +41,7 @@
             </div>
         </div>
         <div class="col-md-2">
-            <div class="card bg-success text-white">
+            <div class="card text-white bar-metric-card bar-grad-4">
                 <div class="card-body text-center">
                     <h5 class="card-title">Ready</h5>
                     <h2 class="mb-0">@Model.Stats.ReadyBOTsCount</h2>
@@ -49,7 +49,7 @@
             </div>
         </div>
         <div class="col-md-2">
-            <div class="card bg-secondary text-white">
+            <div class="card text-white bar-metric-card bar-grad-5">
                 <div class="card-body text-center">
                     <h5 class="card-title">Pending Items</h5>
                     <h2 class="mb-0">0</h2>
@@ -57,7 +57,7 @@
             </div>
         </div>
         <div class="col-md-2">
-            <div class="card bg-dark text-white">
+            <div class="card text-white bar-metric-card bar-grad-6">
                 <div class="card-body text-center">
                     <h5 class="card-title">Avg Prep Time</h5>
                     <h2 class="mb-0">@Model.Stats.AvgPrepTimeMinutes.ToString("F1") min</h2>
@@ -70,8 +70,8 @@
     <div class="row">
         <!-- New Tickets -->
         <div class="col-md-4">
-            <div class="card border-warning mb-4 h-100">
-                <div class="card-header bg-warning text-dark">
+            <div class="card bar-col-card mb-4 h-100">
+                <div class="card-header text-white bar-grad-2">
                     <h5 class="mb-0">New Beverage Orders (@Model.NewTickets.Count)</h5>
                 </div>
                 <div class="card-body p-0">
@@ -116,8 +116,8 @@
         
         <!-- In Progress Tickets -->
         <div class="col-md-4">
-            <div class="card border-info mb-4 h-100">
-                <div class="card-header bg-info text-white">
+            <div class="card bar-col-card mb-4 h-100">
+                <div class="card-header text-white bar-grad-3">
                     <h5 class="mb-0">In Progress (@Model.InProgressTickets.Count)</h5>
                 </div>
                 <div class="card-body p-0">
@@ -165,8 +165,8 @@
         
         <!-- Ready Tickets -->
         <div class="col-md-4">
-            <div class="card border-success mb-4 h-100">
-                <div class="card-header bg-success text-white">
+            <div class="card bar-col-card mb-4 h-100">
+                <div class="card-header text-white bar-grad-4">
                     <h5 class="mb-0">Ready for Service (@Model.ReadyTickets.Count)</h5>
                 </div>
                 <div class="card-body p-0">
@@ -214,8 +214,8 @@
         
         <!-- Delivered Today Tickets -->
         <div class="col-md-12">
-            <div class="card border-secondary mb-4">
-                <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+            <div class="card bar-col-card mb-4">
+                <div class="card-header text-white bar-grad-5 d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Delivered Today (@Model.DeliveredTickets.Count)</h5>
                     <small>Showing only beverage tickets delivered today</small>
                 </div>
@@ -264,6 +264,23 @@
 
 @section Styles {
     <style>
+        /* Metric cards - compact spacing */
+        .bar-metric-card .card-body { padding: .6rem .8rem; }
+        .bar-metric-card h5 { font-size: .95rem; margin-bottom: .25rem; }
+        .bar-metric-card h2 { font-size: 1.6rem; margin: 0; }
+
+        /* Gradient palettes for Bar theme */
+        .bar-grad-1 { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); }
+        .bar-grad-2 { background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%); }
+        .bar-grad-3 { background: linear-gradient(135deg, #a855f7 0%, #c084fc 100%); }
+        .bar-grad-4 { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); }
+        .bar-grad-5 { background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); }
+        .bar-grad-6 { background: linear-gradient(135deg, #0f172a 0%, #1f2937 100%); }
+
+        /* Column cards style */
+        .bar-col-card { border: 0; box-shadow: 0 4px 10px rgba(124,58,237,.08); }
+        .bar-col-card .card-header { border-bottom: 0; }
+
         .bar-ticket-list {
             max-height: 600px;
             overflow-y: auto;

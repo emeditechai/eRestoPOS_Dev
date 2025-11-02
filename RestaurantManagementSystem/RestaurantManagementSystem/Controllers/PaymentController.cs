@@ -58,7 +58,7 @@ namespace RestaurantManagementSystem.Controllers
         }
         
         // Payment Dashboard
-        public IActionResult Index(int id)
+        public IActionResult Index(int id, bool? fromBar = null)
         {
             var model = GetPaymentViewModel(id);
             
@@ -66,6 +66,32 @@ namespace RestaurantManagementSystem.Controllers
             {
                 return NotFound();
             }
+
+            // Determine whether this payment view was opened from Bar context.
+            // Priority: explicit query param > Referer hint > DB detection (KitchenTickets BAR/BOT)
+            bool isBarContext = false;
+            try
+            {
+                if (fromBar.HasValue)
+                {
+                    isBarContext = fromBar.Value;
+                }
+                else
+                {
+                    var referer = Request?.Headers["Referer"].ToString() ?? string.Empty;
+                    if (!string.IsNullOrEmpty(referer) && (referer.Contains("/BOT/", StringComparison.OrdinalIgnoreCase) || referer.Contains("fromBar=true", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        isBarContext = true;
+                    }
+                    else
+                    {
+                        // Fallback: detect if the order has any BAR/BOT tickets
+                        isBarContext = IsBarOrder(id);
+                    }
+                }
+            }
+            catch { /* non-fatal */ }
+            ViewBag.FromBar = isBarContext;
 
             // Read BillFormat from RestaurantSettings to control which print buttons are shown
             try
@@ -88,6 +114,28 @@ namespace RestaurantManagementSystem.Controllers
 
             
             return View(model);
+        }
+        
+        // Determine if an order should be treated as a Bar (BOT) order for navigation context
+        private bool IsBarOrder(int orderId)
+        {
+            try
+            {
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    conn.Open();
+                    using (var cmd = new SqlCommand(@"SELECT TOP 1 1 FROM KitchenTickets WHERE OrderId = @OrderId AND (KitchenStation = 'BAR' OR TicketNumber LIKE 'BOT-%')", conn))
+                    {
+                        cmd.Parameters.AddWithValue("@OrderId", orderId);
+                        var obj = cmd.ExecuteScalar();
+                        return obj != null && obj != DBNull.Value;
+                    }
+                }
+            }
+            catch
+            {
+                return false; // default to non-bar if detection fails
+            }
         }
         
         // Fix fully paid orders that are stuck in active status

@@ -7,9 +7,18 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1>@ViewData["Title"] - Order #@Model.OrderNumber</h1>
         <div>
-            <a asp-controller="Order" asp-action="Details" asp-route-id="@Model.OrderId" class="btn btn-outline-secondary">
-                <i class="fas fa-arrow-left"></i> Back to Order
-            </a>
+            @if (ViewBag.FromBar == true)
+            {
+                <a asp-controller="Order" asp-action="Details" asp-route-id="@Model.OrderId" asp-route-fromBar="true" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Order
+                </a>
+            }
+            else
+            {
+                <a asp-controller="Order" asp-action="Details" asp-route-id="@Model.OrderId" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Order
+                </a>
+            }
         </div>
     </div>
 

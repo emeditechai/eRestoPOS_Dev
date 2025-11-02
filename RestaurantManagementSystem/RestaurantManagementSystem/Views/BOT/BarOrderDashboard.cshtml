@@ -152,7 +152,7 @@
                                                     <a asp-controller="Order" asp-action="Details" asp-route-id="@order.Id" asp-route-fromBar="true" class="btn btn-sm btn-outline-primary" title="View Order">
                                                         <i class="fas fa-eye"></i>
                                                     </a>
-                                                    <a href="/Payment/Index/@order.Id" class="btn btn-sm btn-outline-success" title="Process Payment">
+                                                    <a href="/Payment/Index/@order.Id?fromBar=true" class="btn btn-sm btn-outline-success" title="Process Payment">
                                                         <i class="fas fa-credit-card"></i>
                                                     </a>
                                                     <button type="button" class="btn btn-sm btn-outline-danger cancel-order-trigger"
@@ -223,7 +223,7 @@
                                                     <a asp-controller="Order" asp-action="Details" asp-route-id="@order.Id" asp-route-fromBar="true" class="btn btn-sm btn-outline-secondary" title="View Order">
                                                         <i class="fas fa-eye"></i>
                                                     </a>
-                                                    <a href="/Payment/Index/@order.Id" class="btn btn-sm btn-outline-success" title="Payment">
+                                                    <a href="/Payment/Index/@order.Id?fromBar=true" class="btn btn-sm btn-outline-success" title="Payment">
                                                         <i class="fas fa-credit-card"></i>
                                                     </a>
                                                 </div>
