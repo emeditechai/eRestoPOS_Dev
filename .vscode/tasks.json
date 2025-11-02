@@ -41,6 +41,57 @@
 			"command": "dotnet build",
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "Build .NET project",
+			"type": "shell",
+			"command": "dotnet build",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build .NET project",
+			"type": "shell",
+			"command": "dotnet build",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build .NET project",
+			"type": "shell",
+			"command": "dotnet build",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build .NET project",
+			"type": "shell",
+			"command": "dotnet build",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build .NET project",
+			"type": "shell",
+			"command": "dotnet build",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build Split Payment Fix",
+			"type": "shell",
+			"command": "dotnet build",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build Order Item Group Fix",
+			"type": "shell",
+			"command": "dotnet build RestaurantManagementSystem/RestaurantManagementSystem/RestaurantManagementSystem.csproj",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }

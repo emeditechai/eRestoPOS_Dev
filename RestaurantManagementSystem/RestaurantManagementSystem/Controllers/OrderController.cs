@@ -149,6 +149,21 @@ namespace RestaurantManagementSystem.Controllers
                                         reader.Close();
                                         if (orderId > 0)
                                         {
+                                            // Set OrderKitchenType to "Foods" for orders created from Orders navigation
+                                            try
+                                            {
+                                                using (var setKitchenTypeCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                                    IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType')
+                                                    BEGIN
+                                                        UPDATE dbo.Orders SET OrderKitchenType = 'Foods' WHERE Id = @OrderId
+                                                    END", connection, transaction))
+                                                {
+                                                    setKitchenTypeCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                                    setKitchenTypeCmd.ExecuteNonQuery();
+                                                }
+                                            }
+                                            catch { /* non-fatal if column doesn't exist */ }
+
                                             using (Microsoft.Data.SqlClient.SqlCommand kitchenCommand = new Microsoft.Data.SqlClient.SqlCommand("UpdateKitchenTicketsForOrder", connection, transaction))
                                             {
                                                 kitchenCommand.CommandType = CommandType.StoredProcedure;
@@ -207,6 +222,7 @@ namespace RestaurantManagementSystem.Controllers
                                             }
                                             transaction.Commit();
                                             TempData["SuccessMessage"] = $"Order {orderNumber} created successfully.";
+                                            TempData["IsBarOrder"] = false; // Explicitly mark as non-bar order (from Orders navigation)
                                             return RedirectToAction("Details", new { id = orderId });
                                         }
                                         else
@@ -376,32 +392,6 @@ namespace RestaurantManagementSystem.Controllers
                 {
                     model.SelectedMenuItemGroupId = 1; // safe default even if table missing
                 }
-
-                // Persist initial OrderKitchenType on the order record, based on current Item Group selection (Bar/Foods)
-                // Only set this if the Orders table has the column and it's not already set.
-                try
-                {
-                    string kitchenType = "Foods";
-                    var selectedGroup = model.MenuItemGroups.FirstOrDefault(g => g.ID == model.SelectedMenuItemGroupId);
-                    if (selectedGroup != null && selectedGroup.ItemGroup != null && selectedGroup.ItemGroup.Equals("Bar", StringComparison.OrdinalIgnoreCase))
-                    {
-                        kitchenType = "Bar";
-                    }
-
-                    using (var setFlagCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                        IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType')
-                        BEGIN
-                            UPDATE o SET o.OrderKitchenType = @KitchenType
-                            FROM dbo.Orders o
-                            WHERE o.Id = @OrderId AND (o.OrderKitchenType IS NULL OR LTRIM(RTRIM(o.OrderKitchenType)) = '')
-                        END", connection))
-                    {
-                        setFlagCmd.Parameters.AddWithValue("@OrderId", id);
-                        setFlagCmd.Parameters.AddWithValue("@KitchenType", kitchenType);
-                        setFlagCmd.ExecuteNonQuery();
-                    }
-                }
-                catch { /* non-fatal */ }
 
                 // Load available menu items filtered by group if column exists; else load all
                 var sql = @"DECLARE @hasCol bit = 0;

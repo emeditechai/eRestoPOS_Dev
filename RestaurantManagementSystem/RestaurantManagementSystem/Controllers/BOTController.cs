@@ -938,6 +938,21 @@ namespace RestaurantManagementSystem.Controllers
                                         
                                         if (orderId > 0)
                                         {
+                                            // Set OrderKitchenType to "Bar" for orders created from Bar navigation
+                                            try
+                                            {
+                                                using (var setKitchenTypeCmd = new SqlCommand(@"
+                                                    IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType')
+                                                    BEGIN
+                                                        UPDATE dbo.Orders SET OrderKitchenType = 'Bar' WHERE Id = @OrderId
+                                                    END", connection, transaction))
+                                                {
+                                                    setKitchenTypeCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                                    setKitchenTypeCmd.ExecuteNonQuery();
+                                                }
+                                            }
+                                            catch { /* non-fatal if column doesn't exist */ }
+
                                             using (SqlCommand kitchenCommand = new SqlCommand("UpdateKitchenTicketsForOrder", connection, transaction))
                                             {
                                                 kitchenCommand.CommandType = CommandType.StoredProcedure;
