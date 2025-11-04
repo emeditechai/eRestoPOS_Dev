@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.Extensions.Configuration;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.Services;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -17,6 +18,7 @@ namespace RestaurantManagementSystem.Controllers
         private readonly IConfiguration _configuration;
         private readonly string _connectionString;
         private readonly ILogger<PaymentController> _logger;
+        private readonly UrlEncryptionService _encryptionService;
 
         // Helper to get merged table display name for an order
         private string GetMergedTableDisplayName(int orderId, string existingTableName)
@@ -50,11 +52,12 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        public PaymentController(IConfiguration configuration, ILogger<PaymentController> logger)
+        public PaymentController(IConfiguration configuration, ILogger<PaymentController> logger, UrlEncryptionService encryptionService)
         {
             _configuration = configuration;
             _connectionString = _configuration.GetConnectionString("DefaultConnection");
             _logger = logger;
+            _encryptionService = encryptionService;
         }
         
         // Payment Dashboard
@@ -220,10 +223,54 @@ namespace RestaurantManagementSystem.Controllers
         }
         
         // Process Payment
-        public IActionResult ProcessPayment(int orderId, decimal? discount = null, string discountType = null)
+        public IActionResult ProcessPayment(int? orderId = null, decimal? discount = null, string discountType = null, string token = null)
         {
+            // Support both encrypted token and plain orderId for backward compatibility
+            int actualOrderId = 0;
+            decimal? actualDiscount = discount;
+            string actualDiscountType = discountType;
+
+            if (!string.IsNullOrEmpty(token))
+            {
+                try
+                {
+                    // Decrypt the token to get parameters
+                    var parameters = _encryptionService.DecryptParameters(token);
+                    
+                    if (parameters.ContainsKey("orderId") && int.TryParse(parameters["orderId"], out int decryptedOrderId))
+                    {
+                        actualOrderId = decryptedOrderId;
+                    }
+                    
+                    if (parameters.ContainsKey("discount") && decimal.TryParse(parameters["discount"], out decimal decryptedDiscount))
+                    {
+                        actualDiscount = decryptedDiscount;
+                    }
+
+                    if (parameters.ContainsKey("discountType"))
+                    {
+                        actualDiscountType = parameters["discountType"];
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Failed to decrypt payment token");
+                    TempData["ErrorMessage"] = "Invalid or expired payment link. Please try again.";
+                    return RedirectToAction("Index", "Home");
+                }
+            }
+            else if (orderId.HasValue)
+            {
+                // Use plain orderId for backward compatibility
+                actualOrderId = orderId.Value;
+            }
+            else
+            {
+                return BadRequest("Order ID or token is required");
+            }
+
             // Get payment view model with GST calculations
-            var paymentViewModel = GetPaymentViewModel(orderId);
+            var paymentViewModel = GetPaymentViewModel(actualOrderId);
             if (paymentViewModel == null)
             {
                 return NotFound();
@@ -231,7 +278,7 @@ namespace RestaurantManagementSystem.Controllers
             
             var model = new ProcessPaymentViewModel
             {
-                OrderId = orderId,
+                OrderId = actualOrderId,
                 OrderNumber = paymentViewModel.OrderNumber,
                 TotalAmount = paymentViewModel.TotalAmount, // This now includes GST
                 RemainingAmount = paymentViewModel.RemainingAmount, // This is Total - Paid (including GST)
@@ -240,17 +287,17 @@ namespace RestaurantManagementSystem.Controllers
                 GSTPercentage = paymentViewModel.GSTPercentage // dynamic GST %
             };
             // If a discount preview/value was provided from Payment Index, prefill here (additional discount)
-            if (discount.HasValue && discount.Value > 0)
+            if (actualDiscount.HasValue && actualDiscount.Value > 0)
             {
                 // If discountType=percent apply on subtotal; else treat as amount
-                if (!string.IsNullOrEmpty(discountType) && discountType.Equals("percent", StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrEmpty(actualDiscountType) && actualDiscountType.Equals("percent", StringComparison.OrdinalIgnoreCase))
                 {
-                    var percentDisc = Math.Round(paymentViewModel.Subtotal * discount.Value / 100m, 2, MidpointRounding.AwayFromZero);
+                    var percentDisc = Math.Round(paymentViewModel.Subtotal * actualDiscount.Value / 100m, 2, MidpointRounding.AwayFromZero);
                     model.DiscountAmount = Math.Min(percentDisc, paymentViewModel.Subtotal);
                 }
                 else
                 {
-                    model.DiscountAmount = Math.Min(discount.Value, paymentViewModel.Subtotal);
+                    model.DiscountAmount = Math.Min(actualDiscount.Value, paymentViewModel.Subtotal);
                 }
             }
             
@@ -3807,6 +3854,49 @@ END", connection))
             {
                 TempData["ErrorMessage"] = $"Error loading POS bill for printing: {ex.Message}";
                 return RedirectToAction("Index", new { id = orderId });
+            }
+        }
+
+        /// <summary>
+        /// Helper method to generate encrypted payment URL
+        /// </summary>
+        private string GetEncryptedPaymentUrl(int orderId, decimal? discount = null, string? discountType = null)
+        {
+            var parameters = new Dictionary<string, string>
+            {
+                ["orderId"] = orderId.ToString()
+            };
+
+            if (discount.HasValue)
+            {
+                parameters["discount"] = discount.Value.ToString("F2");
+            }
+
+            if (!string.IsNullOrEmpty(discountType))
+            {
+                parameters["discountType"] = discountType;
+            }
+
+            var encryptedToken = _encryptionService.EncryptParameters(parameters);
+            // Return relative URL path
+            return $"/Payment/ProcessPayment?token={Uri.EscapeDataString(encryptedToken)}";
+        }
+
+        /// <summary>
+        /// API endpoint to generate encrypted payment URL (called from JavaScript)
+        /// </summary>
+        [HttpGet]
+        public JsonResult GenerateEncryptedPaymentUrl(int orderId, decimal? discount = null, string? discountType = null)
+        {
+            try
+            {
+                var encryptedUrl = GetEncryptedPaymentUrl(orderId, discount, discountType);
+                return Json(new { success = true, url = encryptedUrl });
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Failed to generate encrypted payment URL for order {OrderId}", orderId);
+                return Json(new { success = false, error = "Failed to generate encrypted URL" });
             }
         }
     }

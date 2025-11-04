@@ -1,4 +1,5 @@
 @model OrderDashboardViewModel
+@inject RestaurantManagementSystem.Services.UrlEncryptionService EncryptionService
 @{
     ViewData["Title"] = "Bar Order Dashboard";
 }
@@ -149,7 +150,10 @@
                                             <td><strong>₹@order.TotalAmount.ToString("F2")</strong></td>
                                             <td>
                                                 <div class="btn-group">
-                                                    <a asp-controller="Order" asp-action="Details" asp-route-id="@order.Id" asp-route-fromBar="true" class="btn btn-sm btn-outline-primary" title="View Order">
+                                                    @{
+                                                        var encryptedOrderUrl = "/Order/Details?token=" + Uri.EscapeDataString(EncryptionService.EncryptParameters(new Dictionary<string, string> { ["id"] = order.Id.ToString(), ["fromBar"] = "true" }));
+                                                    }
+                                                    <a href="@encryptedOrderUrl" class="btn btn-sm btn-outline-primary" title="View Order">
                                                         <i class="fas fa-eye"></i>
                                                     </a>
                                                     <a href="/Payment/Index/@order.Id?fromBar=true" class="btn btn-sm btn-outline-success" title="Process Payment">
@@ -220,7 +224,10 @@
                                             <td>@order.Duration.ToString(@"hh\:mm")</td>
                                             <td>
                                                 <div class="btn-group">
-                                                    <a asp-controller="Order" asp-action="Details" asp-route-id="@order.Id" asp-route-fromBar="true" class="btn btn-sm btn-outline-secondary" title="View Order">
+                                                    @{
+                                                        var encryptedCompletedOrderUrl = "/Order/Details?token=" + Uri.EscapeDataString(EncryptionService.EncryptParameters(new Dictionary<string, string> { ["id"] = order.Id.ToString(), ["fromBar"] = "true" }));
+                                                    }
+                                                    <a href="@encryptedCompletedOrderUrl" class="btn btn-sm btn-outline-secondary" title="View Order">
                                                         <i class="fas fa-eye"></i>
                                                     </a>
                                                     <a href="/Payment/Index/@order.Id?fromBar=true" class="btn btn-sm btn-outline-success" title="Payment">
@@ -249,6 +256,76 @@
             </div>
         </div>
     </div>
+
+    @* Cancelled Bar Orders *@
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center" style="background: linear-gradient(90deg, #dc2626 60%, #ef4444 100%); color: white;">
+                    <h5 class="mb-0"><i class="fas fa-ban me-2"></i>Cancelled Bar Orders</h5>
+                    <div class="d-flex align-items-center" style="gap:.5rem">
+                        <small>Today's cancelled orders</small>
+                        <span class="badge bg-white rounded-pill px-3" style="color: #dc2626;" title="Cancelled bar orders">@((Model.CancelledOrders?.Count() ?? 0).ToString()) Records</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (Model.CancelledOrders.Any())
+                    {
+                        <div class="table-responsive table-container">
+                            <table class="table table-sm table-striped table-hover" id="cancelledOrders">
+                                <thead class="sticky" style="background: linear-gradient(90deg, #dc2626 60%, #ef4444 100%); color: white;">
+                                    <tr class="text-center">
+                                        <th>Order #</th>
+                                        <th>Type</th>
+                                        <th>Table/Customer</th>
+                                        <th>Bar Items</th>
+                                        <th>Total</th>
+                                        <th>Duration</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var order in Model.CancelledOrders)
+                                    {
+                                        <tr class="align-middle text-center">
+                                            <td><strong>@order.OrderNumber</strong></td>
+                                            <td>@order.OrderTypeDisplay</td>
+                                            <td>
+                                                @if (order.OrderType == 0) { @(order.TableName ?? "No Table") }
+                                                else { @(order.GuestName ?? "No Name") }
+                                            </td>
+                                            <td><span class="badge bg-danger-subtle text-danger">@order.ItemCount</span></td>
+                                            <td><strong>₹@order.TotalAmount.ToString("F2")</strong></td>
+                                            <td>@order.Duration.ToString(@"hh\:mm")</td>
+                                            <td>
+                                                <div class="btn-group">
+                                                    @{
+                                                        var encryptedCancelledOrderUrl = "/Order/Details?token=" + Uri.EscapeDataString(EncryptionService.EncryptParameters(new Dictionary<string, string> { ["id"] = order.Id.ToString(), ["fromBar"] = "true" }));
+                                                    }
+                                                    <a href="@encryptedCancelledOrderUrl" class="btn btn-sm btn-outline-secondary" title="View Order">
+                                                        <i class="fas fa-eye"></i>
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="alert mt-2 mb-0 py-2" style="background-color: #fee2e2; border-color: #dc2626; color: #991b1b;">
+                            <strong>Total Cancelled Today:</strong> @Model.CancelledOrdersCount
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info mb-0">
+                            <i class="fas fa-info-circle me-2"></i>No cancelled bar orders today.
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 @section Scripts {
@@ -263,6 +340,14 @@
                 scrollCollapse: true
             });
             $('#completedOrders').DataTable({
+                order: [[0, 'desc']],
+                paging: false,
+                info: false,
+                searching: true,
+                scrollY: '28vh',
+                scrollCollapse: true
+            });
+            $('#cancelledOrders').DataTable({
                 order: [[0, 'desc']],
                 paging: false,
                 info: false,

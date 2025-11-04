@@ -146,7 +146,14 @@
           <button type="button" id="fireItemsBtn" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#fireItemsModal"><i class="fas @fireButtonIcon"></i> @fireButtonLabel</button>
           @{ var hasKOT = Model.KitchenTickets != null && Model.KitchenTickets.Any(); }
           <a asp-action="KOTBill" asp-route-id="@Model.Id" class="btn btn-sm btn-outline-info @(hasKOT ? "" : "btn-disabled")" title="@kotPrintLabel" target="_blank" rel="noopener noreferrer" aria-disabled="@(hasKOT? "false" : "true")"> <i class="fas fa-print"></i> @kotPrintLabel</a>
-          <a asp-action="Dashboard" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+          @if (ViewBag.IsBarOrder == true)
+          {
+            <a asp-controller="BOT" asp-action="BarOrderDashboard" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+          }
+          else
+          {
+            <a asp-action="Dashboard" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+          }
             <a asp-controller="Payment" asp-action="Index" asp-route-id="@Model.Id" asp-route-fromBar="@(isBarOrder ? "true" : null)" class="@paymentClass" aria-disabled="@(isFullyPaid ? "true" : null)" tabindex="@(isFullyPaid ? "-1" : null)"><i class="fas fa-credit-card"></i> Payment</a>
         </div>
       </div>

@@ -4,11 +4,13 @@ namespace RestaurantManagementSystem.Controllers
     {
         private readonly IConfiguration _configuration;
         private readonly string _connectionString;
+        private readonly RestaurantManagementSystem.Services.UrlEncryptionService _encryptionService;
         
-        public OrderController(IConfiguration configuration)
+        public OrderController(IConfiguration configuration, RestaurantManagementSystem.Services.UrlEncryptionService encryptionService)
         {
             _configuration = configuration;
             _connectionString = _configuration.GetConnectionString("DefaultConnection");
+            _encryptionService = encryptionService;
         }
         
         // Order Dashboard
@@ -305,17 +307,56 @@ namespace RestaurantManagementSystem.Controllers
         }
         
         // Order Details
-        public IActionResult Details(int id, bool fromBar = false)
+        public IActionResult Details(int? id = null, bool? fromBar = null, string token = null)
         {
-            var model = GetOrderDetails(id);
+            // Support both encrypted token and plain parameters for backward compatibility
+            int actualId = 0;
+            bool actualFromBar = false;
+
+            if (!string.IsNullOrEmpty(token))
+            {
+                try
+                {
+                    // Decrypt the token to get parameters
+                    var parameters = _encryptionService.DecryptParameters(token);
+                    
+                    if (parameters.ContainsKey("id") && int.TryParse(parameters["id"], out int decryptedId))
+                    {
+                        actualId = decryptedId;
+                    }
+                    
+                    if (parameters.ContainsKey("fromBar") && bool.TryParse(parameters["fromBar"], out bool decryptedFromBar))
+                    {
+                        actualFromBar = decryptedFromBar;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log error if needed
+                    TempData["ErrorMessage"] = "Invalid or expired order link. Please try again.";
+                    return RedirectToAction("Dashboard", "Order");
+                }
+            }
+            else if (id.HasValue)
+            {
+                // Use plain parameters for backward compatibility
+                actualId = id.Value;
+                actualFromBar = fromBar ?? false;
+            }
+            else
+            {
+                return BadRequest("Order ID or token is required");
+            }
+
+            var model = GetOrderDetails(actualId);
             if (model == null)
             {
                 return NotFound();
             }
 
-            // Determine BAR context: explicit query param > TempData > DB detection (KitchenTickets BAR/BOT)
+            // Determine BAR context: explicit parameter > TempData > DB detection (KitchenTickets BAR/BOT)
             bool isBarContext = false;
-            if (fromBar)
+            if (actualFromBar)
             {
                 isBarContext = true;
             }
@@ -328,7 +369,7 @@ namespace RestaurantManagementSystem.Controllers
                 // Fallback: detect if the order has any BAR/BOT tickets
                 try
                 {
-                    isBarContext = IsBarOrder(id);
+                    isBarContext = IsBarOrder(actualId);
                 }
                 catch
                 {
@@ -1826,7 +1867,7 @@ namespace RestaurantManagementSystem.Controllers
             {
                 connection.Open();
                 
-                // Get order counts and total sales for today
+                // Get order counts and total sales for today (exclude Bar orders)
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT
                         SUM(CASE WHEN Status = 0 AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS OpenCount,
@@ -1835,7 +1876,8 @@ namespace RestaurantManagementSystem.Controllers
                         SUM(CASE WHEN Status = 3 AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS CompletedCount,
                         SUM(CASE WHEN Status = 3 AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN TotalAmount ELSE 0 END) AS TotalSales,
                         SUM(CASE WHEN Status = 4 AND CAST(ISNULL(UpdatedAt, CreatedAt) AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS CancelledCount
-                    FROM Orders", connection))
+                    FROM Orders
+                    WHERE (OrderKitchenType != 'Bar' OR OrderKitchenType IS NULL)", connection))
                 {
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
@@ -1851,7 +1893,7 @@ namespace RestaurantManagementSystem.Controllers
                     }
                 }
                 
-                // Get active orders
+                // Get active orders (exclude Bar orders)
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT 
                         o.Id,
@@ -1876,6 +1918,7 @@ namespace RestaurantManagementSystem.Controllers
                     LEFT JOIN Tables t ON tt.TableId = t.Id
                     LEFT JOIN Users u ON o.UserId = u.Id
                     WHERE o.Status < 3 -- Not completed
+                    AND (o.OrderKitchenType != 'Bar' OR o.OrderKitchenType IS NULL)
                     ORDER BY o.CreatedAt DESC", connection))
                 {
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
@@ -1927,7 +1970,7 @@ namespace RestaurantManagementSystem.Controllers
                     }
                 }
                 
-                // Get completed orders (filtered by date range if provided)
+                // Get completed orders (filtered by date range if provided, exclude Bar orders)
                 string completedSql = @"
                     SELECT 
                         o.Id,
@@ -1952,6 +1995,7 @@ namespace RestaurantManagementSystem.Controllers
                     LEFT JOIN Tables t ON tt.TableId = t.Id
                     LEFT JOIN Users u ON o.UserId = u.Id
                     WHERE o.Status = 3 -- Completed
+                    AND (o.OrderKitchenType != 'Bar' OR o.OrderKitchenType IS NULL)
                 ";
 
                 if (fromDate.HasValue && toDate.HasValue)
@@ -2010,7 +2054,7 @@ namespace RestaurantManagementSystem.Controllers
                     }
                 }
                 
-                // Get cancelled orders for today (filtered by cancellation date)
+                // Get cancelled orders for today (filtered by cancellation date, exclude Bar orders)
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT 
                         o.Id,
@@ -2035,6 +2079,7 @@ namespace RestaurantManagementSystem.Controllers
                     LEFT JOIN Tables t ON tt.TableId = t.Id
                     LEFT JOIN Users u ON o.UserId = u.Id
                     WHERE o.Status = 4 -- Cancelled
+                    AND (o.OrderKitchenType != 'Bar' OR o.OrderKitchenType IS NULL)
                     AND CAST(ISNULL(o.UpdatedAt, o.CreatedAt) AS DATE) = CAST(GETDATE() AS DATE) -- Filter by cancellation date
                     ORDER BY ISNULL(o.UpdatedAt, o.CreatedAt) DESC", connection))
                 {
@@ -3343,6 +3388,31 @@ namespace RestaurantManagementSystem.Controllers
         {
             ViewData["Title"] = "Menu Items & Estimation";
             return View();
+        }
+
+        /// <summary>
+        /// API endpoint to generate encrypted order details URL
+        /// </summary>
+        [HttpGet]
+        public JsonResult GenerateEncryptedOrderDetailsUrl(int id, bool fromBar = false)
+        {
+            try
+            {
+                var parameters = new Dictionary<string, string>
+                {
+                    ["id"] = id.ToString(),
+                    ["fromBar"] = fromBar.ToString()
+                };
+
+                var encryptedToken = _encryptionService.EncryptParameters(parameters);
+                var encryptedUrl = $"/Order/Details?token={Uri.EscapeDataString(encryptedToken)}";
+                
+                return Json(new { success = true, url = encryptedUrl });
+            }
+            catch (Exception ex)
+            {
+                return Json(new { success = false, error = "Failed to generate encrypted URL" });
+            }
         }
     }
 }

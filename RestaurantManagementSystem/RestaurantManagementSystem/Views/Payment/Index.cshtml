@@ -1,4 +1,5 @@
 @model PaymentViewModel
+@inject RestaurantManagementSystem.Services.UrlEncryptionService EncryptionService
 @{
     ViewData["Title"] = "Payment Management";
 }
@@ -9,13 +10,17 @@
         <div>
             @if (ViewBag.FromBar == true)
             {
-                <a asp-controller="Order" asp-action="Details" asp-route-id="@Model.OrderId" asp-route-fromBar="true" class="btn btn-outline-secondary">
+                var encryptedOrderUrl = "/Order/Details?token=" + Uri.EscapeDataString(EncryptionService.EncryptParameters(new Dictionary<string, string> { ["id"] = Model.OrderId.ToString(), ["fromBar"] = "true" }));
+                
+                <a href="@encryptedOrderUrl" class="btn btn-outline-secondary">
                     <i class="fas fa-arrow-left"></i> Back to Order
                 </a>
             }
             else
             {
-                <a asp-controller="Order" asp-action="Details" asp-route-id="@Model.OrderId" class="btn btn-outline-secondary">
+                var encryptedOrderUrl = "/Order/Details?token=" + Uri.EscapeDataString(EncryptionService.EncryptParameters(new Dictionary<string, string> { ["id"] = Model.OrderId.ToString() }));
+                
+                <a href="@encryptedOrderUrl" class="btn btn-outline-secondary">
                     <i class="fas fa-arrow-left"></i> Back to Order
                 </a>
             }
@@ -195,7 +200,9 @@
                             <div class="d-flex gap-2">
                                 @if (Model.RemainingAmount > 0)
                                 {
-                                    <a id="processPaymentLink" asp-action="ProcessPayment" asp-route-orderId="@Model.OrderId" class="btn btn-primary btn-lg">
+                                    var encryptedPaymentUrl = "/Payment/ProcessPayment?token=" + Uri.EscapeDataString(EncryptionService.EncryptParameters(new Dictionary<string, string> { ["orderId"] = Model.OrderId.ToString() }));
+                                    
+                                    <a id="processPaymentLink" href="@encryptedPaymentUrl" class="btn btn-primary btn-lg">
                                         <i class="fas fa-money-bill-wave me-1"></i> Process Payment
                                     </a>
                                 }
@@ -561,7 +568,28 @@
                     remainingWrap.classList.add(remaining<=0 ? 'text-success' : 'text-danger');
                 }
 
-                // Update links (send absolute discount amount)
+                // Update Process Payment link with encrypted URL
+                if (processLink) {
+                    const orderId = @Model.OrderId;
+                    const discountVal = userDiscAmt > 0 ? userDiscAmt.toFixed(2) : null;
+                    
+                    // Fetch encrypted URL from server
+                    let encryptedUrlEndpoint = `/Payment/GenerateEncryptedPaymentUrl?orderId=${orderId}`;
+                    if (discountVal) {
+                        encryptedUrlEndpoint += `&discount=${encodeURIComponent(discountVal)}`;
+                    }
+                    
+                    fetch(encryptedUrlEndpoint)
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.success && data.url) {
+                                processLink.setAttribute('href', data.url);
+                            }
+                        })
+                        .catch(err => console.error('Failed to generate encrypted URL:', err));
+                }
+
+                // Update print links (these can stay with plain parameters for now)
                 const applyParam = (anchor) => {
                     if (!anchor) return;
                     const href = anchor.getAttribute('href');
@@ -579,7 +607,6 @@
                         anchor.setAttribute('href', base);
                     }
                 };
-                applyParam(processLink);
                 applyParam(printA4);
                 applyParam(printPOS);
             }

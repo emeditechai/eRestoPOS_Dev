@@ -3,11 +3,13 @@
     ViewData["Title"] = "Order Dashboard";
 }
 
-<div class="container-fluid p-3" style="background-color:#f8f8f6; min-height:100vh;">
+<div class="container-fluid p-3" style="background: linear-gradient(135deg, #f0fdfa 60%, #ccfbf1 100%); min-height:100vh;">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>@ViewData["Title"]</h1>
+        <h1 style="color: #0d9488;">
+            <i class="fas fa-utensils me-2"></i>@ViewData["Title"]
+        </h1>
         <div>
-            <a asp-action="Create" class="btn btn-primary" target="_blank" rel="noopener noreferrer">
+            <a asp-action="Create" class="btn text-white" style="background: linear-gradient(90deg, #14b8a6 60%, #2dd4bf 100%);" target="_blank" rel="noopener noreferrer">
                 <i class="fas fa-plus-circle"></i> New Order
             </a>
         </div>
@@ -29,7 +31,7 @@
         </div>
     }
 
-    @* Compact styling *@
+    @* Compact styling with teal theme *@
     <style>
         .card { border-radius: 8px; }
         .card-header { padding: .5rem .75rem; }
@@ -43,12 +45,13 @@
         .badge { font-size: .75rem; }
         .btn-group .btn { padding: .2rem .4rem; }
         .table-container { max-height: 28vh; overflow: auto; }
+        .food-metric-card { border-left: 4px solid #0d9488; }
     </style>
 
-    @* Metrics row improvements *@
+    @* Metrics row with teal/cyan gradient theme *@
     <div class="row mb-3">
         <div class="col-md-3">
-            <div class="card bg-primary text-white metric-card">
+            <div class="card text-white metric-card food-metric-card" style="background: linear-gradient(135deg, #0891b2 0%, #06b6d4 100%);">
                 <div class="card-body">
                     <h5>Open Orders</h5>
                     <h2>@Model.OpenOrdersCount</h2>
@@ -56,7 +59,7 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card bg-warning text-dark metric-card">
+            <div class="card text-white metric-card food-metric-card" style="background: linear-gradient(135deg, #06b6d4 0%, #22d3ee 100%);">
                 <div class="card-body">
                     <h5>In Progress</h5>
                     <h2>@Model.InProgressOrdersCount</h2>
@@ -64,7 +67,7 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card bg-success text-white metric-card">
+            <div class="card text-white metric-card food-metric-card" style="background: linear-gradient(135deg, #14b8a6 0%, #2dd4bf 100%);">
                 <div class="card-body">
                     <h5>Ready</h5>
                     <h2>@Model.ReadyOrdersCount</h2>
@@ -72,7 +75,7 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card bg-info text-white metric-card">
+            <div class="card text-white metric-card food-metric-card" style="background: linear-gradient(135deg, #2dd4bf 0%, #5eead4 100%);">
                 <div class="card-body">
                     <h5>Today's Sales</h5>
                     <h2>₹@Model.TotalSales.ToString("F2")</h2>
@@ -81,15 +84,15 @@
         </div>
     </div>
 
-    @* Consolidate lists into a single full-width column *@
+    @* Active Orders *@
     <div class="row">
         <div class="col-12">
             <div class="card">
-                <div class="card-header bg-light d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Active Orders (All Pending Orders)</h5>
+                <div class="card-header d-flex justify-content-between align-items-center" style="background: linear-gradient(90deg, #14b8a6 60%, #2dd4bf 100%); color: white;">
+                    <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Active Orders (All Pending Orders)</h5>
                     <div class="d-flex align-items-center" style="gap:.5rem">
-                        <small class="text-muted">Shows all orders that are not yet completed or paid</small>
-                        <span class="badge bg-primary text-white rounded-pill px-3" title="Active orders">@((Model.ActiveOrders?.Count() ?? 0).ToString()) Records</span>
+                        <small>Food orders only</small>
+                        <span class="badge bg-white rounded-pill px-3" style="color: #0d9488;" title="Active orders">@((Model.ActiveOrders?.Count() ?? 0).ToString()) Records</span>
                     </div>
                 </div>
                 <div class="card-body">
@@ -97,7 +100,7 @@
                     {
                         <div class="table-responsive table-container">
                             <table class="table table-striped table-hover" id="activeOrders">
-                                <thead class="table-dark sticky">
+                                <thead class="sticky" style="background: linear-gradient(90deg, #0d9488 60%, #14b8a6 100%); color: white;">
                                     <tr class="text-center">
                                         <th>Order #</th>
                                         <th>Type</th>
@@ -132,7 +135,7 @@
                                                 @{
                                                     var badgeClass = order.Status switch
                                                     {
-                                                        0 => "bg-primary",
+                                                        0 => "bg-info",
                                                         1 => "bg-warning text-dark",
                                                         2 => "bg-success",
                                                         _ => "bg-secondary"
@@ -142,7 +145,7 @@
                                             </td>
                                             <td>@order.CreatedAt.ToString("dd/MM HH:mm")</td>
                                             <td>@order.Duration.ToString(@"hh\:mm")</td>
-                                            <td>@order.ItemCount</td>
+                                            <td><span class="badge bg-teal-100" style="background-color: #ccfbf1; color: #0d9488;">@order.ItemCount</span></td>
                                             <td><strong>₹@order.TotalAmount.ToString("F2")</strong></td>
                                             <td>
                                                 <div class="btn-group">
@@ -166,22 +169,32 @@
                     }
                     else
                     {
-                        <div class="alert alert-info mb-0">No active orders at the moment.</div>
+                        <div class="alert alert-info mb-0">
+                            <i class="fas fa-info-circle me-2"></i>No active orders at the moment.
+                        </div>
                     }
                 </div>
             </div>
+        </div>
+    </div>
 
-            <!-- Cancelled Orders Section -->
-            <div class="card mt-3">
-                <div class="card-header bg-light d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Cancelled Orders</h5>
+    @* Cancelled Orders Section *@
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center" style="background: linear-gradient(90deg, #dc2626 60%, #ef4444 100%); color: white;">
+                    <h5 class="mb-0"><i class="fas fa-ban me-2"></i>Cancelled Orders</h5>
+                    <div class="d-flex align-items-center" style="gap:.5rem">
+                        <small>Today's cancelled orders</small>
+                        <span class="badge bg-white rounded-pill px-3" style="color: #dc2626;" title="Cancelled orders">@((Model.CancelledOrders?.Count() ?? 0).ToString()) Records</span>
+                    </div>
                 </div>
                 <div class="card-body">
                     @if (Model.CancelledOrders != null && Model.CancelledOrders.Any())
                     {
                         <div class="table-responsive table-container">
                             <table class="table table-striped table-hover" id="cancelledOrders">
-                                <thead class="table-dark sticky">
+                                <thead class="sticky" style="background: linear-gradient(90deg, #dc2626 60%, #ef4444 100%); color: white;">
                                     <tr class="text-center">
                                         <th>Order #</th>
                                         <th>Type</th>
@@ -205,42 +218,48 @@
                                                 else { @(order.GuestName ?? "No Name") }
                                             </td>
                                             <td>@(order.ServerName ?? "Unassigned")</td>
-                                            <td><span class="badge bg-secondary">Cancelled</span></td>
+                                            <td><span class="badge bg-danger">Cancelled</span></td>
                                             <td>@order.Duration.ToString(@"hh\:mm")</td>
-                                            <td>@order.ItemCount</td>
+                                            <td><span class="badge bg-danger-subtle text-danger">@order.ItemCount</span></td>
                                             <td><strong>₹@order.TotalAmount.ToString("F2")</strong></td>
                                             <td>
-                                                    <a asp-action="Details" asp-route-id="@order.Id" class="btn btn-sm btn-outline-secondary" title="View Order">
-                                                        <i class="fas fa-eye"></i>
-                                                    </a>
-                                                    <a href="/Payment/Index/@order.Id" class="btn btn-sm btn-outline-success ms-1" title="Payment">
-                                                        <i class="fas fa-credit-card"></i>
-                                                    </a>
-                                                </td>
+                                                <a asp-action="Details" asp-route-id="@order.Id" class="btn btn-sm btn-outline-secondary" title="View Order">
+                                                    <i class="fas fa-eye"></i>
+                                                </a>
+                                            </td>
                                         </tr>
                                     }
                                 </tbody>
                             </table>
                         </div>
+                        <div class="alert mt-2 mb-0 py-2" style="background-color: #fee2e2; border-color: #dc2626; color: #991b1b;">
+                            <strong>Total Cancelled Today:</strong> @Model.CancelledOrdersCount
+                        </div>
                     }
                     else
                     {
-                        <div class="alert alert-info mb-0">No cancelled orders today.</div>
+                        <div class="alert alert-info mb-0">
+                            <i class="fas fa-info-circle me-2"></i>No cancelled orders today.
+                        </div>
                     }
                 </div>
             </div>
+        </div>
+    </div>
 
-            <!-- Completed Orders Section moved below Cancelled -->
-            <div class="card mt-3">
-                <div class="card-header bg-light d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Completed Orders</h5>
+    @* Completed Orders Section *@
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center" style="background: linear-gradient(90deg, #0d9488 60%, #14b8a6 100%); color: white;">
+                    <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Completed Orders</h5>
                     <form class="d-flex align-items-center" method="get" asp-action="Dashboard" style="gap:.5rem">
-                        <label class="small text-muted mb-0">From</label>
+                        <label class="small mb-0">From</label>
                         <input type="date" name="fromDate" class="form-control form-control-sm" value="@(ViewContext.HttpContext.Request.Query["fromDate"].ToString())" />
-                        <label class="small text-muted mb-0">To</label>
+                        <label class="small mb-0">To</label>
                         <input type="date" name="toDate" class="form-control form-control-sm" value="@(ViewContext.HttpContext.Request.Query["toDate"].ToString())" />
-                        <button type="submit" class="btn btn-sm btn-primary" title="Filter"><i class="fas fa-filter"></i></button>
-                        <a href="@Url.Action("Dashboard", "Order")" class="btn btn-sm btn-outline-secondary" title="Reset"><i class="fas fa-undo"></i></a>
+                        <button type="submit" class="btn btn-sm btn-light" title="Filter"><i class="fas fa-filter"></i></button>
+                        <a href="@Url.Action("Dashboard", "Order")" class="btn btn-sm btn-outline-light" title="Reset"><i class="fas fa-undo"></i></a>
                     </form>
                 </div>
                 <div class="card-body">
@@ -248,7 +267,7 @@
                     {
                         <div class="table-responsive table-container">
                             <table class="table table-sm table-striped table-hover" id="completedOrders">
-                                <thead class="table-dark sticky">
+                                <thead class="sticky" style="background: linear-gradient(90deg, #0d9488 60%, #14b8a6 100%); color: white;">
                                     <tr class="text-center">
                                         <th>Order #</th>
                                         <th>Type</th>
@@ -264,19 +283,21 @@
                                             <td>@order.OrderTypeDisplay</td>
                                             <td><strong>₹@order.TotalAmount.ToString("F2")</strong></td>
                                             <td>
-                                                <a asp-action="Details" asp-route-id="@order.Id" class="btn btn-sm btn-outline-secondary" title="View Order">
-                                                    <i class="fas fa-eye"></i>
-                                                </a>
-                                                <a href="/Payment/Index/@order.Id" class="btn btn-sm btn-outline-success ms-1" title="Payment">
-                                                    <i class="fas fa-credit-card"></i>
-                                                </a>
+                                                <div class="btn-group">
+                                                    <a asp-action="Details" asp-route-id="@order.Id" class="btn btn-sm btn-outline-secondary" title="View Order">
+                                                        <i class="fas fa-eye"></i>
+                                                    </a>
+                                                    <a href="/Payment/Index/@order.Id" class="btn btn-sm btn-outline-success" title="Payment">
+                                                        <i class="fas fa-credit-card"></i>
+                                                    </a>
+                                                </div>
                                             </td>
                                         </tr>
                                     }
                                 </tbody>
                             </table>
                         </div>
-                        <div class="alert alert-success mt-2 mb-0 py-2">
+                        <div class="alert mt-2 mb-0 py-2" style="background-color: #ccfbf1; border-color: #0d9488; color: #134e4a;">
                             <strong>Total Completed:</strong> @Model.CompletedOrdersCount
                             <span class="mx-2">|</span>
                             <strong>Total Sales:</strong> ₹@Model.TotalSales.ToString("F2")
@@ -284,7 +305,9 @@
                     }
                     else
                     {
-                        <div class="alert alert-info mb-0">No completed orders today.</div>
+                        <div class="alert alert-info mb-0">
+                            <i class="fas fa-info-circle me-2"></i>No completed orders today.
+                        </div>
                     }
                 </div>
             </div>

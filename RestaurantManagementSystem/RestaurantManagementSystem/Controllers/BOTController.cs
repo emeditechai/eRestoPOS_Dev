@@ -1187,16 +1187,8 @@ namespace RestaurantManagementSystem.Controllers
                     return model;
                 }
 
-                // Get order counts and total sales for today (orders with bar items only)
-                using (var command = new SqlCommand($@"
-                    WITH BarOrders AS (
-                        SELECT o.Id, o.Status, o.TotalAmount, o.CreatedAt, o.UpdatedAt
-                        FROM Orders o
-                        INNER JOIN OrderItems oi ON o.Id = oi.OrderId
-                        INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
-                        WHERE mi.menuitemgroupID = @BarGroupId
-                        GROUP BY o.Id, o.Status, o.TotalAmount, o.CreatedAt, o.UpdatedAt
-                    )
+                // Get order counts and total sales for today (orders with OrderKitchenType = 'Bar')
+                using (var command = new SqlCommand(@"
                     SELECT
                         SUM(CASE WHEN Status = 0 AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS OpenCount,
                         SUM(CASE WHEN Status = 1 AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS InProgressCount,
@@ -1204,9 +1196,9 @@ namespace RestaurantManagementSystem.Controllers
                         SUM(CASE WHEN Status = 3 AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS CompletedCount,
                         SUM(CASE WHEN Status = 3 AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN TotalAmount ELSE 0 END) AS TotalSales,
                         SUM(CASE WHEN Status = 4 AND CAST(ISNULL(UpdatedAt, CreatedAt) AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS CancelledCount
-                    FROM BarOrders", connection))
+                    FROM Orders
+                    WHERE OrderKitchenType = 'Bar'", connection))
                 {
-                    command.Parameters.AddWithValue("@BarGroupId", barGroupId.Value);
                     using (var reader = command.ExecuteReader())
                     {
                         if (reader.Read())
@@ -1221,8 +1213,8 @@ namespace RestaurantManagementSystem.Controllers
                     }
                 }
 
-                // Get active orders with bar items
-                using (var command = new SqlCommand($@"
+                // Get active orders with OrderKitchenType = 'Bar'
+                using (var command = new SqlCommand(@"
                     SELECT 
                         o.Id,
                         o.OrderNumber,
@@ -1237,24 +1229,17 @@ namespace RestaurantManagementSystem.Controllers
                             ELSE o.CustomerName 
                         END AS GuestName,
                         CONCAT(u.FirstName, ' ', ISNULL(u.LastName, '')) AS ServerName,
-                        (SELECT COUNT(1) FROM OrderItems oi2 
-                         INNER JOIN MenuItems mi2 ON oi2.MenuItemId = mi2.Id 
-                         WHERE oi2.OrderId = o.Id AND mi2.menuitemgroupID = @BarGroupId) AS ItemCount,
+                        (SELECT COUNT(1) FROM OrderItems WHERE OrderId = o.Id) AS ItemCount,
                         o.TotalAmount,
                         o.CreatedAt,
                         DATEDIFF(MINUTE, o.CreatedAt, GETDATE()) AS DurationMinutes
                     FROM Orders o
-                    INNER JOIN OrderItems oi ON o.Id = oi.OrderId
-                    INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
                     LEFT JOIN TableTurnovers tt ON o.TableTurnoverId = tt.Id
                     LEFT JOIN Tables t ON tt.TableId = t.Id
                     LEFT JOIN Users u ON o.UserId = u.Id
-                    WHERE o.Status < 3 AND mi.menuitemgroupID = @BarGroupId
-                    GROUP BY o.Id, o.OrderNumber, o.OrderType, o.Status, t.TableName, tt.GuestName, o.CustomerName, 
-                             u.FirstName, u.LastName, o.TotalAmount, o.CreatedAt
+                    WHERE o.Status < 3 AND o.OrderKitchenType = 'Bar'
                     ORDER BY o.CreatedAt DESC", connection))
                 {
-                    command.Parameters.AddWithValue("@BarGroupId", barGroupId.Value);
                     using (var reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -1302,8 +1287,8 @@ namespace RestaurantManagementSystem.Controllers
                     }
                 }
 
-                // Get completed orders with bar items (filtered by date range if provided)
-                string completedSql = $@"
+                // Get completed orders with OrderKitchenType = 'Bar' (filtered by date range if provided)
+                string completedSql = @"
                     SELECT 
                         o.Id,
                         o.OrderNumber,
@@ -1318,41 +1303,30 @@ namespace RestaurantManagementSystem.Controllers
                             ELSE o.CustomerName 
                         END AS GuestName,
                         CONCAT(u.FirstName, ' ', ISNULL(u.LastName, '')) AS ServerName,
-                        (SELECT COUNT(1) FROM OrderItems oi2 
-                         INNER JOIN MenuItems mi2 ON oi2.MenuItemId = mi2.Id 
-                         WHERE oi2.OrderId = o.Id AND mi2.menuitemgroupID = @BarGroupId) AS ItemCount,
+                        (SELECT COUNT(1) FROM OrderItems WHERE OrderId = o.Id) AS ItemCount,
                         o.TotalAmount,
                         o.CreatedAt,
                         o.CompletedAt,
                         DATEDIFF(MINUTE, o.CreatedAt, o.CompletedAt) AS DurationMinutes
                     FROM Orders o
-                    INNER JOIN OrderItems oi ON o.Id = oi.OrderId
-                    INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
                     LEFT JOIN TableTurnovers tt ON o.TableTurnoverId = tt.Id
                     LEFT JOIN Tables t ON tt.TableId = t.Id
                     LEFT JOIN Users u ON o.UserId = u.Id
-                    WHERE o.Status = 3 AND mi.menuitemgroupID = @BarGroupId
+                    WHERE o.Status = 3 AND o.OrderKitchenType = 'Bar'
                 ";
 
                 if (fromDate.HasValue && toDate.HasValue)
                 {
-                    completedSql += @" AND CAST(o.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
-                                      GROUP BY o.Id, o.OrderNumber, o.OrderType, o.Status, t.TableName, tt.GuestName, 
-                                               o.CustomerName, u.FirstName, u.LastName, o.TotalAmount, o.CreatedAt, o.CompletedAt
-                                      ORDER BY o.CompletedAt DESC";
+                    completedSql += " AND CAST(o.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate ORDER BY o.CompletedAt DESC";
                 }
                 else
                 {
                     // default: today
-                    completedSql += @" AND CAST(o.CreatedAt AS DATE) = CAST(GETDATE() AS DATE) 
-                                      GROUP BY o.Id, o.OrderNumber, o.OrderType, o.Status, t.TableName, tt.GuestName, 
-                                               o.CustomerName, u.FirstName, u.LastName, o.TotalAmount, o.CreatedAt, o.CompletedAt
-                                      ORDER BY o.CompletedAt DESC";
+                    completedSql += " AND CAST(o.CreatedAt AS DATE) = CAST(GETDATE() AS DATE) ORDER BY o.CompletedAt DESC";
                 }
 
                 using (var command = new SqlCommand(completedSql, connection))
                 {
-                    command.Parameters.AddWithValue("@BarGroupId", barGroupId.Value);
                     if (fromDate.HasValue && toDate.HasValue)
                     {
                         command.Parameters.AddWithValue("@FromDate", fromDate.Value.Date);
@@ -1390,6 +1364,71 @@ namespace RestaurantManagementSystem.Controllers
                             };
 
                             model.CompletedOrders.Add(completedSummary);
+                        }
+                    }
+                }
+                
+                // Get cancelled bar orders for today
+                using (var command = new SqlCommand(@"
+                    SELECT 
+                        o.Id,
+                        o.OrderNumber,
+                        o.OrderType,
+                        o.Status,
+                        CASE 
+                            WHEN o.OrderType = 0 THEN t.TableName 
+                            ELSE NULL 
+                        END AS TableName,
+                        CASE 
+                            WHEN o.OrderType = 0 THEN tt.GuestName 
+                            ELSE o.CustomerName 
+                        END AS GuestName,
+                        CONCAT(u.FirstName, ' ', ISNULL(u.LastName, '')) AS ServerName,
+                        (SELECT COUNT(1) FROM OrderItems WHERE OrderId = o.Id) AS ItemCount,
+                        o.TotalAmount,
+                        o.CreatedAt,
+                        DATEDIFF(MINUTE, o.CreatedAt, ISNULL(o.UpdatedAt, GETDATE())) AS DurationMinutes
+                    FROM Orders o
+                    LEFT JOIN TableTurnovers tt ON o.TableTurnoverId = tt.Id
+                    LEFT JOIN Tables t ON tt.TableId = t.Id
+                    LEFT JOIN Users u ON o.UserId = u.Id
+                    WHERE o.Status = 4 
+                    AND o.OrderKitchenType = 'Bar'
+                    AND CAST(ISNULL(o.UpdatedAt, o.CreatedAt) AS DATE) = CAST(GETDATE() AS DATE)
+                    ORDER BY ISNULL(o.UpdatedAt, o.CreatedAt) DESC", connection))
+                {
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            var orderType = reader.GetInt32(2);
+                            string orderTypeDisplay = orderType switch
+                            {
+                                0 => "Dine-In",
+                                1 => "Takeout",
+                                2 => "Delivery",
+                                3 => "Online",
+                                _ => "Unknown"
+                            };
+
+                            var cancelledSummary = new OrderSummary
+                            {
+                                Id = reader.GetInt32(0),
+                                OrderNumber = reader.GetString(1),
+                                OrderType = orderType,
+                                OrderTypeDisplay = orderTypeDisplay,
+                                Status = 4,
+                                StatusDisplay = "Cancelled",
+                                TableName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                                GuestName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                                ServerName = reader.IsDBNull(6) ? null : reader.GetString(6),
+                                ItemCount = reader.GetInt32(7),
+                                TotalAmount = reader.GetDecimal(8),
+                                CreatedAt = reader.GetDateTime(9),
+                                Duration = TimeSpan.FromMinutes(reader.IsDBNull(10) ? 0 : reader.GetInt32(10))
+                            };
+
+                            model.CancelledOrders.Add(cancelledSummary);
                         }
                     }
                 }
