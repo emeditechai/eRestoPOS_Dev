@@ -293,6 +293,7 @@ namespace RestaurantManagementSystem.Controllers
             ViewBag.Modifiers = GetAllModifiers();
             ViewBag.KitchenStations = GetKitchenStationSelectList();
             ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+            ViewBag.UOMs = GetUOMSelectList();
             
             return View(new MenuItemViewModel { PreparationTimeMinutes = 1 });
         }
@@ -482,6 +483,8 @@ namespace RestaurantManagementSystem.Controllers
                 Name = menuItem.Name,
                 Description = menuItem.Description,
                 Price = menuItem.Price,
+                UOMId = menuItem.UOMId,
+                UOMName = menuItem.UOMName,
                 CategoryId = menuItem.CategoryId,
                 SubCategoryId = menuItem.SubCategoryId,
                 MenuItemGroupId = menuItem.MenuItemGroupId,
@@ -539,6 +542,7 @@ namespace RestaurantManagementSystem.Controllers
             ViewBag.Modifiers = GetAllModifiers();
             ViewBag.KitchenStations = GetKitchenStationSelectList();
             ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+            ViewBag.UOMs = GetUOMSelectList();
             
             return View(viewModel);
         }
@@ -1066,6 +1070,8 @@ namespace RestaurantManagementSystem.Controllers
                 bool hasSubCategoriesTable = false;
                 bool hasMenuItemGroupColumn = false;
                 bool hasMenuItemGroupTable = false;
+                bool hasUOMColumn = false;
+                bool hasUOMTable = false;
                 
                 using (var checkCommand = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT 
@@ -1076,7 +1082,11 @@ namespace RestaurantManagementSystem.Controllers
                         (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
                          WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'menuitemgroupID') as HasGroupCol,
                         (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES 
-                         WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'menuitemgroup') as HasGroupTable", connection))
+                         WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'menuitemgroup') as HasGroupTable,
+                        (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                         WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'UOM_Id') as HasUOMCol,
+                        (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES 
+                         WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'tbl_mst_uom') as HasUOMTable", connection))
                 {
                     using (var reader = checkCommand.ExecuteReader())
                     {
@@ -1086,6 +1096,8 @@ namespace RestaurantManagementSystem.Controllers
                             hasSubCategoriesTable = reader.GetInt32("HasTable") > 0;
                             hasMenuItemGroupColumn = reader.GetInt32("HasGroupCol") > 0;
                             hasMenuItemGroupTable = reader.GetInt32("HasGroupTable") > 0;
+                            hasUOMColumn = reader.GetInt32("HasUOMCol") > 0;
+                            hasUOMTable = reader.GetInt32("HasUOMTable") > 0;
                         }
                     }
                 }
@@ -1097,6 +1109,8 @@ namespace RestaurantManagementSystem.Controllers
                 {
                     var joinGroup = hasMenuItemGroupColumn && hasMenuItemGroupTable ? "LEFT JOIN [dbo].[menuitemgroup] mg ON m.[menuitemgroupID] = mg.[ID]" : string.Empty;
                     var selectGroupCols = hasMenuItemGroupColumn && hasMenuItemGroupTable ? ", m.[menuitemgroupID] AS MenuItemGroupId, mg.[itemgroup] AS ItemGroupName" : ", NULL AS MenuItemGroupId, NULL AS ItemGroupName";
+                    var joinUOM = hasUOMColumn && hasUOMTable ? "LEFT JOIN [dbo].[tbl_mst_uom] uom ON m.[UOM_Id] = uom.[UOM_Id]" : string.Empty;
+                    var selectUOMCols = hasUOMColumn && hasUOMTable ? ", m.[UOM_Id] AS UOMId, uom.[UOM_Name] AS UOMName" : ", NULL AS UOMId, NULL AS UOMName";
                     query = $@"
                         SELECT 
                             m.[Id], 
@@ -1120,16 +1134,20 @@ namespace RestaurantManagementSystem.Controllers
                             m.[GSTPercentage],
                             m.[IsGstApplicable]
                             {selectGroupCols}
+                            {selectUOMCols}
                         FROM [dbo].[MenuItems] m
                         INNER JOIN [dbo].[Categories] c ON m.[CategoryId] = c.[Id]
                         LEFT JOIN {subCategoriesTable} sc ON m.[SubCategoryId] = sc.[Id]
                         {joinGroup}
+                        {joinUOM}
                         WHERE m.[Id] = @Id";
                 }
                 else
                 {
                     var selectGroupCols = hasMenuItemGroupColumn && hasMenuItemGroupTable ? ", m.[menuitemgroupID] AS MenuItemGroupId, mg.[itemgroup] AS ItemGroupName" : ", NULL AS MenuItemGroupId, NULL AS ItemGroupName";
                     var joinGroup = hasMenuItemGroupColumn && hasMenuItemGroupTable ? "LEFT JOIN [dbo].[menuitemgroup] mg ON m.[menuitemgroupID] = mg.[ID]" : string.Empty;
+                    var joinUOM = hasUOMColumn && hasUOMTable ? "LEFT JOIN [dbo].[tbl_mst_uom] uom ON m.[UOM_Id] = uom.[UOM_Id]" : string.Empty;
+                    var selectUOMCols = hasUOMColumn && hasUOMTable ? ", m.[UOM_Id] AS UOMId, uom.[UOM_Name] AS UOMName" : ", NULL AS UOMId, NULL AS UOMName";
                     query = $@"
                         SELECT 
                             m.[Id], 
@@ -1153,9 +1171,11 @@ namespace RestaurantManagementSystem.Controllers
                             m.[GSTPercentage],
                             m.[IsGstApplicable]
                             {selectGroupCols}
+                            {selectUOMCols}
                         FROM [dbo].[MenuItems] m
                         INNER JOIN [dbo].[Categories] c ON m.[CategoryId] = c.[Id]
                         {joinGroup}
+                        {joinUOM}
                         WHERE m.[Id] = @Id";
                 }
                 
@@ -1174,6 +1194,8 @@ namespace RestaurantManagementSystem.Controllers
                                 Name = SafeGetString(reader, "Name") ?? string.Empty,
                                 Description = SafeGetString(reader, "Description") ?? string.Empty,
                                 Price = SafeGetDecimal(reader, "Price"),
+                                UOMId = HasColumn(reader, "UOMId") ? SafeGetNullableInt(reader, "UOMId") : null,
+                                UOMName = HasColumn(reader, "UOMName") ? SafeGetString(reader, "UOMName") : null,
                                 CategoryId = SafeGetInt(reader, "CategoryId"),
                                 Category = new Category { Name = SafeGetString(reader, "CategoryName") ?? "Uncategorized" },
                                 SubCategoryId = SafeGetNullableInt(reader, "SubCategoryId"),
@@ -1283,6 +1305,7 @@ namespace RestaurantManagementSystem.Controllers
                 // Check if SubCategoryId column exists
                 bool hasSubCategoryColumn = false;
                 bool hasMenuItemGroupColumn = false;
+                bool hasUOMColumn = false;
                 using (var checkCommand = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
                     WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'SubCategoryId'", connection))
@@ -1295,36 +1318,46 @@ namespace RestaurantManagementSystem.Controllers
                 {
                     hasMenuItemGroupColumn = (int)checkGroupCommand.ExecuteScalar() > 0;
                 }
+                using (var checkUOMCommand = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'UOM_Id'", connection))
+                {
+                    hasUOMColumn = (int)checkUOMCommand.ExecuteScalar() > 0;
+                }
                 
                 // Build INSERT query for dbo schema
                 string insertQuery;
                 if (hasSubCategoryColumn)
                 {
-                    insertQuery = @"
+                    string groupColumn = hasMenuItemGroupColumn ? ", menuitemgroupID" : string.Empty;
+                    string groupParam = hasMenuItemGroupColumn ? ", @MenuItemGroupId" : string.Empty;
+                    string uomColumn = hasUOMColumn ? ", UOM_Id" : string.Empty;
+                    string uomParam = hasUOMColumn ? ", @UOMId" : string.Empty;
+                    
+                    insertQuery = $@"
                         INSERT INTO [dbo].[MenuItems] (PLUCode, Name, Description, Price, CategoryId, SubCategoryId, ImagePath,
                                   IsAvailable, PrepTime, CalorieCount, 
-                                  IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{0})
+                                  IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{groupColumn}{uomColumn})
                         VALUES (@PLUCode, @Name, @Description, @Price, @CategoryId, @SubCategoryId, @ImagePath,
                             @IsAvailable, @PreparationTimeMinutes, @CalorieCount, 
-                            @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{1});
+                            @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{groupParam}{uomParam});
                         SELECT SCOPE_IDENTITY();";
-                    insertQuery = string.Format(insertQuery,
-                        hasMenuItemGroupColumn ? ",, menuitemgroupID".Replace(",,", ",") : string.Empty,
-                        hasMenuItemGroupColumn ? ",, @MenuItemGroupId".Replace(",,", ",") : string.Empty);
                 }
                 else
                 {
-                    insertQuery = @"
+                    string groupColumn = hasMenuItemGroupColumn ? ", menuitemgroupID" : string.Empty;
+                    string groupParam = hasMenuItemGroupColumn ? ", @MenuItemGroupId" : string.Empty;
+                    string uomColumn = hasUOMColumn ? ", UOM_Id" : string.Empty;
+                    string uomParam = hasUOMColumn ? ", @UOMId" : string.Empty;
+                    
+                    insertQuery = $@"
                         INSERT INTO [dbo].[MenuItems] (PLUCode, Name, Description, Price, CategoryId, ImagePath,
                                   IsAvailable, PrepTime, CalorieCount, 
-                                  IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{0})
+                                  IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{groupColumn}{uomColumn})
                         VALUES (@PLUCode, @Name, @Description, @Price, @CategoryId, @ImagePath,
                             @IsAvailable, @PreparationTimeMinutes, @CalorieCount, 
-                            @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{1});
+                            @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{groupParam}{uomParam});
                         SELECT SCOPE_IDENTITY();";
-                    insertQuery = string.Format(insertQuery,
-                        hasMenuItemGroupColumn ? ",, menuitemgroupID".Replace(",,", ",") : string.Empty,
-                        hasMenuItemGroupColumn ? ",, @MenuItemGroupId".Replace(",,", ",") : string.Empty);
                 }
                 
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(insertQuery, connection))
@@ -1420,6 +1453,19 @@ namespace RestaurantManagementSystem.Controllers
                         else
                         {
                             command.Parameters.AddWithValue("@MenuItemGroupId", DBNull.Value);
+                        }
+                    }
+                    
+                    // Add UOMId parameter only if column exists
+                    if (hasUOMColumn)
+                    {
+                        if (model.UOMId.HasValue && model.UOMId.Value > 0)
+                        {
+                            command.Parameters.AddWithValue("@UOMId", model.UOMId.Value);
+                        }
+                        else
+                        {
+                            command.Parameters.AddWithValue("@UOMId", DBNull.Value);
                         }
                     }
                     
@@ -1578,12 +1624,20 @@ namespace RestaurantManagementSystem.Controllers
                 
                 // Build UPDATE query for dbo schema
                 bool hasMenuItemGroupColumn = false;
+                bool hasUOMColumn = false;
                 using (var checkGroup = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'menuitemgroupID'", connection))
                 {
                     hasMenuItemGroupColumn = (int)checkGroup.ExecuteScalar() > 0;
                 }
+                using (var checkUOM = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'MenuItems' AND COLUMN_NAME = 'UOM_Id'", connection))
+                {
+                    hasUOMColumn = (int)checkUOM.ExecuteScalar() > 0;
+                }
 
-                string updateQuery = @"
+                string groupUpdate = hasMenuItemGroupColumn ? ", menuitemgroupID = @MenuItemGroupId" : string.Empty;
+                string uomUpdate = hasUOMColumn ? ", UOM_Id = @UOMId" : string.Empty;
+                
+                string updateQuery = $@"
                     UPDATE [dbo].[MenuItems]
                     SET Name = @Name,
                         PLUCode = @PLUCode,
@@ -1601,9 +1655,8 @@ namespace RestaurantManagementSystem.Controllers
                         KitchenStationId = @KitchenStationId,
                         GSTPercentage = @GSTPercentage,
                         IsGstApplicable = @IsGstApplicable,
-                        NotAvailable = @NotAvailable{0}
+                        NotAvailable = @NotAvailable{groupUpdate}{uomUpdate}
                     WHERE Id = @Id";
-                updateQuery = string.Format(updateQuery, hasMenuItemGroupColumn ? ",, menuitemgroupID = @MenuItemGroupId".Replace(",,", ",") : string.Empty);
                 
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(updateQuery, connection))
                 {
@@ -1695,6 +1748,19 @@ namespace RestaurantManagementSystem.Controllers
                         else
                         {
                             command.Parameters.AddWithValue("@MenuItemGroupId", DBNull.Value);
+                        }
+                    }
+                    
+                    // Add UOMId parameter only if column exists
+                    if (hasUOMColumn)
+                    {
+                        if (model.UOMId.HasValue && model.UOMId.Value > 0)
+                        {
+                            command.Parameters.AddWithValue("@UOMId", model.UOMId.Value);
+                        }
+                        else
+                        {
+                            command.Parameters.AddWithValue("@UOMId", DBNull.Value);
                         }
                     }
                     
@@ -2576,6 +2642,58 @@ namespace RestaurantManagementSystem.Controllers
                 // ignore; return empty list
             }
             return groups;
+        }
+
+        private List<SelectListItem> GetUOMSelectList()
+        {
+            var uoms = new List<SelectListItem>();
+            uoms.Add(new SelectListItem { Value = "", Text = "-- Select UOM --" });
+            
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    
+                    // Check if UOM table exists
+                    using (var checkCmd = new Microsoft.Data.SqlClient.SqlCommand(
+                        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'tbl_mst_uom'", connection))
+                    {
+                        var tableExists = (int)checkCmd.ExecuteScalar() > 0;
+                        
+                        if (tableExists)
+                        {
+                            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                SELECT UOM_Id, UOM_Name, UOM_Type, Base_Quantity_ML
+                                FROM [dbo].[tbl_mst_uom]
+                                WHERE IsActive = 1
+                                ORDER BY UOM_Type, UOM_Name", connection))
+                            using (var reader = cmd.ExecuteReader())
+                            {
+                                while (reader.Read())
+                                {
+                                    var id = reader.GetInt32(0);
+                                    var name = reader.GetString(1);
+                                    var type = reader.GetString(2);
+                                    var quantity = reader.GetDecimal(3);
+                                    
+                                    uoms.Add(new SelectListItem
+                                    {
+                                        Value = id.ToString(),
+                                        Text = $"{name} ({type} - {quantity}ml)"
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // If UOM table doesn't exist or error occurs, return list with just placeholder
+            }
+            
+            return uoms;
         }
 
         private List<ModelsMenuItemIngredientViewModel> ConvertIngredientsViewModelToModel(

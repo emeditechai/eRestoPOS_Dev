@@ -72,6 +72,15 @@
                                             <span asp-validation-for="Price" class="text-danger small"></span>
                                         </div>
                                         
+                                        <!-- UOM Dropdown - Visible only for BAR items -->
+                                        <div class="form-group mb-2" id="uom-group" style="display: none;">
+                                            <label asp-for="UOMId" class="form-label small mb-1">Unit of Measurement</label>
+                                            <select asp-for="UOMId" class="form-select form-select-sm" asp-items="ViewBag.UOMs">
+                                                <option value="">-- Select UOM --</option>
+                                            </select>
+                                            <span asp-validation-for="UOMId" class="text-danger small"></span>
+                                        </div>
+                                        
                                         <div class="form-group mb-2">
                                             <label asp-for="CategoryId" class="form-label small mb-1">Category</label>
                                             <select asp-for="CategoryId" class="form-select form-select-sm" asp-items="ViewBag.Categories" onchange="loadSubCategories()">
@@ -409,6 +418,25 @@
             }
             $('#IsGstApplicableCreate').on('change', toggleGstField);
             toggleGstField();
+            
+            // Toggle UOM dropdown visibility based on Item Group selection
+            function toggleUOMField() {
+                var selectedGroup = $('#MenuItemGroupId option:selected').text().trim();
+                var uomGroup = $('#uom-group');
+                
+                if (selectedGroup === 'BAR') {
+                    uomGroup.show();
+                } else {
+                    uomGroup.hide();
+                    $('#UOMId').val(''); // Clear selection when hiding
+                }
+            }
+            
+            // Bind change event to Item Group dropdown
+            $('#MenuItemGroupId').on('change', toggleUOMField);
+            
+            // Check initial state on page load
+            toggleUOMField();
         });
 
         // Load subcategories based on selected category

@@ -28,6 +28,11 @@ namespace RestaurantManagementSystem.ViewModels
         [DataType(DataType.Currency)]
         public decimal Price { get; set; }
 
+        [Display(Name = "Unit of Measurement")]
+        public int? UOMId { get; set; }
+
+        public string UOMName { get; set; }
+
         [Required(ErrorMessage = "Category is required")]
         [Display(Name = "Category")]
         public int CategoryId { get; set; }

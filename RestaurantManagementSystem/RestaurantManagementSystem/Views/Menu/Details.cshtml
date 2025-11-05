@@ -153,6 +153,21 @@
                                         </div>
                                     </div>
 
+                                    @* Display UOM only for BAR items *@
+                                    @if (Model.MenuItemGroup?.ItemGroup == "BAR" && !string.IsNullOrEmpty(Model.UOMName))
+                                    {
+                                        <div class="row g-2 mt-2">
+                                            <div class="col-12">
+                                                <div class="card bg-light h-100">
+                                                    <div class="card-body p-2">
+                                                        <label class="small text-muted mb-0">Unit of Measurement</label>
+                                                        <p class="mb-0 fw-bold small">@Model.UOMName</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+
                                     <div class="row g-2 mt-2">
                                         @if (Model.CalorieCount.HasValue)
                                         {
