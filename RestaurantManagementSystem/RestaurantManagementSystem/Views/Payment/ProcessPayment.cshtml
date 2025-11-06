@@ -857,22 +857,42 @@
                         const pmText = $row.find('select.split-method option:selected').text().toLowerCase();
                         const isCard = pmText.includes('card') || pmText.includes('credit') || pmText.includes('debit');
                         if (isCard) {
+                            // Validate UPI Reference field (mandatory for card payments)
+                            const upiRef = ($row.find('.split-upi').val() || '').trim();
+                            if (!upiRef) {
+                                anyInvalid = true;
+                                $row.find('.split-upi').addClass('is-invalid');
+                                cardValidationErrors.push(`Row ${idx + 1}: UPI Reference/Ref# is required for card payment`);
+                            } else {
+                                $row.find('.split-upi').removeClass('is-invalid');
+                            }
+                            
+                            // Validate Last 4 digits field (mandatory for card payments)
                             const last4 = ($row.find('.split-last4').val() || '').trim();
-                            const cardType = ($row.find('select[name$=".CardType"]').val() || '').trim();
-                            if (!last4 || last4.length !== 4) {
+                            if (!last4 || last4.length !== 4 || !/^\d{4}$/.test(last4)) {
                                 anyInvalid = true;
                                 $row.find('.split-last4').addClass('is-invalid');
-                                cardValidationErrors.push(`Row ${idx + 1}: Last 4 digits required for card payment`);
+                                if (!last4) {
+                                    cardValidationErrors.push(`Row ${idx + 1}: Last 4 digits are required for card payment`);
+                                } else {
+                                    cardValidationErrors.push(`Row ${idx + 1}: Last 4 digits must be exactly 4 numeric digits`);
+                                }
                             } else {
                                 $row.find('.split-last4').removeClass('is-invalid');
                             }
+                            
+                            // Validate Card Type dropdown (mandatory for card payments)
+                            const cardType = ($row.find('select[name$=".CardType"]').val() || '').trim();
                             if (!cardType) {
                                 anyInvalid = true;
                                 $row.find('select[name$=".CardType"]').addClass('is-invalid');
-                                cardValidationErrors.push(`Row ${idx + 1}: Card type required for card payment`);
+                                cardValidationErrors.push(`Row ${idx + 1}: Card type is required for card payment`);
                             } else {
                                 $row.find('select[name$=".CardType"]').removeClass('is-invalid');
                             }
+                        } else {
+                            // Not a card payment, remove validation classes
+                            $row.find('.split-upi, .split-last4, select[name$=".CardType"]').removeClass('is-invalid');
                         }
                     }
                 });
