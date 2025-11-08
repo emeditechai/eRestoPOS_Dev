@@ -4,6 +4,9 @@
     ViewData["Title"] = "Payment Management";
 }
 
+<!-- Anti-forgery token for AJAX requests -->
+@Html.AntiForgeryToken()
+
 <div class="container-fluid p-3">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1>@ViewData["Title"] - Order #@Model.OrderNumber</h1>
