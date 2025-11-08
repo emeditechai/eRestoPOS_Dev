@@ -1464,79 +1464,243 @@ END", connection))
                     using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                     {
                         connection.Open();
-                        
-                        using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand("usp_VoidPayment", connection))
+                        using (var transaction = connection.BeginTransaction())
                         {
-                            command.CommandType = CommandType.StoredProcedure;
-                            
-                            command.Parameters.AddWithValue("@PaymentId", model.PaymentId);
-                            command.Parameters.AddWithValue("@Reason", model.Reason);
-                            command.Parameters.AddWithValue("@ProcessedBy", GetCurrentUserId());
-                            command.Parameters.AddWithValue("@ProcessedByName", GetCurrentUserName());
-                            
-                            using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
+                            try
                             {
-                                if (reader.Read())
+                                // Check if payment can be voided (within 7 days and not already voided)
+                                DateTime paymentDate;
+                                int currentStatus;
+                                int orderId = 0;
+                                
+                                using (var checkCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                    SELECT p.CreatedAt, p.Status, p.OrderId, o.Status AS OrderStatus
+                                    FROM Payments p
+                                    INNER JOIN Orders o ON p.OrderId = o.Id
+                                    WHERE p.Id = @PaymentId", connection, transaction))
                                 {
-                                    int result = reader.GetInt32(0);
-                                    string message = reader.GetString(1);
-                                    
-                                    if (result > 0)
+                                    checkCmd.Parameters.AddWithValue("@PaymentId", model.PaymentId);
+                                    using (var reader = checkCmd.ExecuteReader())
                                     {
-                                        // Recalculate order discount/ tax / total from remaining non-voided payments
-                                        try
+                                        if (reader.Read())
                                         {
-                                            if (!reader.IsClosed) reader.Close();
-                                            using (var recalcCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                                                DECLARE @OrderId INT = @OrderIdParam;
-                                                DECLARE @TotalDiscount DECIMAL(18,2) = ISNULL((SELECT SUM(ISNULL(DiscAmount,0)) FROM Payments WHERE OrderId = @OrderId AND Status <> 3), 0);
-                                                DECLARE @Subtotal DECIMAL(18,2) = ISNULL((SELECT Subtotal FROM Orders WHERE Id = @OrderId), 0);
-                                                DECLARE @Tip DECIMAL(18,2) = ISNULL((SELECT TipAmount FROM Orders WHERE Id = @OrderId), 0);
-                                                DECLARE @GSTPerc DECIMAL(10,4) = ISNULL((SELECT DefaultGSTPercentage FROM dbo.RestaurantSettings), 0);
-                                                DECLARE @NetSubtotal DECIMAL(18,2) = @Subtotal - @TotalDiscount;
-                                                IF @NetSubtotal < 0 SET @NetSubtotal = 0;
-                                                DECLARE @NewTax DECIMAL(18,2) = 0;
-                                                IF @GSTPerc > 0 SET @NewTax = ROUND(@NetSubtotal * @GSTPerc / 100.0, 2);
-                                                DECLARE @NewTotal DECIMAL(18,2) = @NetSubtotal + @NewTax + @Tip;
-                                                -- Also persist aggregated roundoff from approved payments so UI shows correct Paid amount
-                                                DECLARE @TotalRoundoff DECIMAL(18,2) = ISNULL((SELECT SUM(ISNULL(RoundoffAdjustmentAmt,0)) FROM Payments WHERE OrderId = @OrderId AND Status <> 3), 0);
-                                                UPDATE Orders
-                                                SET DiscountAmount = @TotalDiscount,
-                                                    TaxAmount = @NewTax,
-                                                    TotalAmount = @NewTotal,
-                                                    RoundoffAdjustmentAmt = @TotalRoundoff,
-                                                    UpdatedAt = GETDATE()
-                                                WHERE Id = @OrderId;", connection))
+                                            paymentDate = reader.GetDateTime(0);
+                                            currentStatus = reader.GetInt32(1);
+                                            orderId = reader.GetInt32(2);
+                                            
+                                            var paymentAge = DateTime.Now - paymentDate;
+                                            
+                                            if (currentStatus == 3) // Already voided
                                             {
-                                                recalcCmd.Parameters.AddWithValue("@OrderIdParam", model.OrderId);
-                                                recalcCmd.ExecuteNonQuery();
+                                                ModelState.AddModelError("", "This payment has already been voided.");
+                                                return View(model);
+                                            }
+                                            
+                                            if (paymentAge.TotalDays > 7)
+                                            {
+                                                ModelState.AddModelError("", "Cannot void payments older than 7 days. Please contact administrator.");
+                                                return View(model);
                                             }
                                         }
-                                        catch
+                                        else
                                         {
-                                            // Recalc failure should not block void success; log if logger available
-                                            try { _logger?.LogWarning("Failed to recalculate order totals after voiding payment {PaymentId}", model.PaymentId); } catch { }
+                                            ModelState.AddModelError("", "Payment not found.");
+                                            return View(model);
                                         }
-
-                                        TempData["SuccessMessage"] = "Payment voided successfully.";
-                                        return RedirectToAction("Index", new { id = model.OrderId });
-                                    }
-                                    else
-                                    {
-                                        ModelState.AddModelError("", message);
                                     }
                                 }
-                                else
+                                
+                                // Void the payment using stored procedure
+                                using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand("usp_VoidPayment", connection, transaction))
                                 {
-                                    ModelState.AddModelError("", "Failed to void payment.");
+                                    command.CommandType = CommandType.StoredProcedure;
+                                    
+                                    command.Parameters.AddWithValue("@PaymentId", model.PaymentId);
+                                    command.Parameters.AddWithValue("@Reason", model.Reason ?? "No reason provided");
+                                    command.Parameters.AddWithValue("@ProcessedBy", GetCurrentUserId());
+                                    command.Parameters.AddWithValue("@ProcessedByName", GetCurrentUserName());
+                                    
+                                    using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
+                                    {
+                                        if (reader.Read())
+                                        {
+                                            int result = reader.GetInt32(0);
+                                            string message = reader.GetString(1);
+                                            
+                                            if (result > 0)
+                                            {
+                                                reader.Close();
+                                                
+                                                // Recalculate order totals and check if order needs to be reopened
+                                                using (var recalcCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                                    DECLARE @OrderId INT = @OrderIdParam;
+                                                    
+                                                    -- Get current order details
+                                                    DECLARE @Subtotal DECIMAL(18,2);
+                                                    DECLARE @TipAmount DECIMAL(18,2);
+                                                    DECLARE @OrderStatus INT;
+                                                    DECLARE @GSTPerc DECIMAL(10,4);
+                                                    
+                                                    SELECT 
+                                                        @Subtotal = ISNULL(Subtotal, 0),
+                                                        @TipAmount = ISNULL(TipAmount, 0),
+                                                        @OrderStatus = Status
+                                                    FROM Orders 
+                                                    WHERE Id = @OrderId;
+                                                    
+                                                    -- Get GST percentage (try persisted first, fallback to settings)
+                                                    SELECT @GSTPerc = ISNULL(GSTPercentage, 0) FROM Orders WHERE Id = @OrderId;
+                                                    IF @GSTPerc = 0 OR @GSTPerc IS NULL
+                                                    BEGIN
+                                                        SELECT @GSTPerc = ISNULL(DefaultGSTPercentage, 5.0) FROM dbo.RestaurantSettings;
+                                                    END
+                                                    
+                                                    -- Calculate totals from non-voided payments
+                                                    DECLARE @TotalPaid DECIMAL(18,2) = 0;
+                                                    DECLARE @TotalDiscount DECIMAL(18,2) = 0;
+                                                    DECLARE @TotalRoundoff DECIMAL(18,2) = 0;
+                                                    
+                                                    SELECT 
+                                                        @TotalPaid = ISNULL(SUM(Amount + TipAmount + ISNULL(RoundoffAdjustmentAmt, 0)), 0),
+                                                        @TotalDiscount = ISNULL(SUM(ISNULL(DiscAmount, 0)), 0),
+                                                        @TotalRoundoff = ISNULL(SUM(ISNULL(RoundoffAdjustmentAmt, 0)), 0)
+                                                    FROM Payments 
+                                                    WHERE OrderId = @OrderId 
+                                                    AND Status = 1; -- Only approved payments
+                                                    
+                                                    -- Recalculate GST and Total
+                                                    DECLARE @NetSubtotal DECIMAL(18,2) = @Subtotal - @TotalDiscount;
+                                                    IF @NetSubtotal < 0 SET @NetSubtotal = 0;
+                                                    
+                                                    DECLARE @GSTAmount DECIMAL(18,2) = ROUND(@NetSubtotal * @GSTPerc / 100.0, 2);
+                                                    DECLARE @CGSTAmount DECIMAL(18,2) = ROUND(@GSTAmount / 2.0, 2);
+                                                    DECLARE @SGSTAmount DECIMAL(18,2) = @GSTAmount - @CGSTAmount;
+                                                    
+                                                    DECLARE @NewTotal DECIMAL(18,2) = @NetSubtotal + @GSTAmount + @TipAmount;
+                                                    
+                                                    -- Determine if order should be reopened
+                                                    DECLARE @NewStatus INT = @OrderStatus;
+                                                    IF @OrderStatus = 3 AND @TotalPaid < @NewTotal -- Completed but now has remaining balance
+                                                    BEGIN
+                                                        SET @NewStatus = 2; -- Set to Ready (pending payment)
+                                                    END
+                                                    
+                                                    -- Update Orders table
+                                                    UPDATE Orders
+                                                    SET 
+                                                        DiscountAmount = @TotalDiscount,
+                                                        TaxAmount = @GSTAmount,
+                                                        TotalAmount = @NewTotal,
+                                                        RoundoffAdjustmentAmt = @TotalRoundoff,
+                                                        Status = @NewStatus,
+                                                        UpdatedAt = GETDATE()
+                                                    WHERE Id = @OrderId;
+                                                    
+                                                    -- Update GST columns if they exist
+                                                    IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'GSTAmount')
+                                                    BEGIN
+                                                        UPDATE Orders
+                                                        SET 
+                                                            GSTPercentage = @GSTPerc,
+                                                            CGSTPercentage = @GSTPerc / 2.0,
+                                                            SGSTPercentage = @GSTPerc / 2.0,
+                                                            GSTAmount = @GSTAmount,
+                                                            CGSTAmount = @CGSTAmount,
+                                                            SGSTAmount = @SGSTAmount
+                                                        WHERE Id = @OrderId;
+                                                    END
+                                                    
+                                                    -- Return new status for logging
+                                                    SELECT @NewStatus AS NewOrderStatus, @NewTotal AS NewTotal, @TotalPaid AS TotalPaid;
+                                                ", connection, transaction))
+                                                {
+                                                    recalcCmd.Parameters.AddWithValue("@OrderIdParam", orderId);
+                                                    
+                                                    using (var recalcReader = recalcCmd.ExecuteReader())
+                                                    {
+                                                        if (recalcReader.Read())
+                                                        {
+                                                            int newStatus = recalcReader.GetInt32(0);
+                                                            decimal newTotal = recalcReader.GetDecimal(1);
+                                                            decimal totalPaid = recalcReader.GetDecimal(2);
+                                                            
+                                                            _logger?.LogInformation(
+                                                                "Payment {PaymentId} voided. Order {OrderId} status: {Status}, Total: {Total}, Paid: {Paid}, Remaining: {Remaining}",
+                                                                model.PaymentId, orderId, newStatus, newTotal, totalPaid, newTotal - totalPaid);
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                transaction.Commit();
+                                                
+                                                TempData["SuccessMessage"] = "Payment voided successfully. Order totals have been recalculated.";
+                                                return RedirectToAction("Index", new { id = orderId });
+                                            }
+                                            else
+                                            {
+                                                ModelState.AddModelError("", message);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            ModelState.AddModelError("", "Failed to void payment.");
+                                        }
+                                    }
                                 }
+                            }
+                            catch (Exception ex)
+                            {
+                                transaction.Rollback();
+                                _logger?.LogError(ex, "Error voiding payment {PaymentId}", model.PaymentId);
+                                ModelState.AddModelError("", $"An error occurred while voiding payment: {ex.Message}");
                             }
                         }
                     }
                 }
                 catch (Exception ex)
                 {
+                    _logger?.LogError(ex, "Error in VoidPayment for payment {PaymentId}", model.PaymentId);
                     ModelState.AddModelError("", $"An error occurred: {ex.Message}");
+                }
+            }
+            
+            // If we get here, something went wrong - reload the view with model
+            using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+            {
+                connection.Open();
+                
+                using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    SELECT 
+                        p.Id,
+                        p.OrderId,
+                        o.OrderNumber,
+                        p.Amount,
+                        p.TipAmount,
+                        pm.DisplayName,
+                        p.CreatedAt
+                    FROM 
+                        Payments p
+                    INNER JOIN 
+                        Orders o ON p.OrderId = o.Id
+                    INNER JOIN
+                        PaymentMethods pm ON p.PaymentMethodId = pm.Id
+                    WHERE 
+                        p.Id = @PaymentId", connection))
+                {
+                    command.Parameters.AddWithValue("@PaymentId", model.PaymentId);
+                    
+                    using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            model.OrderId = reader.GetInt32(1);
+                            model.OrderNumber = reader.GetString(2);
+                            model.PaymentAmount = reader.GetDecimal(3);
+                            model.TipAmount = reader.GetDecimal(4);
+                            model.PaymentMethodDisplay = reader.GetString(5);
+                            model.PaymentDate = reader.GetDateTime(6);
+                        }
+                    }
                 }
             }
             
