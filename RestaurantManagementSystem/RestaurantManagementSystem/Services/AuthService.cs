@@ -1116,27 +1116,33 @@ namespace RestaurantManagementSystem.Services
                 using (var connection = new SqlConnection(connectionString))
                 {
                     await connection.OpenAsync();
-                    // First check if the column exists (separate round-trip to avoid referencing a missing column in same batch)
-                    bool columnExists;
-                    using (var checkCmd = new SqlCommand(@"SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS 
-                                                            WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'LastLoginAt'", connection))
+                    
+                    // Check which LastLogin column exists
+                    string columnToUpdate = null;
+                    using (var checkCmd = new SqlCommand(@"
+                        SELECT COLUMN_NAME 
+                        FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_NAME = 'Users' 
+                        AND COLUMN_NAME IN ('LastLoginDate', 'LastLoginAt', 'LastLogin')", connection))
                     {
                         var result = await checkCmd.ExecuteScalarAsync();
-                        columnExists = result != null;
+                        columnToUpdate = result?.ToString();
                     }
 
-                    if (columnExists)
+                    if (!string.IsNullOrEmpty(columnToUpdate))
                     {
-                        using (var updateCmd = new SqlCommand("UPDATE Users SET LastLoginAt = @LastLoginAt WHERE Id = @UserId", connection))
+                        var updateQuery = $"UPDATE Users SET {columnToUpdate} = @LastLoginTime WHERE Id = @UserId";
+                        using (var updateCmd = new SqlCommand(updateQuery, connection))
                         {
                             updateCmd.Parameters.AddWithValue("@UserId", userId);
-                            updateCmd.Parameters.AddWithValue("@LastLoginAt", DateTime.UtcNow);
+                            updateCmd.Parameters.AddWithValue("@LastLoginTime", DateTime.Now);
                             await updateCmd.ExecuteNonQueryAsync();
                         }
+                        _logger?.LogInformation("Updated {Column} for user {UserId}", columnToUpdate, userId);
                     }
                     else
                     {
-                        _logger?.LogDebug("Skipping LastLoginAt update because column does not exist on Users table.");
+                        _logger?.LogDebug("No LastLogin column found on Users table.");
                     }
                 }
             }

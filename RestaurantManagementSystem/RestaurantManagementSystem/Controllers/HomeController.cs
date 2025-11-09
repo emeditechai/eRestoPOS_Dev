@@ -45,6 +45,9 @@ namespace RestaurantManagementSystem.Controllers
             // Get live dashboard data from database
             var dashboardStats = await GetDashboardStatsAsync();
             var recentOrders = await GetRecentOrdersAsync();
+            
+            // Get last login date from database
+            DateTime? lastLoginDate = await GetLastLoginDateAsync(userId);
 
             // Load restaurant logo path (fall back to default if not set)
             string? logoPath = null;
@@ -93,7 +96,7 @@ namespace RestaurantManagementSystem.Controllers
                 UserEmail = userEmail,
                 UserRoles = userRoles,
                 UserPermissions = userPermissions,
-                LastLoginDate = DateTime.Now, // In a real app, get this from the database
+                LastLoginDate = lastLoginDate ?? DateTime.Now, // Use database value or current time as fallback
                 TodaySales = dashboardStats.TodaySales,
                 TodayOrders = dashboardStats.TodayOrders,
                 ActiveTables = dashboardStats.ActiveTables,
@@ -232,6 +235,60 @@ namespace RestaurantManagementSystem.Controllers
             }
             
             return orders;
+        }
+        
+        private async Task<DateTime?> GetLastLoginDateAsync(string userIdString)
+        {
+            if (string.IsNullOrEmpty(userIdString) || !int.TryParse(userIdString, out int userId))
+            {
+                return null;
+            }
+            
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+                    
+                    // First, determine which column name exists
+                    string columnName = null;
+                    using (var checkCmd = new SqlCommand(@"
+                        SELECT COLUMN_NAME 
+                        FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_NAME = 'Users' 
+                        AND COLUMN_NAME IN ('LastLoginDate', 'LastLoginAt', 'LastLogin')
+                        ORDER BY CASE 
+                            WHEN COLUMN_NAME = 'LastLoginDate' THEN 1 
+                            WHEN COLUMN_NAME = 'LastLoginAt' THEN 2 
+                            ELSE 3 
+                        END", connection))
+                    {
+                        var result = await checkCmd.ExecuteScalarAsync();
+                        columnName = result?.ToString();
+                    }
+                    
+                    if (!string.IsNullOrEmpty(columnName))
+                    {
+                        var query = $"SELECT {columnName} FROM Users WHERE Id = @UserId";
+                        using (var command = new SqlCommand(query, connection))
+                        {
+                            command.Parameters.AddWithValue("@UserId", userId);
+                            
+                            var result = await command.ExecuteScalarAsync();
+                            if (result != null && result != DBNull.Value)
+                            {
+                                return Convert.ToDateTime(result);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error getting last login date for user {UserId}", userId);
+            }
+            
+            return null;
         }
 
         public IActionResult Privacy()
