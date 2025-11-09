@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Data.SqlClient;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.ViewModels;
+using RestaurantManagementSystem.Services;
 using System.Data;
 
 namespace RestaurantManagementSystem.Controllers
@@ -12,11 +13,13 @@ namespace RestaurantManagementSystem.Controllers
     {
         private readonly IConfiguration _configuration;
         private readonly string _connectionString;
+        private readonly IDayClosingService _dayClosingService;
 
-        public ReportsController(IConfiguration configuration)
+        public ReportsController(IConfiguration configuration, IDayClosingService dayClosingService)
         {
             _configuration = configuration;
             _connectionString = _configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+            _dayClosingService = dayClosingService;
         }
 
         [HttpGet]
@@ -1113,6 +1116,121 @@ namespace RestaurantManagementSystem.Controllers
             catch (Exception ex)
             {
                 Console.WriteLine($"Error loading collection register: {ex.Message}");
+            }
+        }
+
+        // =====================================================
+        // Cash Closing Report
+        // =====================================================
+        
+        [HttpGet]
+        [Authorize(Roles = "Administrator,Manager")]
+        public async Task<IActionResult> CashClosing()
+        {
+            ViewData["Title"] = "Cash Closing Report";
+            
+            var viewModel = new CashClosingReportViewModel();
+            
+            // Set default dates (last 7 days)
+            viewModel.Filters.StartDate = DateTime.Today.AddDays(-7);
+            viewModel.Filters.EndDate = DateTime.Today;
+            
+            // Load cashiers for filter dropdown
+            await LoadCashiersForFilterAsync(viewModel);
+            
+            // Load default report
+            var reportData = await _dayClosingService.GenerateCashClosingReportAsync(
+                viewModel.Filters.StartDate, 
+                viewModel.Filters.EndDate, 
+                viewModel.Filters.CashierId
+            );
+            
+            viewModel.Summary = reportData.Summary;
+            viewModel.DailySummaries = reportData.DailySummaries;
+            viewModel.DetailRecords = reportData.DetailRecords;
+            viewModel.CashierPerformance = reportData.CashierPerformance;
+            viewModel.DayLockAudits = reportData.DayLockAudits;
+            
+            return View(viewModel);
+        }
+
+        [HttpPost]
+        [Authorize(Roles = "Administrator,Manager")]
+        public async Task<IActionResult> CashClosing(CashClosingReportFilters filters)
+        {
+            ViewData["Title"] = "Cash Closing Report";
+            
+            var viewModel = new CashClosingReportViewModel
+            {
+                Filters = filters
+            };
+            
+            // Validate dates
+            if (filters.StartDate > filters.EndDate)
+            {
+                ModelState.AddModelError("", "Start date cannot be after end date");
+                await LoadCashiersForFilterAsync(viewModel);
+                return View(viewModel);
+            }
+            
+            // Load cashiers for filter dropdown
+            await LoadCashiersForFilterAsync(viewModel);
+            
+            // Load report based on filters
+            var reportData = await _dayClosingService.GenerateCashClosingReportAsync(
+                filters.StartDate, 
+                filters.EndDate, 
+                filters.CashierId
+            );
+            
+            viewModel.Summary = reportData.Summary;
+            viewModel.DailySummaries = reportData.DailySummaries;
+            viewModel.DetailRecords = reportData.DetailRecords;
+            viewModel.CashierPerformance = reportData.CashierPerformance;
+            viewModel.DayLockAudits = reportData.DayLockAudits;
+            
+            return View(viewModel);
+        }
+
+        private async Task LoadCashiersForFilterAsync(CashClosingReportViewModel viewModel)
+        {
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+
+                    var query = @"
+                        SELECT DISTINCT 
+                            u.Id, 
+                            u.Username
+                        FROM Users u
+                        INNER JOIN UserRoles ur ON ur.UserId = u.Id
+                        INNER JOIN Roles r ON r.Id = ur.RoleId
+                        WHERE u.IsActive = 1 
+                          AND r.Name IN ('Administrator', 'Manager', 'Cashier')
+                        ORDER BY u.Username";
+
+                    using (var command = new SqlCommand(query, connection))
+                    using (var reader = await command.ExecuteReaderAsync())
+                    {
+                        var cashiers = new List<(int Id, string Name)>();
+                        while (await reader.ReadAsync())
+                        {
+                            cashiers.Add((
+                                reader.GetInt32(0),
+                                reader.GetString(1)
+                            ));
+                        }
+                        
+                        ViewBag.Cashiers = cashiers;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading cashiers: {ex.Message}");
+                ViewBag.Cashiers = new List<(int, string)>();
             }
         }
     }

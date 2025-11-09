@@ -35,6 +35,11 @@ namespace RestaurantManagementSystem.Data
         
         // Restaurant Settings
         public DbSet<RestaurantSettings> RestaurantSettings { get; set; } = null!;
+        
+        // Day Closing
+        public DbSet<CashierDayOpening> CashierDayOpenings { get; set; } = null!;
+        public DbSet<CashierDayClose> CashierDayClosings { get; set; } = null!;
+        public DbSet<DayLockAudit> DayLockAudits { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

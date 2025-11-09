@@ -1,0 +1,107 @@
+@model RestaurantManagementSystem.Models.VarianceApprovalViewModel
+@{
+    ViewData["Title"] = "Approve Variance";
+}
+
+<div class="container-fluid p-4" style="background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%); min-height: 100vh;">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header bg-warning text-dark">
+                    <h4 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Variance Approval Required</h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-4">
+                        Business Date: <strong>@Model.BusinessDate.ToString("dddd, MMMM dd, yyyy")</strong><br />
+                        Cashier: <strong>@Model.CashierName</strong>
+                    </p>
+
+                    <!-- Variance Details -->
+                    <div class="table-responsive mb-4">
+                        <table class="table table-bordered">
+                            <tr>
+                                <th class="bg-light">Opening Float</th>
+                                <td class="text-end">₹@Model.OpeningFloat.ToString("N2")</td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">System Cash Collected</th>
+                                <td class="text-end">₹@Model.SystemAmount.ToString("N2")</td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">Expected Cash (Opening + System)</th>
+                                <td class="text-end"><strong>₹@Model.ExpectedCash.ToString("N2")</strong></td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">Declared Cash</th>
+                                <td class="text-end">₹@Model.DeclaredAmount.ToString("N2")</td>
+                            </tr>
+                            <tr class="table-@(Model.Variance >= 0 ? "success" : "danger")">
+                                <th>Variance</th>
+                                <td class="text-end">
+                                    <strong>
+                                        ₹@Math.Abs(Model.Variance).ToString("N2") 
+                                        @(Model.Variance >= 0 ? "OVER" : "SHORT")
+                                    </strong>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <div class="alert alert-@(Math.Abs(Model.Variance) > 500 ? "danger" : "warning")">
+                        <i class="fas fa-info-circle me-2"></i>
+                        @if (Math.Abs(Model.Variance) > 500)
+                        {
+                            <strong>CRITICAL:</strong> @("Variance exceeds ₹500. Please verify carefully before approval.")
+                        }
+                        else
+                        {
+                            <strong>Note:</strong> @("Variance exceeds ₹100 threshold. Manager approval is required.")
+                        }
+                    </div>
+
+                    <form asp-action="ApproveVariance" method="post">
+                        <input type="hidden" asp-for="CloseId" />
+                        <input type="hidden" asp-for="BusinessDate" />
+                        <input type="hidden" asp-for="CashierName" />
+                        <input type="hidden" asp-for="OpeningFloat" />
+                        <input type="hidden" asp-for="SystemAmount" />
+                        <input type="hidden" asp-for="DeclaredAmount" />
+                        <input type="hidden" asp-for="Variance" />
+                        <input type="hidden" asp-for="ExpectedCash" />
+
+                        <div class="mb-3">
+                            <label asp-for="ApprovalComment" class="form-label">
+                                Approval Comment <span class="text-danger">*</span>
+                            </label>
+                            <textarea asp-for="ApprovalComment" class="form-control" rows="4" required 
+                                      placeholder="Enter reason for variance and approval decision..."></textarea>
+                            <span asp-validation-for="ApprovalComment" class="text-danger"></span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Approval Decision <span class="text-danger">*</span></label>
+                            <div class="d-grid gap-2">
+                                <button type="submit" name="ApprovalAction" value="APPROVE" class="btn btn-success btn-lg">
+                                    <i class="fas fa-check-circle"></i> Approve Variance
+                                </button>
+                                <button type="submit" name="ApprovalAction" value="REJECT" class="btn btn-danger btn-lg">
+                                    <i class="fas fa-times-circle"></i> Reject & Request Re-verification
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="d-grid">
+                            <a asp-action="Index" asp-route-date="@Model.BusinessDate.ToString("yyyy-MM-dd")" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left"></i> Cancel & Go Back
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}

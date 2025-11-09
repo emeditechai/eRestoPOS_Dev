@@ -1,0 +1,79 @@
+@model RestaurantManagementSystem.Models.OpenFloatViewModel
+@{
+    ViewData["Title"] = "Initialize Opening Float";
+}
+
+<div class="container-fluid p-4" style="background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%); min-height: 100vh;">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow">
+                <div class="card-header" style="background: linear-gradient(90deg, #14b8a6 0%, #2dd4bf 100%); color: white;">
+                    <h4 class="mb-0"><i class="fas fa-money-check-alt me-2"></i>Initialize Opening Float</h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-4">
+                        Business Date: <strong>@Model.BusinessDate.ToString("dddd, MMMM dd, yyyy")</strong>
+                    </p>
+
+                    <form asp-action="OpenFloat" method="post">
+                        <input type="hidden" asp-for="BusinessDate" />
+                        
+                        <div class="mb-3">
+                            <label asp-for="CashierId" class="form-label">Select Cashier <span class="text-danger">*</span></label>
+                            <select asp-for="CashierId" class="form-select form-select-lg" required>
+                                <option value="">-- Select Cashier --</option>
+                                @foreach (var cashier in Model.AvailableCashiers)
+                                {
+                                    <option value="@cashier.Id" disabled="@cashier.AlreadyInitialized">
+                                        @cashier.Name (@cashier.Username)@(cashier.AlreadyInitialized ? " - Already Initialized" : "")
+                                    </option>
+                                }
+                            </select>
+                            <span asp-validation-for="CashierId" class="text-danger"></span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label asp-for="OpeningFloat" class="form-label">Opening Float Amount <span class="text-danger">*</span></label>
+                            <div class="input-group input-group-lg">
+                                <span class="input-group-text">₹</span>
+                                <input asp-for="OpeningFloat" type="number" class="form-control" step="0.01" min="0" placeholder="Enter opening float amount" required />
+                            </div>
+                            <span asp-validation-for="OpeningFloat" class="text-danger"></span>
+                            <small class="form-text text-muted">
+                                Common amounts: 
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setFloat(1000)">₹1,000</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setFloat(2000)">₹2,000</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setFloat(3000)">₹3,000</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setFloat(5000)">₹5,000</button>
+                            </small>
+                        </div>
+
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Note:</strong> This opening float will be assigned to the selected cashier for the business date. 
+                            It will be added to their expected cash at day close.
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-success btn-lg">
+                                <i class="fas fa-check-circle"></i> Initialize Opening Float
+                            </button>
+                            <a asp-action="Index" asp-route-date="@Model.BusinessDate.ToString("yyyy-MM-dd")" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left"></i> Cancel & Go Back
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+    <script>
+        function setFloat(amount) {
+            document.getElementById('OpeningFloat').value = amount;
+        }
+    </script>
+}

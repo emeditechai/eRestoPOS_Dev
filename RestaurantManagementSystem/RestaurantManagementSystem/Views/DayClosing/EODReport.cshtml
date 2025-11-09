@@ -1,0 +1,247 @@
+@model RestaurantManagementSystem.Models.EODReportViewModel
+@{
+    ViewData["Title"] = "EOD Report";
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - @Model.RestaurantName</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+        @@media print {
+            .no-print { display: none !important; }
+            .card { border: 1px solid #000 !important; page-break-inside: avoid; }
+        }
+        body { font-family: Arial, sans-serif; }
+        .report-header { border-bottom: 3px solid #14b8a6; padding-bottom: 15px; margin-bottom: 20px; }
+        .signature-box { border-top: 1px solid #000; margin-top: 30px; padding-top: 10px; }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container my-4">
+        <!-- Print Button -->
+        <div class="no-print mb-3 text-end">
+            <button onclick="window.print()" class="btn btn-primary">
+                <i class="fas fa-print"></i> Print Report
+            </button>
+            <a href="@Url.Action("Index", new { date = Model.BusinessDate.ToString("yyyy-MM-dd") })" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
+            </a>
+        </div>
+
+        <!-- Report Content -->
+        <div class="card shadow">
+            <div class="card-body p-4">
+                <!-- Header -->
+                <div class="report-header text-center">
+                    <h2 class="mb-1">@Model.RestaurantName</h2>
+                    <h4 class="text-primary mb-3">End of Day (EOD) Report</h4>
+                    <div class="row">
+                        <div class="col-6 text-start">
+                            <strong>Business Date:</strong> @Model.BusinessDate.ToString("dd MMM yyyy")
+                        </div>
+                        <div class="col-6 text-end">
+                            <strong>Generated:</strong> @Model.GeneratedAt.ToString("dd MMM yyyy hh:mm tt")<br />
+                            <strong>By:</strong> @Model.GeneratedBy
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sales Summary -->
+                <div class="mb-4">
+                    <h5 class="bg-light p-2"><i class="fas fa-chart-line me-2"></i>Sales Summary</h5>
+                    <div class="row">
+                        <div class="col-md-3 mb-2">
+                            <div class="border p-2">
+                                <small>Total Orders</small><br />
+                                <strong class="fs-5">@Model.TotalOrders</strong>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <div class="border p-2">
+                                <small>Total Sales</small><br />
+                                <strong class="fs-5 text-success">₹@Model.TotalSales.ToString("N2")</strong>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <div class="border p-2">
+                                <small>Cash Sales</small><br />
+                                <strong class="fs-5">₹@Model.CashSales.ToString("N2")</strong>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <div class="border p-2">
+                                <small>Card/UPI Sales</small><br />
+                                <strong class="fs-5">₹@((Model.CardSales + Model.UPISales).ToString("N2"))</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cashier Details -->
+                <div class="mb-4">
+                    <h5 class="bg-light p-2"><i class="fas fa-users me-2"></i>Cashier Closing Details</h5>
+                    <table class="table table-bordered table-sm">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Cashier</th>
+                                <th class="text-end">Opening Float</th>
+                                <th class="text-end">System ₹</th>
+                                <th class="text-end">Expected ₹</th>
+                                <th class="text-end">Declared ₹</th>
+                                <th class="text-end">Variance</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var cashier in Model.CashierDetails)
+                            {
+                                <tr>
+                                    <td>@cashier.CashierName</td>
+                                    <td class="text-end">₹@cashier.OpeningFloat.ToString("N2")</td>
+                                    <td class="text-end">₹@cashier.SystemAmount.ToString("N2")</td>
+                                    <td class="text-end">₹@cashier.ExpectedCash.ToString("N2")</td>
+                                    <td class="text-end">₹@(cashier.DeclaredAmount?.ToString("N2") ?? "-")</td>
+                                    <td class="text-end @(cashier.Variance >= 0 ? "text-success" : "text-danger")">
+                                        @if (cashier.Variance.HasValue)
+                                        {
+                                            <strong>@cashier.VarianceDisplay</strong>
+                                        }
+                                        else
+                                        {
+                                            <span>-</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge @cashier.StatusBadgeClass">@cashier.Status</span>
+                                    </td>
+                                </tr>
+                                @if (!string.IsNullOrEmpty(cashier.ApprovalComment))
+                                {
+                                    <tr>
+                                        <td colspan="7" class="bg-light small">
+                                            <strong>Approval Comment (@cashier.ApprovedBy):</strong> @cashier.ApprovalComment
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                        <tfoot class="table-secondary">
+                            <tr>
+                                <th>TOTAL</th>
+                                <th class="text-end">₹@Model.Summary.TotalOpeningFloat.ToString("N2")</th>
+                                <th class="text-end">₹@Model.Summary.TotalSystemAmount.ToString("N2")</th>
+                                <th class="text-end">₹@Model.Summary.TotalExpectedCash.ToString("N2")</th>
+                                <th class="text-end">₹@Model.Summary.TotalDeclaredAmount.ToString("N2")</th>
+                                <th class="text-end @(Model.Summary.TotalVariance >= 0 ? "text-success" : "text-danger")">
+                                    ₹@(Math.Abs(Model.Summary.TotalVariance).ToString("N2")) @(Model.Summary.TotalVariance >= 0 ? "Over" : "Short")
+                                </th>
+                                <th></th>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <!-- Lock Status -->
+                @if (Model.LockStatus != null)
+                {
+                    <div class="alert alert-@(Model.LockStatus.IsLocked ? "danger" : "warning") mb-4">
+                        <h6><i class="fas fa-lock me-2"></i>Day Lock Status</h6>
+                        <p class="mb-0">
+                            <strong>Status:</strong> @Model.LockStatus.Status<br />
+                            <strong>Locked By:</strong> @Model.LockStatus.LockedBy<br />
+                            <strong>Locked At:</strong> @Model.LockStatus.LockTime.ToString("dd MMM yyyy hh:mm tt")<br />
+                            @if (!string.IsNullOrEmpty(Model.LockStatus.Remarks))
+                            {
+                                <strong>Remarks:</strong> @Model.LockStatus.Remarks
+                            }
+                        </p>
+                    </div>
+                }
+
+                <!-- Summary Table -->
+                <div class="mb-4">
+                    <h5 class="bg-light p-2"><i class="fas fa-calculator me-2"></i>Summary</h5>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <table class="table table-sm">
+                                <tr>
+                                    <td>Total Cashiers:</td>
+                                    <td class="text-end"><strong>@Model.Summary.TotalCashiers</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>Pending:</td>
+                                    <td class="text-end"><strong class="text-warning">@Model.Summary.PendingCount</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>OK:</td>
+                                    <td class="text-end"><strong class="text-success">@Model.Summary.OkCount</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>Check Required:</td>
+                                    <td class="text-end"><strong class="text-danger">@Model.Summary.CheckCount</strong></td>
+                                </tr>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            <table class="table table-sm">
+                                <tr>
+                                    <td>Total Opening Float:</td>
+                                    <td class="text-end"><strong>₹@Model.Summary.TotalOpeningFloat.ToString("N2")</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>Total System Amount:</td>
+                                    <td class="text-end"><strong>₹@Model.Summary.TotalSystemAmount.ToString("N2")</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>Total Expected Cash:</td>
+                                    <td class="text-end"><strong>₹@Model.Summary.TotalExpectedCash.ToString("N2")</strong></td>
+                                </tr>
+                                <tr class="table-secondary">
+                                    <td><strong>Total Variance:</strong></td>
+                                    <td class="text-end">
+                                        <strong class="@(Model.Summary.TotalVariance >= 0 ? "text-success" : "text-danger")">
+                                            ₹@(Math.Abs(Model.Summary.TotalVariance).ToString("N2")) @(Model.Summary.TotalVariance >= 0 ? "Over" : "Short")
+                                        </strong>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Signatures -->
+                <div class="row mt-5">
+                    <div class="col-md-4">
+                        <div class="signature-box text-center">
+                            Prepared By<br />
+                            <strong>@Model.GeneratedBy</strong>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="signature-box text-center">
+                            Verified By<br />
+                            <strong>Manager</strong>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="signature-box text-center">
+                            Approved By<br />
+                            <strong>Owner/Admin</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4 small text-muted">
+                    <p class="mb-0">This is a system-generated report. @Model.GeneratedAt.ToString("dd MMM yyyy hh:mm tt")</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

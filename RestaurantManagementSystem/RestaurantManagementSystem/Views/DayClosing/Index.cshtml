@@ -1,0 +1,315 @@
+@model RestaurantManagementSystem.Models.DayClosingDashboardViewModel
+@{
+    ViewData["Title"] = "Day Closing - Cash Close & Lock";
+}
+
+<div class="container-fluid p-4" style="background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%); min-height: 100vh;">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-1" style="color: #0d9488;">
+                        <i class="fas fa-cash-register me-2"></i>Day Closing - Cashier Cash Close & Lock
+                    </h2>
+                    <p class="text-muted mb-0">
+                        Business Date: <strong>@Model.BusinessDate.ToString("dddd, MMMM dd, yyyy")</strong>
+                        @if (Model.LockStatus?.IsLocked == true)
+                        {
+                            <span class="badge bg-danger ms-2"><i class="fas fa-lock"></i> DAY LOCKED</span>
+                        }
+                    </p>
+                </div>
+                <div>
+                    <a asp-action="Index" asp-route-date="@DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd")" class="btn btn-outline-primary btn-sm me-2">
+                        <i class="fas fa-chevron-left"></i> Previous Day
+                    </a>
+                    <a asp-action="Index" asp-route-date="@DateTime.Today.ToString("yyyy-MM-dd")" class="btn btn-primary btn-sm me-2">
+                        <i class="fas fa-calendar-day"></i> Today
+                    </a>
+                    <a asp-action="Index" asp-route-date="@DateTime.Today.AddDays(1).ToString("yyyy-MM-dd")" class="btn btn-outline-primary btn-sm">
+                        Next Day <i class="fas fa-chevron-right"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* Success/Error Messages *@
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="fas fa-check-circle me-2"></i>@TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["WarningMessage"] != null)
+    {
+        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-triangle me-2"></i>@TempData["WarningMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-times-circle me-2"></i>@TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card border-start border-warning border-4 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted mb-1">Pending</h6>
+                    <h3 class="mb-0 text-warning">@Model.Summary.PendingCount</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-start border-success border-4 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted mb-1">OK</h6>
+                    <h3 class="mb-0 text-success">@Model.Summary.OkCount</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-start border-danger border-4 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted mb-1">Check Required</h6>
+                    <h3 class="mb-0 text-danger">@Model.Summary.CheckCount</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-start border-primary border-4 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted mb-1">Total Variance</h6>
+                    <h3 class="mb-0 @(Model.Summary.TotalVariance >= 0 ? "text-success" : "text-danger")">
+                        ₹@Math.Abs(Model.Summary.TotalVariance).ToString("N2")
+                        @if (Model.Summary.TotalVariance != 0)
+                        {
+                            <small>@(Model.Summary.TotalVariance >= 0 ? "Over" : "Short")</small>
+                        }
+                    </h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="btn-group" role="group">
+                <a asp-action="OpenFloat" asp-route-date="@Model.BusinessDate.ToString("yyyy-MM-dd")" class="btn btn-primary">
+                    <i class="fas fa-plus-circle"></i> Open Float for Cashier
+                </a>
+                <form asp-action="RefreshSystemAmounts" method="post" class="d-inline">
+                    <input type="hidden" name="businessDate" value="@Model.BusinessDate.ToString("yyyy-MM-dd")" />
+                    <button type="submit" class="btn btn-info">
+                        <i class="fas fa-sync-alt"></i> Refresh System Amounts
+                    </button>
+                </form>
+                <a asp-action="EODReport" asp-route-date="@Model.BusinessDate.ToString("yyyy-MM-dd")" class="btn btn-secondary">
+                    <i class="fas fa-file-invoice"></i> View EOD Report
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cashier Closing Table -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow">
+                <div class="card-header" style="background: linear-gradient(90deg, #14b8a6 0%, #2dd4bf 100%); color: white;">
+                    <h5 class="mb-0"><i class="fas fa-users me-2"></i>Cashier Closing Details</h5>
+                </div>
+                <div class="card-body p-0">
+                    @if (Model.CashierClosings.Any())
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Cashier</th>
+                                        <th class="text-end">Opening Float</th>
+                                        <th class="text-end">System ₹</th>
+                                        <th class="text-end">Expected ₹</th>
+                                        <th class="text-end">Declared ₹</th>
+                                        <th class="text-end">Variance</th>
+                                        <th class="text-center">Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var cashier in Model.CashierClosings)
+                                    {
+                                        <tr>
+                                            <td><strong>@cashier.CashierName</strong></td>
+                                            <td class="text-end">₹@cashier.OpeningFloat.ToString("N2")</td>
+                                            <td class="text-end">₹@cashier.SystemAmount.ToString("N2")</td>
+                                            <td class="text-end"><strong>₹@cashier.ExpectedCash.ToString("N2")</strong></td>
+                                            <td class="text-end">
+                                                @if (cashier.DeclaredAmount.HasValue)
+                                                {
+                                                    <span>₹@cashier.DeclaredAmount.Value.ToString("N2")</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">-</span>
+                                                }
+                                            </td>
+                                            <td class="text-end">
+                                                @if (cashier.Variance.HasValue)
+                                                {
+                                                    <span class="@(cashier.Variance.Value >= 0 ? "text-success" : "text-danger")">
+                                                        <strong>@cashier.VarianceDisplay</strong>
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">-</span>
+                                                }
+                                            </td>
+                                            <td class="text-center">
+                                                <span class="badge @cashier.StatusBadgeClass">
+                                                    <i class="fas @cashier.StatusIcon"></i> @cashier.Status
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div class="btn-group btn-group-sm">
+                                                    @if (cashier.CanEdit)
+                                                    {
+                                                        <a asp-action="DeclareCash" asp-route-cashierId="@cashier.CashierId" asp-route-date="@Model.BusinessDate.ToString("yyyy-MM-dd")" 
+                                                           class="btn btn-primary btn-sm" title="Declare Cash">
+                                                            <i class="fas fa-money-bill-wave"></i> Declare
+                                                        </a>
+                                                    }
+                                                    @if (cashier.RequiresApproval && !cashier.LockedFlag)
+                                                    {
+                                                        <a asp-action="ApproveVariance" asp-route-closeId="@cashier.Id" asp-route-date="@Model.BusinessDate.ToString("yyyy-MM-dd")" 
+                                                           class="btn btn-warning btn-sm" title="Approve Variance">
+                                                            <i class="fas fa-check-square"></i> Approve
+                                                        </a>
+                                                    }
+                                                    @if (cashier.ApprovedBy != null)
+                                                    {
+                                                        <button type="button" class="btn btn-info btn-sm" data-bs-toggle="tooltip" 
+                                                                title="Approved by @cashier.ApprovedBy: @cashier.ApprovalComment">
+                                                            <i class="fas fa-info-circle"></i>
+                                                        </button>
+                                                    }
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot class="table-secondary">
+                                    <tr>
+                                        <td><strong>TOTAL</strong></td>
+                                        <td class="text-end"><strong>₹@Model.Summary.TotalOpeningFloat.ToString("N2")</strong></td>
+                                        <td class="text-end"><strong>₹@Model.Summary.TotalSystemAmount.ToString("N2")</strong></td>
+                                        <td class="text-end"><strong>₹@Model.Summary.TotalExpectedCash.ToString("N2")</strong></td>
+                                        <td class="text-end"><strong>₹@Model.Summary.TotalDeclaredAmount.ToString("N2")</strong></td>
+                                        <td class="text-end">
+                                            <strong class="@(Model.Summary.TotalVariance >= 0 ? "text-success" : "text-danger")">
+                                                ₹@Math.Abs(Model.Summary.TotalVariance).ToString("N2") @(Model.Summary.TotalVariance >= 0 ? "Over" : "Short")
+                                            </strong>
+                                        </td>
+                                        <td colspan="2"></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info m-3">
+                            <i class="fas fa-info-circle me-2"></i>
+                            No cashier opening records found for this date. Please initialize opening float for cashiers.
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lock Day Section -->
+    @if (Model.CashierClosings.Any() && Model.LockStatus?.IsLocked != true)
+    {
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card shadow border-@(Model.CanLockDay ? "success" : "warning")">
+                    <div class="card-header bg-@(Model.CanLockDay ? "success" : "warning") text-white">
+                        <h5 class="mb-0"><i class="fas fa-lock me-2"></i>Lock Day</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (Model.CanLockDay)
+                        {
+                            <p class="mb-3">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                All cashiers have been verified. You can now lock the day.
+                            </p>
+                            <form asp-action="LockDay" method="post">
+                                <input type="hidden" name="businessDate" value="@Model.BusinessDate.ToString("yyyy-MM-dd")" />
+                                <div class="mb-3">
+                                    <label class="form-label">Remarks (Optional)</label>
+                                    <textarea name="remarks" class="form-control" rows="2" placeholder="Any remarks for day closure..."></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-danger btn-lg" onclick="return confirm('Are you sure you want to lock this day? This action will prevent further changes.');">
+                                    <i class="fas fa-lock"></i> Lock Day & Finalize
+                                </button>
+                            </form>
+                        }
+                        else
+                        {
+                            <div class="alert alert-warning mb-0">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Cannot lock day:</strong> @Model.LockMessage
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (Model.LockStatus?.IsLocked == true)
+    {
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card shadow border-danger">
+                    <div class="card-header bg-danger text-white">
+                        <h5 class="mb-0"><i class="fas fa-lock me-2"></i>Day Locked</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-2">
+                            <strong>Locked By:</strong> @Model.LockStatus.LockedBy<br />
+                            <strong>Locked At:</strong> @Model.LockStatus.LockTime.ToString("dd/MM/yyyy hh:mm tt")<br />
+                            @if (!string.IsNullOrEmpty(Model.LockStatus.Remarks))
+                            {
+                                <strong>Remarks:</strong> @Model.LockStatus.Remarks
+                            }
+                        </p>
+                        <div class="alert alert-info mb-0">
+                            <i class="fas fa-info-circle me-2"></i>
+                            This day has been locked. No further changes can be made to cash declarations.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        // Initialize tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+    </script>
+}
