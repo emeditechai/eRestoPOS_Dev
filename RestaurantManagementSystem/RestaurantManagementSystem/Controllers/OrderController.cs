@@ -1874,15 +1874,15 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
-                // Step 1: Read current order state and detect if this is a BAR order
-                decimal subtotal = 0m;
+                // Step 1: Read current order state and calculate subtotal from OrderItems
+                decimal subtotalFromItems = 0m;
                 decimal discountAmount = 0m;
                 decimal tipAmount = 0m;
                 bool isBarOrder = false;
                 
                 using (var readCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT 
-                        ISNULL(o.Subtotal, 0) AS Subtotal,
+                        ISNULL((SELECT SUM(oi.Subtotal) FROM OrderItems oi WHERE oi.OrderId = o.Id), 0) AS SubtotalFromItems,
                         ISNULL(o.DiscountAmount, 0) AS DiscountAmount,
                         ISNULL(o.TipAmount, 0) AS TipAmount,
                         CASE 
@@ -1900,7 +1900,7 @@ namespace RestaurantManagementSystem.Controllers
                     {
                         if (reader.Read())
                         {
-                            subtotal = reader.GetDecimal(0);
+                            subtotalFromItems = reader.GetDecimal(0);
                             discountAmount = reader.GetDecimal(1);
                             tipAmount = reader.GetDecimal(2);
                             isBarOrder = reader.GetInt32(3) == 1;
@@ -1947,9 +1947,46 @@ namespace RestaurantManagementSystem.Controllers
                     }
                 }
                 
-                // Step 3: Calculate GST on discounted subtotal
-                decimal netSubtotal = Math.Max(0m, subtotal - discountAmount);
-                decimal gstAmount = Math.Round(netSubtotal * gstPercentage / 100m, 2, MidpointRounding.AwayFromZero);
+                // Step 3: Calculate GST based on order type
+                decimal netSubtotal;
+                decimal gstAmount;
+                decimal adjustedSubtotal;
+                decimal totalAmount;
+                
+                if (isBarOrder)
+                {
+                    // BAR Order: INCLUSIVE GST calculation
+                    // Menu price INCLUDES GST, so we extract the taxable value
+                    // Example: ₹100 menu price with 20% GST
+                    //   Taxable Value = ₹100 ÷ 1.20 = ₹83.33
+                    //   GST Amount = ₹83.33 × 20% = ₹16.67
+                    //   Total = ₹100 (customer pays menu price)
+                    
+                    decimal menuPriceAfterDiscount = Math.Max(0m, subtotalFromItems - discountAmount);
+                    decimal gstMultiplier = 1m + (gstPercentage / 100m); // e.g., 1.20 for 20% GST
+                    
+                    // Extract taxable value (GST-exclusive base amount)
+                    decimal taxableValue = Math.Round(menuPriceAfterDiscount / gstMultiplier, 2, MidpointRounding.AwayFromZero);
+                    
+                    // Calculate GST on the taxable value
+                    gstAmount = Math.Round(taxableValue * (gstPercentage / 100m), 2, MidpointRounding.AwayFromZero);
+                    
+                    // For BAR orders:
+                    // - adjustedSubtotal = taxable value (stored in Subtotal column)
+                    // - totalAmount = menu price after discount + tip
+                    adjustedSubtotal = taxableValue;
+                    netSubtotal = taxableValue; // For UI display
+                    totalAmount = menuPriceAfterDiscount + tipAmount;
+                }
+                else
+                {
+                    // Foods Order: EXCLUSIVE GST calculation (existing logic)
+                    // GST is added on top of the price
+                    netSubtotal = Math.Max(0m, subtotalFromItems - discountAmount);
+                    gstAmount = Math.Round(netSubtotal * gstPercentage / 100m, 2, MidpointRounding.AwayFromZero);
+                    adjustedSubtotal = netSubtotal;
+                    totalAmount = netSubtotal + gstAmount + tipAmount;
+                }
                 
                 // Step 4: Split into CGST and SGST (equal split; handle last-cent rounding)
                 decimal cgstPercentage = gstPercentage / 2m;
@@ -1957,13 +1994,13 @@ namespace RestaurantManagementSystem.Controllers
                 decimal cgstAmount = Math.Round(gstAmount / 2m, 2, MidpointRounding.AwayFromZero);
                 decimal sgstAmount = gstAmount - cgstAmount; // Ensures exact sum
                 
-                // Step 5: Calculate total amount
-                decimal totalAmount = netSubtotal + gstAmount + tipAmount;
+                // Step 5: No additional calculation needed - totalAmount already calculated above
                 
                 // Step 6: Persist all calculated fields to Orders table (conditional update for schema compatibility)
                 using (var updateCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                     UPDATE Orders
                     SET 
+                        Subtotal = @Subtotal,
                         TaxAmount = @GSTAmount,
                         TotalAmount = @TotalAmount,
                         UpdatedAt = GETDATE()
@@ -1984,6 +2021,7 @@ namespace RestaurantManagementSystem.Controllers
                     END", connection, transaction))
                 {
                     updateCmd.Parameters.AddWithValue("@OrderId", orderId);
+                    updateCmd.Parameters.AddWithValue("@Subtotal", adjustedSubtotal); // For BAR: taxable value; For Foods: net subtotal
                     updateCmd.Parameters.AddWithValue("@GSTPercentage", gstPercentage);
                     updateCmd.Parameters.AddWithValue("@CGSTPercentage", cgstPercentage);
                     updateCmd.Parameters.AddWithValue("@SGSTPercentage", sgstPercentage);
@@ -3243,18 +3281,7 @@ namespace RestaurantManagementSystem.Controllers
                                 }
                             }
                             
-                            // Recalculate order totals
-                            using (var command = new Microsoft.Data.SqlClient.SqlCommand(@"
-                                UPDATE Orders
-                                SET Subtotal = (SELECT SUM(Subtotal) FROM OrderItems WHERE OrderId = @OrderId),
-                                    TotalAmount = (SELECT SUM(Subtotal) FROM OrderItems WHERE OrderId = @OrderId) + ISNULL(TaxAmount,0) + ISNULL(TipAmount,0) - ISNULL(DiscountAmount,0)
-                                WHERE Id = @OrderId", connection, transaction))
-                            {
-                                command.Parameters.AddWithValue("@OrderId", orderId);
-                                command.ExecuteNonQuery();
-                            }
-                            
-                            // Recalculate and persist GST fields after item modifications
+                            // Recalculate order totals and GST (handles both BAR inclusive and Foods exclusive)
                             UpdateOrderFinancials(orderId, connection, transaction);
                             
                             transaction.Commit();

@@ -68,6 +68,9 @@
 
     <div class="row justify-content-end">
         <div class="col-md-5">
+            @{
+                var isBarOrder = ViewBag.IsBarOrder ?? false;
+            }
             <table class="table table-sm">
                 <tr>
                     <td>Subtotal:</td>
@@ -80,7 +83,7 @@
                     var paid = Model.PaidAmount;
                     var toProcessNow = Math.Max(0M, totalRounded - paid);
                 }
-                @if (toProcessNow > 0)
+                @if (toProcessNow > 0 && !isBarOrder)
                 {
                     <tr>
                         <td>Payment Amount:</td>
@@ -99,35 +102,38 @@
                     </tr>
                 }
                 
-                @if (Model.GSTPercentage > 0)
+                @if (!isBarOrder)
                 {
-                    <tr>
-                        <td>GST (@Model.GSTPercentage.ToString("F2")%):</td>
-                        <td class="text-end">₹@Model.TaxAmount.ToString("F2")</td>
-                    </tr>
-                    <tr>
-                        <td>&nbsp;&nbsp;CGST (@((Model.GSTPercentage/2).ToString("F2"))%):</td>
-                        <td class="text-end">₹@Model.CGSTAmount.ToString("F2")</td>
-                    </tr>
-                    <tr>
-                        <td>&nbsp;&nbsp;SGST (@((Model.GSTPercentage/2).ToString("F2"))%):</td>
-                        <td class="text-end">₹@Model.SGSTAmount.ToString("F2")</td>
-                    </tr>
-                }
-                else
-                {
-                    <tr>
-                        <td>GST (5.00%):</td>
-                        <td class="text-end">₹@Model.TaxAmount.ToString("F2")</td>
-                    </tr>
-                    <tr>
-                        <td>&nbsp;&nbsp;CGST (2.50%):</td>
-                        <td class="text-end">₹@((Model.TaxAmount/2).ToString("F2"))</td>
-                    </tr>
-                    <tr>
-                        <td>&nbsp;&nbsp;SGST (2.50%):</td>
-                        <td class="text-end">₹@((Model.TaxAmount/2).ToString("F2"))</td>
-                    </tr>
+                    @if (Model.GSTPercentage > 0)
+                    {
+                        <tr>
+                            <td>GST (@Model.GSTPercentage.ToString("F2")%):</td>
+                            <td class="text-end">₹@Model.TaxAmount.ToString("F2")</td>
+                        </tr>
+                        <tr>
+                            <td>&nbsp;&nbsp;CGST (@((Model.GSTPercentage/2).ToString("F2"))%):</td>
+                            <td class="text-end">₹@Model.CGSTAmount.ToString("F2")</td>
+                        </tr>
+                        <tr>
+                            <td>&nbsp;&nbsp;SGST (@((Model.GSTPercentage/2).ToString("F2"))%):</td>
+                            <td class="text-end">₹@Model.SGSTAmount.ToString("F2")</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        <tr>
+                            <td>GST (5.00%):</td>
+                            <td class="text-end">₹@Model.TaxAmount.ToString("F2")</td>
+                        </tr>
+                        <tr>
+                            <td>&nbsp;&nbsp;CGST (2.50%):</td>
+                            <td class="text-end">₹@((Model.TaxAmount/2).ToString("F2"))</td>
+                        </tr>
+                        <tr>
+                            <td>&nbsp;&nbsp;SGST (2.50%):</td>
+                            <td class="text-end">₹@((Model.TaxAmount/2).ToString("F2"))</td>
+                        </tr>
+                    }
                 }
                 @if (Model.DiscountAmount > 0)
                 {

@@ -201,7 +201,7 @@
           <tfoot class="table-light">
             <tr>
               <td colspan="4" class="text-end fw-semibold">Subtotal:</td>
-              <td colspan="3" class="text-end" id="orderSubtotalCell">₹@((Model.Items.Where(i=>i.Status!=5).Sum(i=>i.Subtotal)).ToString("F2"))</td>
+              <td colspan="3" class="text-end" id="orderSubtotalCell">₹@Model.Subtotal.ToString("F2")</td>
             </tr>
             <tr>
               <td colspan="4" class="text-end">GST (@Model.GSTPercentage.ToString("F2")%):</td>
@@ -217,7 +217,7 @@
             </tr>
             <tr>
               <td colspan="4" class="text-end fw-semibold">Total:</td>
-              <td colspan="3" class="text-end fw-bold" id="orderTotalCell">₹@((Model.Items.Where(i=>i.Status!=5).Sum(i=>i.Subtotal)+Model.TaxAmount+Model.TipAmount-Model.DiscountAmount).ToString("F2"))</td>
+              <td colspan="3" class="text-end fw-bold" id="orderTotalCell">₹@Model.TotalAmount.ToString("F2")</td>
             </tr>
           </tfoot>
             </table>

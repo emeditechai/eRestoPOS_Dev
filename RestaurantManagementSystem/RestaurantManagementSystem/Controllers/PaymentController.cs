@@ -4004,6 +4004,32 @@ END", connection))
                     Email = ""
                 };
                 
+                // Check if this is a BAR order
+                bool isBarOrder = false;
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var command = new SqlCommand(@"
+                        SELECT CASE 
+                            WHEN EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType')
+                                AND o.OrderKitchenType = 'Bar' THEN 1
+                            WHEN EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = o.Id 
+                                AND (kt.KitchenStation = 'BAR' OR kt.TicketNumber LIKE 'BOT-%')) THEN 1
+                            ELSE 0
+                        END AS IsBarOrder
+                        FROM Orders o
+                        WHERE o.Id = @OrderId", connection))
+                    {
+                        command.Parameters.AddWithValue("@OrderId", orderId);
+                        var result = command.ExecuteScalar();
+                        if (result != null && result != DBNull.Value)
+                        {
+                            isBarOrder = Convert.ToInt32(result) == 1;
+                        }
+                    }
+                }
+                ViewBag.IsBarOrder = isBarOrder;
+                
                 return View(model);
             }
             catch (Exception ex)
@@ -4100,6 +4126,33 @@ END", connection))
                     PhoneNumber = "",
                     Email = ""
                 };
+                
+                // Check if this is a BAR order
+                bool isBarOrder = false;
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var command = new SqlCommand(@"
+                        SELECT CASE 
+                            WHEN EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType')
+                                AND o.OrderKitchenType = 'Bar' THEN 1
+                            WHEN EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = o.Id 
+                                AND (kt.KitchenStation = 'BAR' OR kt.TicketNumber LIKE 'BOT-%')) THEN 1
+                            ELSE 0
+                        END AS IsBarOrder
+                        FROM Orders o
+                        WHERE o.Id = @OrderId", connection))
+                    {
+                        command.Parameters.AddWithValue("@OrderId", orderId);
+                        var result = command.ExecuteScalar();
+                        if (result != null && result != DBNull.Value)
+                        {
+                            isBarOrder = Convert.ToInt32(result) == 1;
+                        }
+                    }
+                }
+                ViewBag.IsBarOrder = isBarOrder;
+                
                 // If FssaiNo wasn't present from the full SELECT (older DBs), try a lightweight read of the column
                 try
                 {

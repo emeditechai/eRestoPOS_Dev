@@ -84,6 +84,7 @@
 
     <div class="totals">
         @{ 
+            var isBarOrder = ViewBag.IsBarOrder ?? false;
             var subtotal = Model.Subtotal;
             // Prefer explicit properties if present; fall back to TaxAmount and GSTPercentage
             decimal taxTotal = 0M;
@@ -104,13 +105,19 @@
             var toProcessRounded = Math.Round(toProcessNow, 0, MidpointRounding.AwayFromZero);
         }
         <div class="row"><div>Sub Total</div><div class="right">₹@subtotal.ToString("F2")</div></div>
-        <div class="row"><div>CGST @cgstPercent% </div><div class="right">₹@cgstAmt.ToString("F2")</div></div>
-        <div class="row"><div>SGST @sgstPercent% </div><div class="right">₹@sgstAmt.ToString("F2")</div></div>
+        @if (!isBarOrder)
+        {
+            <div class="row"><div>CGST @cgstPercent% </div><div class="right">₹@cgstAmt.ToString("F2")</div></div>
+            <div class="row"><div>SGST @sgstPercent% </div><div class="right">₹@sgstAmt.ToString("F2")</div></div>
+        }
         @if (discount > 0)
         {
             <div class="row"><div>Discount</div><div class="right">-₹@discount.ToString("F2")</div></div>
         }
-        <div class="row"><div>Round off</div><div class="right">₹@roundOff.ToString("+0.00;-0.00;0.00")</div></div>
+        @if (roundOff != 0)
+        {
+            <div class="row"><div>Round off</div><div class="right">₹@roundOff.ToString("+0.00;-0.00;0.00")</div></div>
+        }
         <div class="row bold"><div style="font-size:15px;">Grand Total</div><div class="right" style="font-size:16px;">₹@totalRounded.ToString("F0")</div></div>
     </div>
 
