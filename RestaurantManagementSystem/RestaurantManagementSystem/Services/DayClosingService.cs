@@ -528,19 +528,31 @@ namespace RestaurantManagementSystem.Services
                         // Result Set 1: Summary Statistics
                         if (await reader.ReadAsync())
                         {
+                            int ordTotalDays = reader.GetOrdinal("TotalDays");
+                            int ordTotalCashiers = reader.GetOrdinal("TotalCashiers");
+                            int ordOpening = reader.GetOrdinal("TotalOpeningFloat");
+                            int ordSystem = reader.GetOrdinal("TotalSystemAmount");
+                            int ordDeclared = reader.GetOrdinal("TotalDeclaredAmount");
+                            int ordVariance = reader.GetOrdinal("TotalVariance");
+                            int ordCashOver = reader.GetOrdinal("TotalCashOver");
+                            int ordCashShort = reader.GetOrdinal("TotalCashShort");
+                            int ordApproved = reader.GetOrdinal("ApprovedCount");
+                            int ordPending = reader.GetOrdinal("PendingApprovalCount");
+                            int ordLocked = reader.GetOrdinal("LockedCount");
+
                             report.Summary = new CashClosingReportSummary
                             {
-                                TotalDays = reader.GetInt32(reader.GetOrdinal("TotalDays")),
-                                TotalCashiers = reader.GetInt32(reader.GetOrdinal("TotalCashiers")),
-                                TotalOpeningFloat = reader.GetDecimal(reader.GetOrdinal("TotalOpeningFloat")),
-                                TotalSystemAmount = reader.GetDecimal(reader.GetOrdinal("TotalSystemAmount")),
-                                TotalDeclaredAmount = reader.IsDBNull(reader.GetOrdinal("TotalDeclaredAmount")) ? 0 : reader.GetDecimal(reader.GetOrdinal("TotalDeclaredAmount")),
-                                TotalVariance = reader.IsDBNull(reader.GetOrdinal("TotalVariance")) ? 0 : reader.GetDecimal(reader.GetOrdinal("TotalVariance")),
-                                TotalCashOver = reader.IsDBNull(reader.GetOrdinal("TotalCashOver")) ? 0 : reader.GetDecimal(reader.GetOrdinal("TotalCashOver")),
-                                TotalCashShort = reader.IsDBNull(reader.GetOrdinal("TotalCashShort")) ? 0 : reader.GetDecimal(reader.GetOrdinal("TotalCashShort")),
-                                ApprovedCount = reader.GetInt32(reader.GetOrdinal("ApprovedCount")),
-                                PendingApprovalCount = reader.GetInt32(reader.GetOrdinal("PendingApprovalCount")),
-                                LockedCount = reader.GetInt32(reader.GetOrdinal("LockedCount"))
+                                TotalDays = reader.IsDBNull(ordTotalDays) ? 0 : reader.GetInt32(ordTotalDays),
+                                TotalCashiers = reader.IsDBNull(ordTotalCashiers) ? 0 : reader.GetInt32(ordTotalCashiers),
+                                TotalOpeningFloat = reader.IsDBNull(ordOpening) ? 0 : reader.GetDecimal(ordOpening),
+                                TotalSystemAmount = reader.IsDBNull(ordSystem) ? 0 : reader.GetDecimal(ordSystem),
+                                TotalDeclaredAmount = reader.IsDBNull(ordDeclared) ? 0 : reader.GetDecimal(ordDeclared),
+                                TotalVariance = reader.IsDBNull(ordVariance) ? 0 : reader.GetDecimal(ordVariance),
+                                TotalCashOver = reader.IsDBNull(ordCashOver) ? 0 : reader.GetDecimal(ordCashOver),
+                                TotalCashShort = reader.IsDBNull(ordCashShort) ? 0 : reader.GetDecimal(ordCashShort),
+                                ApprovedCount = reader.IsDBNull(ordApproved) ? 0 : reader.GetInt32(ordApproved),
+                                PendingApprovalCount = reader.IsDBNull(ordPending) ? 0 : reader.GetInt32(ordPending),
+                                LockedCount = reader.IsDBNull(ordLocked) ? 0 : reader.GetInt32(ordLocked)
                             };
                         }
 
@@ -549,17 +561,27 @@ namespace RestaurantManagementSystem.Services
                         {
                             while (await reader.ReadAsync())
                             {
+                                int ordBizDate = reader.GetOrdinal("BusinessDate");
+                                int ordCashierCount = reader.GetOrdinal("CashierCount");
+                                int ordDayOpening = reader.GetOrdinal("DayOpeningFloat");
+                                int ordDaySystem = reader.GetOrdinal("DaySystemAmount");
+                                int ordDayDeclared = reader.GetOrdinal("DayDeclaredAmount");
+                                int ordDayVariance = reader.GetOrdinal("DayVariance");
+                                int ordDayCashOver = reader.GetOrdinal("DayCashOver");
+                                int ordDayCashShort = reader.GetOrdinal("DayCashShort");
+                                int ordIsLocked = reader.GetOrdinal("IsDayLocked");
+
                                 report.DailySummaries.Add(new CashClosingDailySummary
                                 {
-                                    BusinessDate = reader.GetDateTime(reader.GetOrdinal("BusinessDate")),
-                                    CashierCount = reader.GetInt32(reader.GetOrdinal("CashierCount")),
-                                    DayOpeningFloat = reader.GetDecimal(reader.GetOrdinal("DayOpeningFloat")),
-                                    DaySystemAmount = reader.GetDecimal(reader.GetOrdinal("DaySystemAmount")),
-                                    DayDeclaredAmount = reader.IsDBNull(reader.GetOrdinal("DayDeclaredAmount")) ? 0 : reader.GetDecimal(reader.GetOrdinal("DayDeclaredAmount")),
-                                    DayVariance = reader.IsDBNull(reader.GetOrdinal("DayVariance")) ? 0 : reader.GetDecimal(reader.GetOrdinal("DayVariance")),
-                                    DayCashOver = reader.IsDBNull(reader.GetOrdinal("DayCashOver")) ? 0 : reader.GetDecimal(reader.GetOrdinal("DayCashOver")),
-                                    DayCashShort = reader.IsDBNull(reader.GetOrdinal("DayCashShort")) ? 0 : reader.GetDecimal(reader.GetOrdinal("DayCashShort")),
-                                    IsDayLocked = reader.GetString(reader.GetOrdinal("IsDayLocked"))
+                                    BusinessDate = reader.GetDateTime(ordBizDate),
+                                    CashierCount = reader.IsDBNull(ordCashierCount) ? 0 : reader.GetInt32(ordCashierCount),
+                                    DayOpeningFloat = reader.IsDBNull(ordDayOpening) ? 0 : reader.GetDecimal(ordDayOpening),
+                                    DaySystemAmount = reader.IsDBNull(ordDaySystem) ? 0 : reader.GetDecimal(ordDaySystem),
+                                    DayDeclaredAmount = reader.IsDBNull(ordDayDeclared) ? 0 : reader.GetDecimal(ordDayDeclared),
+                                    DayVariance = reader.IsDBNull(ordDayVariance) ? 0 : reader.GetDecimal(ordDayVariance),
+                                    DayCashOver = reader.IsDBNull(ordDayCashOver) ? 0 : reader.GetDecimal(ordDayCashOver),
+                                    DayCashShort = reader.IsDBNull(ordDayCashShort) ? 0 : reader.GetDecimal(ordDayCashShort),
+                                    IsDayLocked = reader.IsDBNull(ordIsLocked) ? "No" : reader.GetString(ordIsLocked)
                                 });
                             }
                         }
@@ -597,19 +619,31 @@ namespace RestaurantManagementSystem.Services
                         {
                             while (await reader.ReadAsync())
                             {
+                                int ordCashierId = reader.GetOrdinal("CashierId");
+                                int ordCashierName = reader.GetOrdinal("CashierName");
+                                int ordTotalDaysWorked = reader.GetOrdinal("TotalDaysWorked");
+                                int ordTotalCashCollected = reader.GetOrdinal("TotalCashCollected");
+                                int ordAverageVariance = reader.GetOrdinal("AverageVariance");
+                                int ordBestVariance = reader.GetOrdinal("BestVariance");
+                                int ordWorstVariance = reader.GetOrdinal("WorstVariance");
+                                int ordDaysWithinTol = reader.GetOrdinal("DaysWithinTolerance");
+                                int ordDaysAboveTol = reader.GetOrdinal("DaysAboveTolerance");
+                                int ordApprovedDays = reader.GetOrdinal("ApprovedDays");
+                                int ordPendingDays = reader.GetOrdinal("PendingDays");
+
                                 report.CashierPerformance.Add(new CashClosingCashierPerformance
                                 {
-                                    CashierId = reader.GetInt32(reader.GetOrdinal("CashierId")),
-                                    CashierName = reader.GetString(reader.GetOrdinal("CashierName")),
-                                    TotalDaysWorked = reader.GetInt32(reader.GetOrdinal("TotalDaysWorked")),
-                                    TotalCashCollected = reader.GetDecimal(reader.GetOrdinal("TotalCashCollected")),
-                                    AverageVariance = reader.IsDBNull(reader.GetOrdinal("AverageVariance")) ? 0 : reader.GetDecimal(reader.GetOrdinal("AverageVariance")),
-                                    BestVariance = reader.IsDBNull(reader.GetOrdinal("BestVariance")) ? 0 : reader.GetDecimal(reader.GetOrdinal("BestVariance")),
-                                    WorstVariance = reader.IsDBNull(reader.GetOrdinal("WorstVariance")) ? 0 : reader.GetDecimal(reader.GetOrdinal("WorstVariance")),
-                                    DaysWithinTolerance = reader.GetInt32(reader.GetOrdinal("DaysWithinTolerance")),
-                                    DaysAboveTolerance = reader.GetInt32(reader.GetOrdinal("DaysAboveTolerance")),
-                                    ApprovedDays = reader.GetInt32(reader.GetOrdinal("ApprovedDays")),
-                                    PendingDays = reader.GetInt32(reader.GetOrdinal("PendingDays"))
+                                    CashierId = reader.IsDBNull(ordCashierId) ? 0 : reader.GetInt32(ordCashierId),
+                                    CashierName = reader.IsDBNull(ordCashierName) ? string.Empty : reader.GetString(ordCashierName),
+                                    TotalDaysWorked = reader.IsDBNull(ordTotalDaysWorked) ? 0 : reader.GetInt32(ordTotalDaysWorked),
+                                    TotalCashCollected = reader.IsDBNull(ordTotalCashCollected) ? 0 : reader.GetDecimal(ordTotalCashCollected),
+                                    AverageVariance = reader.IsDBNull(ordAverageVariance) ? 0 : reader.GetDecimal(ordAverageVariance),
+                                    BestVariance = reader.IsDBNull(ordBestVariance) ? 0 : reader.GetDecimal(ordBestVariance),
+                                    WorstVariance = reader.IsDBNull(ordWorstVariance) ? 0 : reader.GetDecimal(ordWorstVariance),
+                                    DaysWithinTolerance = reader.IsDBNull(ordDaysWithinTol) ? 0 : reader.GetInt32(ordDaysWithinTol),
+                                    DaysAboveTolerance = reader.IsDBNull(ordDaysAboveTol) ? 0 : reader.GetInt32(ordDaysAboveTol),
+                                    ApprovedDays = reader.IsDBNull(ordApprovedDays) ? 0 : reader.GetInt32(ordApprovedDays),
+                                    PendingDays = reader.IsDBNull(ordPendingDays) ? 0 : reader.GetInt32(ordPendingDays)
                                 });
                             }
                         }
