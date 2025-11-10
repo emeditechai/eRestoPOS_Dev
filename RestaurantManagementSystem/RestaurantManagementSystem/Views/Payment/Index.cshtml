@@ -217,12 +217,14 @@
                                 {
                                     <a id="printPOSLink" asp-action="PrintPOS" asp-route-orderId="@Model.OrderId" class="btn btn-outline-dark btn-lg" target="_blank">
                                         <i class="fas fa-print me-1"></i> POS Print Bill
+                                        <span class="hotkey-badge ms-2">Shift+P</span>
                                     </a>
                                 }
                                 else
                                 {
                                     <a id="printA4Link" asp-action="PrintBill" asp-route-orderId="@Model.OrderId" class="btn btn-outline-success btn-lg" target="_blank">
                                         <i class="fas fa-print me-1"></i> Print Bill(A4)
+                                        <span class="hotkey-badge ms-2">Shift+P</span>
                                     </a>
                                 }
                             </div>
@@ -236,6 +238,7 @@
                                     
                                     <a id="processPaymentLink" href="@encryptedPaymentUrl" class="btn btn-primary btn-lg">
                                         <i class="fas fa-money-bill-wave me-1"></i> Process Payment
+                                        <span class="badge bg-white text-dark ms-2" style="font-size: 0.7rem;">Ctrl+P</span>
                                     </a>
                                 }
                                 
@@ -250,12 +253,14 @@
                                 {
                                     <a id="printA4Link" asp-action="PrintBill" asp-route-orderId="@Model.OrderId" class="btn btn-outline-success btn-lg" target="_blank">
                                         <i class="fas fa-print me-1"></i> Print Bill(A4)
+                                        <span class="hotkey-badge ms-2">Shift+P</span>
                                     </a>
                                 }
                                 @if (string.Equals(billFormat, "POS", StringComparison.OrdinalIgnoreCase))
                                 {
                                     <a id="printPOSLink" asp-action="PrintPOS" asp-route-orderId="@Model.OrderId" class="btn btn-outline-dark btn-lg" target="_blank">
                                         <i class="fas fa-print me-1"></i> POS Print Bill
+                                        <span class="hotkey-badge ms-2">Shift+P</span>
                                     </a>
                                 }
                                 

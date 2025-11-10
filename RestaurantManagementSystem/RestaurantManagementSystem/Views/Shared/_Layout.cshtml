@@ -68,6 +68,25 @@
             min-height: 24px !important;
             line-height: 1.2 !important;
         }
+        
+        /* Global Hotkey Badge Styles */
+        .hotkey-badge {
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            font-family: 'Courier New', monospace;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            white-space: nowrap;
+        }
+        
+        .quick-action-btn {
+            position: relative;
+        }
+        
     /* Ensure page main content is not hidden behind fixed navbar (update if navbar height changes) */
     /* Navbar height ~56px on desktop; increase if your brand/header is taller */
     main[role="main"] { padding-top: 56px; }
@@ -105,7 +124,12 @@
                                 <i class="fas fa-chair compact-icon"></i> Tables
                             </a>
                             <ul class="dropdown-menu shadow-lg" aria-labelledby="tableServiceDropdown" style="border-top: 2px solid #f8b133;">
-                                <li><a class="dropdown-item" asp-area="" asp-controller="TableService" asp-action="Dashboard"><i class="fas fa-th-large compact-icon text-primary"></i> Dashboard</a></li>
+                                <li>
+                                    <a class="dropdown-item d-flex justify-content-between align-items-center" asp-area="" asp-controller="TableService" asp-action="Dashboard">
+                                        <span><i class="fas fa-th-large compact-icon text-primary"></i> Dashboard</span>
+                                        <span class="hotkey-badge" style="font-size: 0.6rem;">Shift+T</span>
+                                    </a>
+                                </li>
                                 <li><a class="dropdown-item" asp-area="" asp-controller="TableService" asp-action="ActiveTables"><i class="fas fa-list-alt compact-icon text-primary"></i> Active Tables</a></li>
                                 <li><a class="dropdown-item" asp-area="" asp-controller="TableService" asp-action="SeatGuest"><i class="fas fa-user-plus compact-icon text-primary"></i> Seat Guest</a></li>
                             </ul>
@@ -116,7 +140,12 @@
                             </a>
                             <ul class="dropdown-menu shadow-lg" aria-labelledby="orderDropdown" style="border-top: 2px solid #f8b133;">
                                 <li><a class="dropdown-item" asp-area="" asp-controller="Order" asp-action="Dashboard"><i class="fas fa-th-large compact-icon text-primary"></i> Dashboard</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Order" asp-action="Create"><i class="fas fa-plus compact-icon text-primary"></i> Create Order</a></li>
+                                <li>
+                                    <a class="dropdown-item d-flex justify-content-between align-items-center" asp-area="" asp-controller="Order" asp-action="Create">
+                                        <span><i class="fas fa-plus compact-icon text-primary"></i> Create Order</span>
+                                        <span class="hotkey-badge" style="font-size: 0.6rem;">Shift+F</span>
+                                    </a>
+                                </li>
                                 <li><a class="dropdown-item" asp-area="" asp-controller="Order" asp-action="Estimation" target="_blank"><i class="fas fa-calculator compact-icon text-primary"></i> Menu Items & Estimation</a></li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" asp-area="" asp-controller="Payment" asp-action="Dashboard"><i class="fas fa-chart-line compact-icon text-success"></i> Payment Dashboard</a></li>
@@ -127,7 +156,12 @@
                                 <i class="fas fa-fire compact-icon"></i> Kitchen
                             </a>
                             <ul class="dropdown-menu shadow-lg" aria-labelledby="kitchenDropdown" style="border-top: 2px solid #f8b133;">
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Kitchen" asp-action="Dashboard"><i class="fas fa-th-large compact-icon text-primary"></i> Dashboard</a></li>
+                                <li>
+                                    <a class="dropdown-item d-flex justify-content-between align-items-center" asp-area="" asp-controller="Kitchen" asp-action="Dashboard">
+                                        <span><i class="fas fa-th-large compact-icon text-primary"></i> Dashboard</span>
+                                        <span class="hotkey-badge" style="font-size: 0.6rem;">Shift+K</span>
+                                    </a>
+                                </li>
                                 <li><a class="dropdown-item" asp-area="" asp-controller="Kitchen" asp-action="Tickets"><i class="fas fa-receipt compact-icon text-primary"></i> Tickets</a></li>
                             </ul>
                         </li>
@@ -813,6 +847,194 @@
                 console.debug('Exception in client IP reporter', e);
             }
         })();
+    </script>
+
+    <!-- Global Hotkey System -->
+    <script>
+        // Simple, working hotkey system
+        document.addEventListener('DOMContentLoaded', function() {
+            // Lightweight toast notification for hotkeys
+            function showHotkey(message) {
+                let container = document.getElementById('hotkeyToastContainer');
+                if (!container) {
+                    container = document.createElement('div');
+                    container.id = 'hotkeyToastContainer';
+                    container.style.position = 'fixed';
+                    container.style.top = '12px';
+                    container.style.right = '12px';
+                    container.style.zIndex = '10000';
+                    container.style.display = 'flex';
+                    container.style.flexDirection = 'column';
+                    container.style.gap = '8px';
+                    document.body.appendChild(container);
+                }
+                const toast = document.createElement('div');
+                toast.textContent = message;
+                toast.style.background = 'rgba(20,184,166,0.95)';
+                toast.style.color = '#fff';
+                toast.style.padding = '8px 14px';
+                toast.style.fontSize = '13px';
+                toast.style.borderRadius = '6px';
+                toast.style.boxShadow = '0 2px 6px rgba(0,0,0,.25)';
+                toast.style.fontWeight = '500';
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(15px)';
+                toast.style.transition = 'opacity .15s ease, transform .15s ease';
+                container.appendChild(toast);
+                requestAnimationFrame(() => {
+                    toast.style.opacity = '1';
+                    toast.style.transform = 'translateX(0)';
+                });
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateX(15px)';
+                    setTimeout(() => toast.remove(), 180);
+                }, 2200);
+            }
+            
+            // Navigation functions
+            function navigateTo(url) {
+                window.location.href = url;
+            }
+            
+            function getCurrentPage() {
+                const path = window.location.pathname.toLowerCase();
+                if (path === '/' || path === '/home' || path.includes('/home/index')) return 'home';
+                if (path.includes('/order/create')) return 'order-create';
+                if (path.includes('/order/details')) return 'order-details';
+                if (path.includes('/bot/barordercreate')) return 'bar-order-create';
+                if (path.includes('/bot/details')) return 'bar-order-details';
+                if (path.includes('/payment/index')) return 'payment-index';
+                if (path.includes('/kitchen/dashboard')) return 'kitchen-dashboard';
+                if (path.includes('/tableservice/dashboard')) return 'table-dashboard';
+                if (path.includes('/bot/barorderdashboard')) return 'bar-dashboard';
+                return 'unknown';
+            }
+            
+            // Main keydown handler
+            document.addEventListener('keydown', function(e) {
+                // Skip if typing in input fields (except space bar)
+                const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable;
+                if (isInput && e.key !== ' ') return;
+                
+                const ctrl = e.ctrlKey || e.metaKey;
+                const shift = e.shiftKey;
+                const key = e.key.toLowerCase();
+                const page = getCurrentPage();
+                
+                // Shift+F - Food Order (from home)
+                if (shift && !ctrl && key === 'f' && page === 'home') {
+                    e.preventDefault();
+                    showHotkey('Food Order (Shift+F)');
+                    navigateTo('/Order/Create');
+                    return;
+                }
+                
+                // Shift+B - BAR Order (from home)
+                if (shift && !ctrl && key === 'b' && page === 'home') {
+                    e.preventDefault();
+                    showHotkey('BAR Order (Shift+B)');
+                    navigateTo('/BOT/BarOrderCreate');
+                    return;
+                }
+                
+                // Shift+K - Kitchen Dashboard (from home)
+                if (shift && !ctrl && key === 'k' && page === 'home') {
+                    e.preventDefault();
+                    showHotkey('Kitchen Dashboard (Shift+K)');
+                    navigateTo('/Kitchen/Dashboard');
+                    return;
+                }
+                
+                // Shift+T - Table Dashboard (from home)
+                if (shift && !ctrl && key === 't' && page === 'home') {
+                    e.preventDefault();
+                    showHotkey('Table Dashboard (Shift+T)');
+                    navigateTo('/TableService/Dashboard');
+                    return;
+                }
+                
+                // Ctrl+O - Create Order (on order create pages)
+                if (ctrl && !shift && key === 'o') {
+                    if (page === 'order-create' || page === 'bar-order-create') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.stopImmediatePropagation();
+                        showHotkey(page === 'bar-order-create' ? 'Submitting BAR Order (Ctrl+O)' : 'Submitting Order (Ctrl+O)');
+                        const form = document.querySelector('form');
+                        if (form) form.submit();
+                    }
+                    return true; // Always prevent browser default
+                }
+                
+                // Ctrl+S - Save Order (on order details pages)
+                if (ctrl && !shift && key === 's') {
+                    if (page === 'order-details' || page === 'bar-order-details') {
+                        e.preventDefault();
+                        const saveBtn = document.getElementById('saveOrderBtn');
+                        if (saveBtn && !saveBtn.disabled) saveBtn.click();
+                        showHotkey('Saving Order (Ctrl+S)');
+                    }
+                    return;
+                }
+                
+                // Ctrl+F - Fire to Kitchen/Bar (on order details pages)
+                if (ctrl && !shift && key === 'f') {
+                    if (page === 'order-details' || page === 'bar-order-details') {
+                        e.preventDefault();
+                        const fireBtn = document.getElementById('fireItemsBtn');
+                        if (fireBtn && !fireBtn.disabled) fireBtn.click();
+                        showHotkey('Firing Items (Ctrl+F)');
+                    }
+                    return;
+                }
+                
+                // Ctrl+P - Payment (on order details or payment pages)
+                if (ctrl && !shift && key === 'p') {
+                    if (page === 'order-details' || page === 'bar-order-details') {
+                        e.preventDefault();
+                        const paymentLink = document.querySelector('a[href*="/Payment/Index/"]');
+                        if (paymentLink && !paymentLink.classList.contains('btn-disabled')) {
+                            showHotkey('Opening Payment (Ctrl+P)');
+                            paymentLink.click();
+                        }
+                    } else if (page === 'payment-index') {
+                        e.preventDefault();
+                        const processLink = document.getElementById('processPaymentLink');
+                        if (processLink && !processLink.classList.contains('disabled')) {
+                            showHotkey('Processing Payment (Ctrl+P)');
+                            processLink.click();
+                        }
+                    }
+                    return;
+                }
+                
+                // Shift+P - Print Bill (on payment index)
+                if (shift && !ctrl && key === 'p' && page === 'payment-index') {
+                    e.preventDefault();
+                    const printBtn = document.getElementById('printPOSBillBtn');
+                    if (printBtn && !printBtn.disabled) printBtn.click();
+                    showHotkey('Printing Bill (Shift+P)');
+                    return;
+                }
+                
+                // Space - Focus Menu Item (on order details pages)
+                if (key === ' ' && !ctrl && !shift && !isInput) {
+                    if (page === 'order-details' || page === 'bar-order-details') {
+                        e.preventDefault();
+                        const menuInput = document.getElementById('menuItemInput');
+                        if (menuInput && !menuInput.disabled) {
+                            menuInput.focus();
+                            menuInput.click();
+                            showHotkey('Menu Search (Space)');
+                        }
+                    }
+                    return;
+                }
+            }, true);
+            
+            console.log('✅ Hotkey system loaded successfully');
+        });
     </script>
 </body>
 </html>

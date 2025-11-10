@@ -125,7 +125,7 @@
             </select>
           </div>
             <div class="col flex-grow-1" style="min-width:200px;">
-            <label for="menuItemInput" class="form-label small mb-1 fw-semibold">Menu Item</label>
+            <label for="menuItemInput" class="form-label small mb-1 fw-semibold">Menu Item <span class="badge bg-secondary" style="font-size: 0.65rem;">Space</span></label>
             <input list="menuItems" id="menuItemInput" class="form-control form-control-sm" placeholder="Search menu (name)..." required disabled="@(isFullyPaid ? "disabled" : null)" />
             <datalist id="menuItems">
                 @foreach (var mi in Model.AvailableMenuItems)
@@ -135,15 +135,19 @@
             </datalist>
           </div>
           <div class="col">
-            <label for="menuItemQty" class="form-label small mb-1 fw-semibold">Qty</label>
+            <label for="menuItemQty" class="form-label small mb-1 fw-semibold">Qty <span class="badge bg-secondary" style="font-size: 0.65rem;">Enter</span></label>
             <input type="number" id="menuItemQty" class="form-control form-control-sm" min="1" value="1" required />
           </div>
             <div class="col">
-              <button type="submit" class="btn btn-sm btn-primary" id="addItemBtn" disabled="@(isFullyPaid ? "disabled" : null)"><i class="fas fa-plus"></i> Add</button>
+              <button type="submit" class="btn btn-sm btn-primary" id="addItemBtn" disabled="@(isFullyPaid ? "disabled" : null)">
+                <i class="fas fa-plus"></i> Add <span class="badge bg-light text-dark" style="font-size: 0.65rem;">Enter</span>
+              </button>
             </div>
         </form>
         <div class="ms-auto d-flex gap-2">
-          <button type="button" id="fireItemsBtn" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#fireItemsModal"><i class="fas @fireButtonIcon"></i> @fireButtonLabel</button>
+          <button type="button" id="fireItemsBtn" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#fireItemsModal">
+            <i class="fas @fireButtonIcon"></i> @fireButtonLabel <span class="badge bg-warning text-dark" style="font-size: 0.65rem;">Ctrl+F</span>
+          </button>
           @{ var hasKOT = Model.KitchenTickets != null && Model.KitchenTickets.Any(); }
           <a asp-action="KOTBill" asp-route-id="@Model.Id" class="btn btn-sm btn-outline-info @(hasKOT ? "" : "btn-disabled")" title="@kotPrintLabel" target="_blank" rel="noopener noreferrer" aria-disabled="@(hasKOT? "false" : "true")"> <i class="fas fa-print"></i> @kotPrintLabel</a>
           @if (ViewBag.IsBarOrder == true)
@@ -154,13 +158,17 @@
           {
             <a asp-action="Dashboard" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back</a>
           }
-            <a asp-controller="Payment" asp-action="Index" asp-route-id="@Model.Id" asp-route-fromBar="@(isBarOrder ? "true" : null)" class="@paymentClass" aria-disabled="@(isFullyPaid ? "true" : null)" tabindex="@(isFullyPaid ? "-1" : null)"><i class="fas fa-credit-card"></i> Payment</a>
+            <a asp-controller="Payment" asp-action="Index" asp-route-id="@Model.Id" asp-route-fromBar="@(isBarOrder ? "true" : null)" class="@paymentClass" aria-disabled="@(isFullyPaid ? "true" : null)" tabindex="@(isFullyPaid ? "-1" : null)">
+              <i class="fas fa-credit-card"></i> Payment <span class="badge bg-light text-dark" style="font-size: 0.65rem;">Ctrl+P</span>
+            </a>
         </div>
       </div>
       <div class="card shadow-sm mb-3">
         <div class="card-header d-flex justify-content-between align-items-center py-2">
           <div class="small"><strong class="order-number-text">Order #:</strong> <span class="order-number-text">@Model.OrderNumber</span> <span class="badge bg-secondary ms-2">@Model.StatusDisplay</span></div>
-          <button id="saveOrderBtn" class="btn btn-sm btn-primary"><i class="fas fa-save"></i> Save</button>
+          <button id="saveOrderBtn" class="btn btn-sm btn-primary">
+            <i class="fas fa-save"></i> Save <span class="badge bg-light text-dark" style="font-size: 0.65rem;">Ctrl+S</span>
+          </button>
         </div>
         <div class="card-body p-0">
                     <div class="table-responsive">

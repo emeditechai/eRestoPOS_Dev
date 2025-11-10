@@ -258,6 +258,26 @@
         margin-bottom: 15px;
     }
     
+    /* Hotkey badge styles */
+    .hotkey-badge {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        font-family: 'Courier New', monospace;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+    
+    .quick-action-btn {
+        position: relative;
+    }
+    
     /* Quick action styles moved to wwwroot/css/site.css for reuse */
 </style>
 
@@ -340,6 +360,7 @@
                 <a href="/Order/Create" class="quick-action-btn qa-order">
                     <div class="qa-icon"><i class="fas fa-utensils"></i></div>
                     <span class="qa-label">New Order</span>
+                    <span class="hotkey-badge">Shift+F</span>
                 </a>
                 <a href="/Reservation/Create" class="quick-action-btn qa-reservation" aria-label="Create Reservation">
                     <span class="qa-badge">@Model.UpcomingReservations</span>
@@ -353,6 +374,7 @@
                 <a href="/TableService/Dashboard" class="quick-action-btn qa-tables" target="_blank" rel="noopener">
                     <div class="qa-icon"><i class="fas fa-th-large"></i></div>
                     <span class="qa-label">Available Table</span>
+                    <span class="hotkey-badge">Shift+T</span>
                 </a>
             </div>
         </div>
