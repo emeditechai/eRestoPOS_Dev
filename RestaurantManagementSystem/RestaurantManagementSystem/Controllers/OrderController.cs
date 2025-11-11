@@ -151,6 +151,26 @@ namespace RestaurantManagementSystem.Controllers
                                         reader.Close();
                                         if (orderId > 0)
                                         {
+                                            // Patch: Ensure Orders.CashierId is populated for Day Closing system amount calculations
+                                            // Root cause of zero SystemAmount: orders were created with NULL CashierId so cash payments
+                                            // couldn't be attributed to any cashier in UpdateCashierSystemAmountsAsync aggregation.
+                                            try
+                                            {
+                                                using (var setCashierCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                                    IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'CashierId')
+                                                    BEGIN
+                                                        UPDATE dbo.Orders
+                                                        SET CashierId = @CashierId
+                                                        WHERE Id = @OrderId AND CashierId IS NULL;
+                                                    END", connection, transaction))
+                                                {
+                                                    setCashierCmd.Parameters.AddWithValue("@CashierId", GetCurrentUserId());
+                                                    setCashierCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                                    setCashierCmd.ExecuteNonQuery();
+                                                }
+                                            }
+                                            catch { /* Non-fatal: avoid blocking order creation if column missing */ }
+
                                             // Set OrderKitchenType to "Foods" for orders created from Orders navigation
                                             try
                                             {

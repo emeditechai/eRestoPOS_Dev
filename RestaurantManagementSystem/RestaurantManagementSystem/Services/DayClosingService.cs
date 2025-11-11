@@ -161,12 +161,14 @@ namespace RestaurantManagementSystem.Services
 
                 // Query using Payments table (actual schema)
                 var query = @"
+                    -- Refresh SystemAmount per cashier for the business date
+                    -- Prefer Orders.CashierId; fallback to Payments.ProcessedBy when Orders.CashierId is NULL
                     UPDATE cdc
                     SET cdc.SystemAmount = ISNULL(cashSummary.CashAmount, 0)
                     FROM CashierDayClose cdc
                     LEFT JOIN (
                         SELECT 
-                            o.CashierId,
+                            COALESCE(o.CashierId, p.ProcessedBy) AS CashierId,
                             SUM(p.Amount) AS CashAmount
                         FROM Orders o
                         INNER JOIN Payments p ON p.OrderId = o.Id
@@ -175,8 +177,7 @@ namespace RestaurantManagementSystem.Services
                           AND pm.Name = 'CASH'
                           AND p.Status = 1
                           AND o.Status IN (2, 3)
-                          AND o.CashierId IS NOT NULL
-                        GROUP BY o.CashierId
+                        GROUP BY COALESCE(o.CashierId, p.ProcessedBy)
                     ) cashSummary ON cdc.CashierId = cashSummary.CashierId
                     WHERE cdc.BusinessDate = @BusinessDate";
 
