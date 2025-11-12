@@ -379,8 +379,114 @@
     </div>
 
     <div class="container">
-        @if (Model.MenuCategories.Any())
+        @if (Model.MenuGroups != null && Model.MenuGroups.Any())
         {
+            foreach (var group in Model.MenuGroups)
+            {
+                <div class="mb-3">
+                    <h2 class="mb-3" style="font-weight:800;color:#2c3e50">
+                        <i class="fas fa-layer-group me-2 text-primary"></i>@group.GroupName
+                    </h2>
+                    @foreach (var category in group.Categories)
+                    {
+                        <div class="menu-category">
+                            <div class="category-header">
+                                <h3>@category.CategoryName</h3>
+                                @if (!string.IsNullOrEmpty(category.CategoryDescription))
+                                {
+                                    <div class="category-description">@category.CategoryDescription</div>
+                                }
+                            </div>
+                            @if (category.SubCategories != null && category.SubCategories.Any())
+                            {
+                                foreach (var subcat in category.SubCategories)
+                                {
+                                    <div class="ps-3 pb-2 pt-2">
+                                        @if (!string.IsNullOrEmpty(subcat.SubCategoryName))
+                                        {
+                                            <h5 class="fw-bold mb-2" style="color:#2980b9">@subcat.SubCategoryName</h5>
+                                        }
+                                        <div class="menu-items">
+                                            @if (subcat.MenuItems.Any())
+                                            {
+                                                foreach (var item in subcat.MenuItems)
+                                                {
+                                                    <div class="menu-item @(item.IsAvailable ? string.Empty : "unavailable")">
+                                                        <div class="menu-item-info">
+                                                            <div class="menu-item-name">
+                                                                @item.Name
+                                                                <div class="menu-item-badges">
+                                                                    @if (!item.IsAvailable)
+                                                                    {
+                                                                        <span class="unavailable-badge">UNAVAILABLE</span>
+                                                                    }
+                                                                    @if (item.IsVegetarian)
+                                                                    {
+                                                                        <span class="badge-veg"><i class="fas fa-leaf"></i> VEG</span>
+                                                                    }
+                                                                    @if (item.IsSpicy)
+                                                                    {
+                                                                        <span class="badge-spicy"><i class="fas fa-fire"></i> SPICY</span>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                            @if (!string.IsNullOrEmpty(item.Description))
+                                                            {
+                                                                <div class="menu-item-description">@item.Description</div>
+                                                            }
+                                                        </div>
+                                                        <div class="menu-item-price">₹@item.Price.ToString("0.00")</div>
+                                                        <img src="@(string.IsNullOrEmpty(item.ImageUrl) ? "/images/placeholder-dish.png" : item.ImageUrl)" alt="@item.Name" class="menu-item-image" />
+                                                    </div>
+                                                }
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            }
+                            @if ((category.SubCategories == null || !category.SubCategories.Any()) && category.MenuItems != null && category.MenuItems.Any())
+                            {
+                                <div class="menu-items">
+                                    @foreach (var item in category.MenuItems)
+                                    {
+                                        <div class="menu-item @(item.IsAvailable ? string.Empty : "unavailable")">
+                                            <div class="menu-item-info">
+                                                <div class="menu-item-name">
+                                                    @item.Name
+                                                    <div class="menu-item-badges">
+                                                        @if (!item.IsAvailable)
+                                                        {
+                                                            <span class="unavailable-badge">UNAVAILABLE</span>
+                                                        }
+                                                        @if (item.IsVegetarian)
+                                                        {
+                                                            <span class="badge-veg"><i class="fas fa-leaf"></i> VEG</span>
+                                                        }
+                                                        @if (item.IsSpicy)
+                                                        {
+                                                            <span class="badge-spicy"><i class="fas fa-fire"></i> SPICY</span>
+                                                        }
+                                                    </div>
+                                                </div>
+                                                @if (!string.IsNullOrEmpty(item.Description))
+                                                {
+                                                    <div class="menu-item-description">@item.Description</div>
+                                                }
+                                            </div>
+                                            <div class="menu-item-price">₹@item.Price.ToString("0.00")</div>
+                                            <img src="@(string.IsNullOrEmpty(item.ImageUrl) ? "/images/placeholder-dish.png" : item.ImageUrl)" alt="@item.Name" class="menu-item-image" />
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+        else if (Model.MenuCategories.Any())
+        {
+            // Backward compatible rendering if groups not present
             foreach (var category in Model.MenuCategories)
             {
                 <div class="menu-category">
@@ -405,7 +511,7 @@
                                     {
                                         foreach (var item in subcat.MenuItems)
                                         {
-                                            <div class="menu-item @(item.IsAvailable ? "" : "unavailable")">
+                                            <div class="menu-item @(item.IsAvailable ? string.Empty : "unavailable")">
                                                 <div class="menu-item-info">
                                                     <div class="menu-item-name">
                                                         @item.Name
@@ -430,56 +536,13 @@
                                                     }
                                                 </div>
                                                 <div class="menu-item-price">₹@item.Price.ToString("0.00")</div>
-                                                @if (!string.IsNullOrEmpty(item.ImageUrl))
-                                                {
-                                                    <img src="@item.ImageUrl" alt="@item.Name" class="menu-item-image" />
-                                                }
+                                                <img src="@(string.IsNullOrEmpty(item.ImageUrl) ? "/images/placeholder-dish.png" : item.ImageUrl)" alt="@item.Name" class="menu-item-image" />
                                             </div>
                                         }
                                     }
                                 </div>
                             </div>
                         }
-                    }
-                    
-                    @* Fallback: Show category items directly ONLY if no subcategories exist *@
-                    @if ((category.SubCategories == null || !category.SubCategories.Any()) && category.MenuItems != null && category.MenuItems.Any())
-                    {
-                        <div class="menu-items">
-                            @foreach (var item in category.MenuItems)
-                            {
-                                <div class="menu-item @(item.IsAvailable ? "" : "unavailable")">
-                                    <div class="menu-item-info">
-                                        <div class="menu-item-name">
-                                            @item.Name
-                                            <div class="menu-item-badges">
-                                                @if (!item.IsAvailable)
-                                                {
-                                                    <span class="unavailable-badge">UNAVAILABLE</span>
-                                                }
-                                                @if (item.IsVegetarian)
-                                                {
-                                                    <span class="badge-veg"><i class="fas fa-leaf"></i> VEG</span>
-                                                }
-                                                @if (item.IsSpicy)
-                                                {
-                                                    <span class="badge-spicy"><i class="fas fa-fire"></i> SPICY</span>
-                                                }
-                                            </div>
-                                        </div>
-                                        @if (!string.IsNullOrEmpty(item.Description))
-                                        {
-                                            <div class="menu-item-description">@item.Description</div>
-                                        }
-                                    </div>
-                                    <div class="menu-item-price">₹@item.Price.ToString("0.00")</div>
-                                    @if (!string.IsNullOrEmpty(item.ImageUrl))
-                                    {
-                                        <img src="@item.ImageUrl" alt="@item.Name" class="menu-item-image" />
-                                    }
-                                </div>
-                            }
-                        </div>
                     }
                 </div>
             }

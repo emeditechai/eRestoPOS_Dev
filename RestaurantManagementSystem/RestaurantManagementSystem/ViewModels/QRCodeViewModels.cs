@@ -17,10 +17,20 @@ namespace RestaurantManagementSystem.ViewModels
     public class PublicMenuViewModel
     {
         public RestaurantInfo RestaurantInfo { get; set; } = new();
+        // Backwards-compatible: still populate when needed
         public List<CategoryMenuItems> MenuCategories { get; set; } = new();
+        // New: Group -> Category -> SubCategory -> Items
+        public List<MenuGroupViewModel> MenuGroups { get; set; } = new();
         public int? TableId { get; set; }
         public string TableName { get; set; } = string.Empty;
         public bool IsTableSpecific { get; set; }
+    }
+
+    public class MenuGroupViewModel
+    {
+        public int? GroupId { get; set; }
+        public string GroupName { get; set; } = string.Empty;
+        public List<CategoryMenuItems> Categories { get; set; } = new();
     }
 
     public class CategoryMenuItems

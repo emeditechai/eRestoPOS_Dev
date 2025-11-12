@@ -20,6 +20,8 @@ namespace RestaurantManagementSystem.Controllers
         public string CategoryName { get; set; } = string.Empty;
         public int? SubCategoryId { get; set; }
         public string? SubCategoryName { get; set; }
+        public int? GroupId { get; set; }
+        public string? GroupName { get; set; }
     }
 
     public class MenuQRController : Controller
@@ -53,16 +55,23 @@ namespace RestaurantManagementSystem.Controllers
                     m.CategoryId,
                     c.Name as CategoryName,
                     m.SubCategoryId,
-                    sc.Name as SubCategoryName
+                    sc.Name as SubCategoryName,
+                    m.MenuItemGroupId as GroupId,
+                    mig.itemgroup as GroupName
                 FROM MenuItems m
                 INNER JOIN Categories c ON m.CategoryId = c.Id
                 LEFT JOIN dbo.SubCategories sc ON m.SubCategoryId = sc.Id
-                ORDER BY c.Name, sc.Name, m.Name
+                LEFT JOIN dbo.menuitemgroup mig ON m.MenuItemGroupId = mig.ID
+                ORDER BY mig.itemgroup, c.Name, sc.Name, m.Name
             ").ToListAsync();
 
-            var categories = menuItemsRaw
-                .GroupBy(m => new { m.CategoryId, m.CategoryName })
-                .Select(g => {
+            // Build hierarchical grouping: Group -> Category -> SubCategory -> Items
+            var groups = menuItemsRaw
+                .GroupBy(m => new { m.GroupId, m.GroupName })
+                .Select(group => {
+                    var categories = group
+                        .GroupBy(m => new { m.CategoryId, m.CategoryName })
+                        .Select(g => {
                     // Group items by subcategory (including null subcategory)
                     var allGroupedItems = g.GroupBy(m => new { m.SubCategoryId, m.SubCategoryName });
                     
@@ -105,19 +114,37 @@ namespace RestaurantManagementSystem.Controllers
                             SubCategoryName = m.SubCategoryName
                         })).ToList();
 
-                    return new CategoryMenuItems
+                            return new CategoryMenuItems
+                            {
+                                CategoryId = g.Key.CategoryId,
+                                CategoryName = g.Key.CategoryName,
+                                CategoryDescription = "",
+                                MenuItems = directCategoryItems,
+                                SubCategories = subcategoriesWithItems
+                            };
+                        })
+                        .ToList();
+
+                    return new MenuGroupViewModel
                     {
-                        CategoryId = g.Key.CategoryId,
-                        CategoryName = g.Key.CategoryName,
-                        CategoryDescription = "",
-                        // Always show direct category items (items without subcategories)
-                        MenuItems = directCategoryItems,
-                        SubCategories = subcategoriesWithItems
+                        GroupId = group.Key.GroupId,
+                        GroupName = string.IsNullOrWhiteSpace(group.Key.GroupName) ? "General" : group.Key.GroupName,
+                        Categories = categories
                     };
                 })
+                .OrderBy(g => g.GroupName)
                 .ToList();
 
-            viewModel.MenuCategories = categories;
+            viewModel.MenuGroups = groups;
+            // Backwards compatibility: flatten into MenuCategories if only one group or consumer expects categories
+            if (!groups.Any())
+            {
+                viewModel.MenuCategories = new List<CategoryMenuItems>();
+            }
+            else if (groups.Count == 1)
+            {
+                viewModel.MenuCategories = groups.First().Categories;
+            }
 
             // Handle table-specific information
             if (tableId.HasValue)
