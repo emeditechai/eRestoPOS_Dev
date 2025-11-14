@@ -1,0 +1,144 @@
+@* Global Help Modal: Hotkeys + Workflow Summary *@
+<div class="modal fade" id="appHelpModal" tabindex="-1" aria-labelledby="appHelpModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-fullscreen-md-down modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(90deg,#0d6efd,#6610f2);">
+        <h5 class="modal-title text-white" id="appHelpModalLabel"><i class="fas fa-question-circle me-2"></i>Help Center • Hotkeys & Workflow Guide</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div class="row g-0">
+          <div class="col-lg-5 border-end" style="background:linear-gradient(180deg,#f8f9fa,#eef2ff);">
+            <div class="p-4">
+              <h6 class="text-uppercase fw-bold mb-2"><span class="badge bg-primary me-2">1</span>Hotkeys Overview</h6>
+              <p class="small mb-3">Accelerate daily operations. Hotkeys auto-disable when an input has focus (except Space for menu search).</p>
+              <div class="table-responsive mb-3">
+                <table class="table table-sm table-hover table-bordered align-middle bg-white">
+                  <thead class="table-primary"><tr><th style="width:150px">Hotkey</th><th>Action & Context</th></tr></thead>
+                  <tbody class="small">
+                    <tr><td><code>Shift + F</code></td><td>Create Food Order (Home)</td></tr>
+                    <tr><td><code>Shift + B</code></td><td>Create BAR Order (Home)</td></tr>
+                    <tr><td><code>Shift + K</code></td><td>Kitchen Dashboard (Home)</td></tr>
+                    <tr><td><code>Shift + T</code></td><td>Table Dashboard (Home)</td></tr>
+                    <tr><td><code>Ctrl + O</code></td><td>Submit Order Form (Create pages)</td></tr>
+                    <tr><td><code>Ctrl + S</code></td><td>Save Order (Details)</td></tr>
+                    <tr><td><code>Ctrl + F</code></td><td>Fire Items (Details)</td></tr>
+                    <tr><td><code>Ctrl + P</code></td><td>Open / Process Payment</td></tr>
+                    <tr><td><code>Shift + P</code></td><td>Print Bill (Payment Index)</td></tr>
+                    <tr><td><code>Space</code></td><td>Focus Menu Item Search (Details)</td></tr>
+                    <tr><td><code>Enter</code></td><td>Add Selected Item (Search → Qty → Confirm)</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="alert alert-info py-2 small mb-3"><strong>Tip:</strong> Combine <code>Shift</code> for navigation and <code>Ctrl</code> for in‑page actions.</div>
+              <h6 class="text-uppercase fw-bold mb-2"><span class="badge bg-success me-2">2</span>Adding / Extending Hotkeys</h6>
+              <ol class="small mb-3 ps-3">
+                <li>Open <code>Views/Shared/_Layout.cshtml</code>.</li>
+                <li>Add logic inside the main <code>keydown</code> handler.</li>
+                <li>Keep patterns consistent (Shift = navigation, Ctrl = action).</li>
+                <li>Update this help modal for training.</li>
+              </ol>
+              <div class="bg-white border rounded p-3 small">
+                <strong>Quality Checklist:</strong>
+                <ul class="mb-0 ps-3">
+                  <li>No override of critical browser shortcuts.</li>
+                  <li>Context detection via URL path.</li>
+                  <li>Graceful no-op if target button not present.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-7">
+            <div class="p-4">
+              <h6 class="text-uppercase fw-bold mb-2"><span class="badge bg-warning text-dark me-2">3</span>Workflow Deep Dive</h6>
+              <p class="small mb-3">End‑to‑end operational lifecycle including Beverage Order Tickets (BOT) and Day Closing variance management.</p>
+              <div class="accordion" id="helpWorkflowAccordion">
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="wfOpeningHead">
+                  <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#wfOpening" aria-expanded="true" aria-controls="wfOpening"><i class="fas fa-sun me-2 text-warning"></i>Opening Float (Morning)</button>
+                </h2>
+                <div id="wfOpening" class="accordion-collapse collapse show" aria-labelledby="wfOpeningHead" data-bs-parent="#helpWorkflowAccordion">
+                  <div class="accordion-body small">
+                    Manager opens app → Settings → Day Closing → <strong>Open Float for Cashier</strong> (enter cashier & amount). Cashier can start taking orders. Dashboard shows pending status until closing.
+                  </div>
+                </div>
+              </div>
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="wfServiceHead">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#wfService" aria-expanded="false" aria-controls="wfService"><i class="fas fa-utensils me-2 text-primary"></i>Service & Orders</button>
+                </h2>
+                <div id="wfService" class="accordion-collapse collapse" aria-labelledby="wfServiceHead" data-bs-parent="#helpWorkflowAccordion">
+                  <div class="accordion-body small">
+                    Create orders (Shift+F). Add items rapidly: <code>Space</code> focus search → select item → <code>Enter</code> to qty → enter quantity → <code>Enter</code> to add. <code>Ctrl+S</code> save, <code>Ctrl+F</code> fire items creating Kitchen (KOT) and Beverage (BOT) tickets. Use dashboards to monitor status.
+                  </div>
+                </div>
+              </div>
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="wfBotHead">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#wfBot" aria-expanded="false" aria-controls="wfBot"><i class="fas fa-cocktail me-2 text-pink"></i>BOT (Beverage Ticket) Flow</button>
+                </h2>
+                <div id="wfBot" class="accordion-collapse collapse" aria-labelledby="wfBotHead" data-bs-parent="#helpWorkflowAccordion">
+                  <div class="accordion-body small">
+                    Fire order items → Bar items create BOT: <em>New → In Progress → Ready → Billed</em>. Use BOT dashboard for status actions (Start, Mark Ready, Mark Billed, Void). Separate from KOT for clearer beverage tracking.
+                  </div>
+                </div>
+              </div>
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="wfClosingHead">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#wfClosing" aria-expanded="false" aria-controls="wfClosing"><i class="fas fa-moon me-2 text-secondary"></i>Day Closing (Evening)</button>
+                </h2>
+                <div id="wfClosing" class="accordion-collapse collapse" aria-labelledby="wfClosingHead" data-bs-parent="#helpWorkflowAccordion">
+                  <div class="accordion-body small">
+                    Cashier counts physical cash → Settings → Day Closing → Declare denomination breakdown. System compares expected vs declared; within threshold auto-approves, else status CHECK requiring manager approval. Manager reviews variances, then <strong>Lock Day</strong> and prints EOD report.
+                  </div>
+                </div>
+              </div>
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="wfTipsHead">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#wfTips" aria-expanded="false" aria-controls="wfTips"><i class="fas fa-chart-line me-2 text-success"></i>Performance & Tips</button>
+                </h2>
+                <div id="wfTips" class="accordion-collapse collapse" aria-labelledby="wfTipsHead" data-bs-parent="#helpWorkflowAccordion">
+                  <div class="accordion-body small">
+                    Use dashboards & reports (Customers, GST, Menu, Collection Register) for trends. Monitor high-volume low-price items for upsell. Track variances early to reduce end-of-day friction.
+                  </div>
+                </div>
+              </div>
+                <div class="accordion-item">
+                  <h2 class="accordion-header" id="wfTroubleHead">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#wfTrouble" aria-expanded="false" aria-controls="wfTrouble"><i class="fas fa-tools me-2 text-danger"></i>Troubleshooting Matrix</button>
+                  </h2>
+                  <div id="wfTrouble" class="accordion-collapse collapse" aria-labelledby="wfTroubleHead" data-bs-parent="#helpWorkflowAccordion">
+                  <div class="accordion-body small">
+                    <table class="table table-sm table-bordered">
+                      <thead class="table-light"><tr><th>Issue</th><th>Likely Cause</th><th>Resolution</th></tr></thead>
+                      <tbody>
+                        <tr><td>Hotkey ignored</td><td>Input focused / wrong page</td><td>Click outside inputs / verify page context</td></tr>
+                        <tr><td>BOT stuck In Progress</td><td>Ready not marked</td><td>Open BOT dashboard → Mark Ready</td></tr>
+                        <tr><td>Day Closing blocked</td><td>Variance > threshold</td><td>Manager approval required before Lock</td></tr>
+                        <tr><td>Payment link disabled</td><td>Order not saved or fired</td><td>Ctrl+S then Ctrl+F to progress</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  </div>
+                </div>
+            </div>
+              <div class="mt-4 bg-light border rounded p-3 small">
+                <strong>Best Practice Summary:</strong>
+                <ul class="mb-0 ps-3">
+                  <li>Open Float before first order.</li>
+                  <li>Use Shift hotkeys only from Dashboard/Home pages.</li>
+                  <li>Fire items early to avoid KOT/BOT backlog.</li>
+                  <li>Monitor low-price high-volume items for margin uplift.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Got it</button>
+      </div>
+    </div>
+  </div>
+</div>
