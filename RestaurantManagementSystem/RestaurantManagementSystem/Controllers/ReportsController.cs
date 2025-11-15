@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Data.SqlClient;
+using RestaurantManagementSystem.Filters;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.Models.Authorization;
 using RestaurantManagementSystem.ViewModels;
 using RestaurantManagementSystem.Services;
 using System.Data;
@@ -14,15 +16,48 @@ namespace RestaurantManagementSystem.Controllers
         private readonly IConfiguration _configuration;
         private readonly string _connectionString;
         private readonly IDayClosingService _dayClosingService;
+        private readonly RolePermissionService _permissionService;
 
-        public ReportsController(IConfiguration configuration, IDayClosingService dayClosingService)
+        private static class MenuCodes
+        {
+            public const string Sales = "NAV_REPORTS_SALES";
+            public const string Orders = "NAV_REPORTS_ORDERS";
+            public const string Menu = "NAV_REPORTS_MENU";
+            public const string Customers = "NAV_REPORTS_CUSTOMERS";
+            public const string Financial = "NAV_REPORTS_FINANCIAL";
+            public const string Kitchen = "NAV_REPORTS_KITCHEN";
+            public const string Bar = "NAV_REPORTS_BAR";
+            public const string Discount = "NAV_REPORTS_DISCOUNT";
+            public const string Gst = "NAV_REPORTS_GST";
+            public const string Collection = "NAV_REPORTS_COLLECTION";
+            public const string CashClosing = "NAV_REPORTS_CASHCLOSING";
+            public const string Feedback = "NAV_REPORTS_FEEDBACK";
+        }
+
+        public ReportsController(IConfiguration configuration, IDayClosingService dayClosingService, RolePermissionService permissionService)
         {
             _configuration = configuration;
             _connectionString = _configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
             _dayClosingService = dayClosingService;
+            _permissionService = permissionService;
+        }
+
+        private async Task SetViewPermissionsAsync(string menuCode)
+        {
+            if (_permissionService == null)
+            {
+                ViewBag.ReportPermissions = PermissionSet.FullAccess;
+                ViewBag.CurrentMenuCode = menuCode;
+                return;
+            }
+
+            var permissions = await _permissionService.GetPermissionsForUserAsync(User, menuCode);
+            ViewBag.ReportPermissions = permissions;
+            ViewBag.CurrentMenuCode = menuCode;
         }
 
         [HttpGet]
+        [RequirePermission(MenuCodes.Sales, PermissionAction.View)]
         public async Task<IActionResult> Sales()
         {
             ViewData["Title"] = "Sales Reports";
@@ -34,11 +69,13 @@ namespace RestaurantManagementSystem.Controllers
             
             // Load default report (last 30 days)
             await LoadSalesReportDataAsync(viewModel);
+            await SetViewPermissionsAsync(MenuCodes.Sales);
             
             return View(viewModel);
         }
 
         [HttpPost]
+        [RequirePermission(MenuCodes.Sales, PermissionAction.View)]
         public async Task<IActionResult> Sales(SalesReportFilter filter)
         {
             ViewData["Title"] = "Sales Reports";
@@ -53,11 +90,13 @@ namespace RestaurantManagementSystem.Controllers
             
             // Load report data based on filter
             await LoadSalesReportDataAsync(viewModel);
+            await SetViewPermissionsAsync(MenuCodes.Sales);
             
             return View(viewModel);
         }
 
         [HttpGet]
+        [RequirePermission(MenuCodes.Orders, PermissionAction.View)]
         public async Task<IActionResult> Orders()
         {
             ViewData["Title"] = "Order Reports";
@@ -69,11 +108,13 @@ namespace RestaurantManagementSystem.Controllers
             
             // Load default report (today's orders)
             await LoadOrderReportDataAsync(viewModel);
+            await SetViewPermissionsAsync(MenuCodes.Orders);
             
             return View(viewModel);
         }
 
         [HttpPost]
+        [RequirePermission(MenuCodes.Orders, PermissionAction.View)]
         public async Task<IActionResult> Orders(OrderReportFilter filter, int page = 1)
         {
             ViewData["Title"] = "Order Reports";
@@ -89,21 +130,25 @@ namespace RestaurantManagementSystem.Controllers
             
             // Load report data based on filter
             await LoadOrderReportDataAsync(viewModel);
+            await SetViewPermissionsAsync(MenuCodes.Orders);
             
             return View(viewModel);
         }
 
         [HttpGet]
+        [RequirePermission(MenuCodes.Menu, PermissionAction.View)]
         public async Task<IActionResult> Menu()
         {
             ViewData["Title"] = "Menu Analysis";
             var viewModel = new MenuReportViewModel();
             // Load default report (last 30 days)
             await LoadMenuReportDataAsync(viewModel);
+            await SetViewPermissionsAsync(MenuCodes.Menu);
             return View(viewModel);
         }
 
         [HttpPost]
+        [RequirePermission(MenuCodes.Menu, PermissionAction.View)]
         public async Task<IActionResult> Menu(MenuReportFilter filter)
         {
             ViewData["Title"] = "Menu Analysis";
@@ -113,29 +158,35 @@ namespace RestaurantManagementSystem.Controllers
             };
 
             await LoadMenuReportDataAsync(viewModel);
+            await SetViewPermissionsAsync(MenuCodes.Menu);
             return View(viewModel);
         }
 
         [HttpGet]
+        [RequirePermission(MenuCodes.Customers, PermissionAction.View)]
         public async Task<IActionResult> Customers()
         {
             ViewData["Title"] = "Customer Reports";
             var model = new CustomerReportViewModel();
             await LoadCustomerReportDataAsync(model);
+            await SetViewPermissionsAsync(MenuCodes.Customers);
             return View(model);
         }
 
         [HttpPost]
+        [RequirePermission(MenuCodes.Customers, PermissionAction.View)]
         public async Task<IActionResult> Customers(CustomerReportFilter filter)
         {
             ViewData["Title"] = "Customer Reports";
             var model = new CustomerReportViewModel { Filter = filter };
             await LoadCustomerReportDataAsync(model);
+            await SetViewPermissionsAsync(MenuCodes.Customers);
             return View(model);
         }
 
         [Authorize(Roles = "Administrator,Manager")]
         [HttpGet]
+        [RequirePermission(MenuCodes.Financial, PermissionAction.View)]
         public async Task<IActionResult> Financial()
         {
             ViewData["Title"] = "Financial Summary";
@@ -144,12 +195,14 @@ namespace RestaurantManagementSystem.Controllers
             
             // Load default report (last 30 days)
             await LoadFinancialSummaryDataAsync(viewModel);
+            await SetViewPermissionsAsync(MenuCodes.Financial);
             
             return View(viewModel);
         }
 
         [Authorize(Roles = "Administrator,Manager")]
         [HttpPost]
+        [RequirePermission(MenuCodes.Financial, PermissionAction.View)]
         public async Task<IActionResult> Financial(FinancialSummaryFilter filter)
         {
             ViewData["Title"] = "Financial Summary";
@@ -161,6 +214,7 @@ namespace RestaurantManagementSystem.Controllers
             
             // Load filtered report
             await LoadFinancialSummaryDataAsync(viewModel);
+            await SetViewPermissionsAsync(MenuCodes.Financial);
             
             return View(viewModel);
         }
@@ -368,10 +422,12 @@ namespace RestaurantManagementSystem.Controllers
         }
 
         [HttpGet]
+        [RequirePermission(MenuCodes.Kitchen, PermissionAction.View)]
         public async Task<IActionResult> Kitchen(DateTime? from, DateTime? to, string station)
         {
             ViewData["Title"] = "Kitchen KOT Report";
             var model = new KitchenReportViewModel();
+            await SetViewPermissionsAsync(MenuCodes.Kitchen);
 
             try
             {
@@ -412,8 +468,9 @@ namespace RestaurantManagementSystem.Controllers
             return View(model);
         }
 
-        [HttpGet]
-        public async Task<IActionResult> KitchenExport(DateTime? from, DateTime? to, string station)
+    [HttpGet]
+    [RequirePermission(MenuCodes.Kitchen, PermissionAction.Export)]
+    public async Task<IActionResult> KitchenExport(DateTime? from, DateTime? to, string station)
         {
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("OrderNumber,TableName,ItemName,Quantity,Station,Status,RequestedAt");
@@ -421,7 +478,7 @@ namespace RestaurantManagementSystem.Controllers
             try
             {
                 using var connection = new SqlConnection(_connectionString);
-                await connection.OpenAsync();
+        await connection.OpenAsync();
 
                 using var cmd = new SqlCommand("usp_GetKitchenKOTReport", connection) { CommandType = CommandType.StoredProcedure };
                 cmd.Parameters.AddWithValue("@FromDate", from.HasValue ? (object)from.Value.Date : DBNull.Value);
@@ -453,10 +510,54 @@ namespace RestaurantManagementSystem.Controllers
         }
 
         [HttpGet]
+        [RequirePermission(MenuCodes.Bar, PermissionAction.View)]
         public async Task<IActionResult> Bar(DateTime? from, DateTime? to, string station)
         {
             ViewData["Title"] = "Bar BOT Report";
             var model = new BarReportViewModel();
+            await SetViewPermissionsAsync(MenuCodes.Bar);
+
+            string BuildUom(IDataRecord record)
+            {
+                string? ReadString(string column)
+                {
+                    if (!record.ColumnExists(column)) return null;
+                    var ordinal = record.GetOrdinal(column);
+                    return record.IsDBNull(ordinal) ? null : record.GetString(ordinal);
+                }
+
+                decimal? ReadDecimal(string column)
+                {
+                    if (!record.ColumnExists(column)) return null;
+                    var ordinal = record.GetOrdinal(column);
+                    if (record.IsDBNull(ordinal)) return null;
+                    var value = record.GetValue(ordinal);
+                    if (value == null || value == DBNull.Value) return null;
+                    return Convert.ToDecimal(value);
+                }
+
+                var uomName = ReadString("UOMName");
+                var uomType = ReadString("UOMType");
+                var quantity = ReadDecimal("UOMQuantityML");
+
+                if (string.IsNullOrWhiteSpace(uomName) && string.IsNullOrWhiteSpace(uomType) && !quantity.HasValue)
+                {
+                    return string.Empty;
+                }
+
+                var detailParts = new List<string>();
+                if (!string.IsNullOrWhiteSpace(uomType)) detailParts.Add(uomType);
+                if (quantity.HasValue) detailParts.Add($"{quantity.Value:0.##} ml");
+
+                if (string.IsNullOrWhiteSpace(uomName))
+                {
+                    return detailParts.Count > 0 ? string.Join(" - ", detailParts) : string.Empty;
+                }
+
+                return detailParts.Count > 0
+                    ? $"{uomName} ({string.Join(" - ", detailParts)})"
+                    : uomName;
+            }
 
             try
             {
@@ -483,21 +584,7 @@ namespace RestaurantManagementSystem.Controllers
                         RequestedAt = reader.IsDBNull("RequestedAt") ? DateTime.MinValue : reader.GetDateTime("RequestedAt")
                     };
 
-                    // Best-effort read of UOM column if the stored procedure provides it
-                    try
-                    {
-                        // Use ordinal resolution to avoid exceptions if column absent
-                        var uomOrdinal = reader.GetOrdinal("UOM");
-                        if (uomOrdinal >= 0 && !reader.IsDBNull(uomOrdinal))
-                        {
-                            item.UOM = reader.GetString(uomOrdinal);
-                        }
-                    }
-                    catch
-                    {
-                        // Column not present yet (older DB) — leave UOM null/empty
-                        item.UOM = string.Empty;
-                    }
+                    item.UOM = BuildUom(reader);
 
                     model.Items.Add(item);
                 }
@@ -521,6 +608,7 @@ namespace RestaurantManagementSystem.Controllers
         }
 
         [HttpGet]
+        [RequirePermission(MenuCodes.Bar, PermissionAction.Export)]
         public async Task<IActionResult> BarExport(DateTime? from, DateTime? to, string station)
         {
             var sb = new System.Text.StringBuilder();
@@ -922,20 +1010,24 @@ namespace RestaurantManagementSystem.Controllers
         }
 
         [HttpGet]
+        [RequirePermission(MenuCodes.Discount, PermissionAction.View)]
         public async Task<IActionResult> DiscountReport()
         {
             ViewData["Title"] = "Discount Report";
             var model = new DiscountReportViewModel();
             await LoadDiscountReportAsync(model);
+            await SetViewPermissionsAsync(MenuCodes.Discount);
             return View(model);
         }
 
         [HttpPost]
+        [RequirePermission(MenuCodes.Discount, PermissionAction.View)]
         public async Task<IActionResult> DiscountReport(DiscountReportFilter filter)
         {
             ViewData["Title"] = "Discount Report";
             var model = new DiscountReportViewModel { Filter = filter };
             await LoadDiscountReportAsync(model);
+            await SetViewPermissionsAsync(MenuCodes.Discount);
             return View(model);
         }
 
@@ -994,20 +1086,24 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
+        [RequirePermission(MenuCodes.Gst, PermissionAction.View)]
         public async Task<IActionResult> GSTBreakup()
         {
             ViewData["Title"] = "GST Breakup Report";
             var model = new GSTBreakupReportViewModel();
             await LoadGSTBreakupReportAsync(model);
+            await SetViewPermissionsAsync(MenuCodes.Gst);
             return View(model);
         }
 
         [HttpPost]
+        [RequirePermission(MenuCodes.Gst, PermissionAction.View)]
         public async Task<IActionResult> GSTBreakup(GSTBreakupReportFilter filter)
         {
             ViewData["Title"] = "GST Breakup Report";
             var model = new GSTBreakupReportViewModel { Filter = filter };
             await LoadGSTBreakupReportAsync(model);
+            await SetViewPermissionsAsync(MenuCodes.Gst);
             return View(model);
         }
 
@@ -1266,6 +1362,7 @@ namespace RestaurantManagementSystem.Controllers
         }
 
         // Collection Register Report
+        [RequirePermission(MenuCodes.Collection, PermissionAction.View)]
         public async Task<IActionResult> CollectionRegister()
         {
             ViewData["Title"] = "Order Wise Payment Method Wise Collection Register";
@@ -1279,16 +1376,19 @@ namespace RestaurantManagementSystem.Controllers
             };
             await LoadPaymentMethodsAsync(model);
             await LoadCollectionRegisterDataAsync(model);
+            await SetViewPermissionsAsync(MenuCodes.Collection);
             return View(model);
         }
 
         [HttpPost]
+        [RequirePermission(MenuCodes.Collection, PermissionAction.View)]
         public async Task<IActionResult> CollectionRegister(CollectionRegisterFilter filter)
         {
             ViewData["Title"] = "Order Wise Payment Method Wise Collection Register";
             var model = new CollectionRegisterViewModel { Filter = filter };
             await LoadPaymentMethodsAsync(model);
             await LoadCollectionRegisterDataAsync(model);
+            await SetViewPermissionsAsync(MenuCodes.Collection);
             return View(model);
         }
 
@@ -1379,6 +1479,7 @@ namespace RestaurantManagementSystem.Controllers
         
         [HttpGet]
         [Authorize(Roles = "Administrator,Manager")]
+        [RequirePermission(MenuCodes.CashClosing, PermissionAction.View)]
         public async Task<IActionResult> CashClosing()
         {
             ViewData["Title"] = "Cash Closing Report";
@@ -1404,12 +1505,14 @@ namespace RestaurantManagementSystem.Controllers
             viewModel.DetailRecords = reportData.DetailRecords;
             viewModel.CashierPerformance = reportData.CashierPerformance;
             viewModel.DayLockAudits = reportData.DayLockAudits;
+            await SetViewPermissionsAsync(MenuCodes.CashClosing);
             
             return View(viewModel);
         }
 
         [HttpPost]
         [Authorize(Roles = "Administrator,Manager")]
+        [RequirePermission(MenuCodes.CashClosing, PermissionAction.View)]
         public async Task<IActionResult> CashClosing(CashClosingReportFilters filters)
         {
             ViewData["Title"] = "Cash Closing Report";
@@ -1442,6 +1545,7 @@ namespace RestaurantManagementSystem.Controllers
             viewModel.DetailRecords = reportData.DetailRecords;
             viewModel.CashierPerformance = reportData.CashierPerformance;
             viewModel.DayLockAudits = reportData.DayLockAudits;
+            await SetViewPermissionsAsync(MenuCodes.CashClosing);
             
             return View(viewModel);
         }
@@ -1490,6 +1594,7 @@ namespace RestaurantManagementSystem.Controllers
 
         // Feedback Survey Report
         [HttpGet]
+        [RequirePermission(MenuCodes.Feedback, PermissionAction.View)]
         public async Task<IActionResult> FeedbackSurveyReport(DateTime? fromDate, DateTime? toDate, string location, int? minRating, int? maxRating)
         {
             ViewData["Title"] = "Feedback Survey Report";
@@ -1621,6 +1726,7 @@ namespace RestaurantManagementSystem.Controllers
                 TempData["Error"] = $"Error loading report: {ex.Message}";
             }
 
+            await SetViewPermissionsAsync(MenuCodes.Feedback);
             return View(viewModel);
         }
     }

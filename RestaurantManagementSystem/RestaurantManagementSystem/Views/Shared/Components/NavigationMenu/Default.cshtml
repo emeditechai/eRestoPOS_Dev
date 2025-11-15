@@ -1,0 +1,80 @@
+@model IReadOnlyCollection<RestaurantManagementSystem.Models.Authorization.NavigationMenuNode>
+@{
+    string ResolveUrl(RestaurantManagementSystem.Models.Authorization.NavigationMenuNode node)
+    {
+        if (!string.IsNullOrWhiteSpace(node.CustomUrl))
+        {
+            return node.CustomUrl;
+        }
+
+        if (!string.IsNullOrWhiteSpace(node.ControllerName))
+        {
+            var action = string.IsNullOrWhiteSpace(node.ActionName) ? "Index" : node.ActionName;
+            return Url.Action(action, node.ControllerName, new { area = node.Area }) ?? "#";
+        }
+
+        return "#";
+    }
+
+    string DropdownAccent(RestaurantManagementSystem.Models.Authorization.NavigationMenuNode node)
+        => string.IsNullOrWhiteSpace(node.ThemeColor) ? "#f8b133" : node.ThemeColor;
+}
+
+<ul class="navbar-nav flex-grow-1 align-items-center">
+    @foreach (var root in Model.OrderBy(m => m.DisplayOrder))
+    {
+        if (!root.HasChildren)
+        {
+            var url = ResolveUrl(root);
+            <li class="nav-item">
+                <a class="nav-link text-white" href="@url" target="@(root.OpenInNewTab ? "_blank" : "_self")">
+                    @if (!string.IsNullOrWhiteSpace(root.IconCss))
+                    {
+                        <i class="@root.IconCss"></i>
+                    }
+                    @root.DisplayName
+                    @if (!string.IsNullOrWhiteSpace(root.ShortcutHint))
+                    {
+                        <span class="hotkey-badge ms-2">@root.ShortcutHint</span>
+                    }
+                </a>
+            </li>
+        }
+        else
+        {
+            var dropdownId = $"nav-{root.Code}";
+            var orderedChildren = root.Children.OrderBy(c => c.DisplayOrder).ThenBy(c => c.DisplayName).ToList();
+            <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle text-white" href="#" id="@dropdownId" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    @if (!string.IsNullOrWhiteSpace(root.IconCss))
+                    {
+                        <i class="@root.IconCss"></i>
+                    }
+                    @root.DisplayName
+                </a>
+                <ul class="dropdown-menu shadow-lg" aria-labelledby="@dropdownId" style="border-top: 2px solid @DropdownAccent(root);">
+                    @for (var i = 0; i < orderedChildren.Count; i++)
+                    {
+                        var child = orderedChildren[i];
+                        var url = ResolveUrl(child);
+                        <li>
+                            <a class="dropdown-item d-flex justify-content-between align-items-center" href="@url" target="@(child.OpenInNewTab ? "_blank" : "_self")">
+                                <span>
+                                    @if (!string.IsNullOrWhiteSpace(child.IconCss))
+                                    {
+                                        <i class="@child.IconCss"></i>
+                                    }
+                                    @child.DisplayName
+                                </span>
+                                @if (!string.IsNullOrWhiteSpace(child.ShortcutHint))
+                                {
+                                    <span class="hotkey-badge">@child.ShortcutHint</span>
+                                }
+                            </a>
+                        </li>
+                    }
+                </ul>
+            </li>
+        }
+    }
+</ul>

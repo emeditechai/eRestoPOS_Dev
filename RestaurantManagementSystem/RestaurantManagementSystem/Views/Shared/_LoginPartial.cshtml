@@ -1,4 +1,10 @@
 @using System.Security.Claims
+@using RestaurantManagementSystem.Utilities
+
+@{
+    var activeRoleName = User?.FindFirst("ActiveRoleName")?.Value ?? "Not Selected";
+    var hasMultipleRoles = User?.FindFirst("HasMultipleRoles")?.Value == "true";
+}
 
 <ul class="navbar-nav">
 @if (User.Identity.IsAuthenticated)
@@ -7,6 +13,7 @@
         <a class="nav-link dropdown-toggle text-white" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             <i class="fas fa-user-circle compact-icon"></i>
             @(User.FindFirst(ClaimTypes.GivenName)?.Value ?? User.Identity.Name)
+            <span class="badge bg-warning text-dark ms-2" style="font-size:0.65rem;">@activeRoleName</span>
         </a>
         <ul class="dropdown-menu dropdown-menu-end shadow-lg" aria-labelledby="navbarDropdown" style="border-top: 2px solid #f8b133; font-size: 0.85rem;">
             <li>
@@ -15,6 +22,20 @@
                     <small class="text-muted">@User.FindFirst(ClaimTypes.Email)?.Value</small>
                 </span>
             </li>
+            <li>
+                <span class="dropdown-item-text py-1">
+                    <small class="text-muted text-uppercase">Active Role</small><br />
+                    <span class="fw-semibold">@activeRoleName</span>
+                </span>
+            </li>
+            @if (hasMultipleRoles)
+            {
+                <li>
+                    <a class="dropdown-item py-1" href="#" data-role-switch-trigger>
+                        <i class="fas fa-random compact-icon text-purple"></i> Switch Role
+                    </a>
+                </li>
+            }
             <li><hr class="dropdown-divider my-1"></li>
             <li>
                 <a class="dropdown-item py-1" asp-controller="Account" asp-action="ChangePassword">

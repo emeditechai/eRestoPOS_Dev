@@ -1,0 +1,261 @@
+@model RestaurantManagementSystem.ViewModels.Authorization.MenuManagementViewModel
+@{
+    ViewData["Title"] = "Menu Builder";
+}
+
+@section Styles {
+    <style>
+        .menu-table thead {
+            background: linear-gradient(90deg, #1a3c5b, #0f172a);
+            color: #fff;
+        }
+        .menu-table tbody tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+        .menu-form-label {
+            font-weight: 600;
+        }
+    </style>
+}
+
+<div class="container-fluid mt-3">
+    <div class="d-flex align-items-center mb-3">
+        <div>
+            <h2 class="mb-0">Menu Builder</h2>
+            <small class="text-muted">Manage navigation menus and nested sub-menus used across the application.</small>
+        </div>
+        <div class="ms-auto">
+            <button class="btn btn-outline-secondary btn-sm" type="button" id="resetMenuForm">
+                <i class="fas fa-undo"></i> Reset Form
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="card-title mb-0"><i class="fas fa-stream me-2 text-primary"></i>Existing Menus</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm menu-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Code</th>
+                                    <th>Parent</th>
+                                    <th>Route</th>
+                                    <th class="text-center">Order</th>
+                                    <th class="text-center">Active</th>
+                                    <th class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var menu in Model.Menus.OrderBy(m => m.DisplayOrder))
+                                {
+                                    <tr>
+                                        <td>@menu.DisplayName</td>
+                                        <td><span class="badge bg-light text-dark">@menu.Code</span></td>
+                                        <td>@(string.IsNullOrWhiteSpace(menu.ParentCode) ? "Root" : menu.ParentCode)</td>
+                                        <td>
+                                            @if (!string.IsNullOrWhiteSpace(menu.ControllerName))
+                                            {
+                                                <span>@menu.ControllerName / @menu.ActionName</span>
+                                            }
+                                            else if (!string.IsNullOrWhiteSpace(menu.CustomUrl))
+                                            {
+                                                <span class="text-muted">@menu.CustomUrl</span>
+                                            }
+                                        </td>
+                                        <td class="text-center">@menu.DisplayOrder</td>
+                                        <td class="text-center">
+                                            @if (menu.IsActive)
+                                            {
+                                                <span class="badge bg-success">Yes</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-danger">No</span>
+                                            }
+                                        </td>
+                                        <td class="text-end">
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-primary edit-menu"
+                                                    data-id="@menu.Id"
+                                                    data-code="@menu.Code"
+                                                    data-name="@menu.DisplayName"
+                                                    data-parent="@menu.ParentCode"
+                                                    data-description="@menu.Description"
+                                                    data-area="@menu.Area"
+                                                    data-controller="@menu.ControllerName"
+                                                    data-action="@menu.ActionName"
+                                                    data-route="@menu.RouteValues"
+                                                    data-url="@menu.CustomUrl"
+                                                    data-icon="@menu.IconCss"
+                                                    data-order="@menu.DisplayOrder"
+                                                    data-active="@menu.IsActive.ToString().ToLower()"
+                                                    data-visible="@menu.IsVisible.ToString().ToLower()"
+                                                    data-theme="@menu.ThemeColor"
+                                                    data-shortcut="@menu.ShortcutHint"
+                                                    data-newtab="@menu.OpenInNewTab.ToString().ToLower()">
+                                                <i class="fas fa-pen"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white d-flex align-items-center">
+                    <i class="fas fa-edit me-2 text-primary"></i>
+                    <h5 class="card-title mb-0" id="menuFormTitle">Create Menu</h5>
+                </div>
+                <div class="card-body">
+                    <form id="menuForm" method="post" asp-action="Create">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" asp-for="MenuForm.Id" />
+                        <div class="mb-3">
+                            <label asp-for="MenuForm.DisplayName" class="form-label menu-form-label"></label>
+                            <input asp-for="MenuForm.DisplayName" class="form-control" />
+                            <span asp-validation-for="MenuForm.DisplayName" class="text-danger"></span>
+                        </div>
+                        <div class="mb-3">
+                            <label asp-for="MenuForm.Code" class="form-label menu-form-label"></label>
+                            <input asp-for="MenuForm.Code" class="form-control" placeholder="NAV_SAMPLE" />
+                            <span class="form-text">Use uppercase unique codes for reliable references.</span>
+                            <span asp-validation-for="MenuForm.Code" class="text-danger"></span>
+                        </div>
+                        <div class="mb-3">
+                            <label asp-for="MenuForm.Description" class="form-label menu-form-label"></label>
+                            <textarea asp-for="MenuForm.Description" class="form-control" rows="2"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label asp-for="MenuForm.ParentCode" class="form-label menu-form-label">Parent Menu</label>
+                            <select asp-for="MenuForm.ParentCode" class="form-select" asp-items="Model.ParentOptions"></select>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label asp-for="MenuForm.ControllerName" class="form-label menu-form-label"></label>
+                                <input asp-for="MenuForm.ControllerName" class="form-control" />
+                            </div>
+                            <div class="col-md-6">
+                                <label asp-for="MenuForm.ActionName" class="form-label menu-form-label"></label>
+                                <input asp-for="MenuForm.ActionName" class="form-control" />
+                            </div>
+                        </div>
+                        <div class="mb-3 mt-3">
+                            <label asp-for="MenuForm.CustomUrl" class="form-label menu-form-label"></label>
+                            <input asp-for="MenuForm.CustomUrl" class="form-control" />
+                            <span class="form-text">Provide custom URL only when controller/action is empty.</span>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label asp-for="MenuForm.IconCss" class="form-label menu-form-label"></label>
+                                <input asp-for="MenuForm.IconCss" class="form-control" placeholder="fas fa-home" />
+                            </div>
+                            <div class="col-md-3">
+                                <label asp-for="MenuForm.DisplayOrder" class="form-label menu-form-label"></label>
+                                <input asp-for="MenuForm.DisplayOrder" type="number" class="form-control" />
+                            </div>
+                            <div class="col-md-3">
+                                <label asp-for="MenuForm.ShortcutHint" class="form-label menu-form-label"></label>
+                                <input asp-for="MenuForm.ShortcutHint" class="form-control" placeholder="Shift+F" />
+                            </div>
+                        </div>
+                        <div class="row g-2 mt-3">
+                            <div class="col-md-6">
+                                <label asp-for="MenuForm.ThemeColor" class="form-label menu-form-label"></label>
+                                <input asp-for="MenuForm.ThemeColor" class="form-control" placeholder="#f8b133" />
+                            </div>
+                            <div class="col-md-6">
+                                <label asp-for="MenuForm.RouteValues" class="form-label menu-form-label"></label>
+                                <input asp-for="MenuForm.RouteValues" class="form-control" placeholder="{ id = 1 }" />
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-3">
+                            <div class="col-md-4 form-check form-switch">
+                                <input class="form-check-input" asp-for="MenuForm.IsActive" />
+                                <label class="form-check-label" asp-for="MenuForm.IsActive"></label>
+                            </div>
+                            <div class="col-md-4 form-check form-switch">
+                                <input class="form-check-input" asp-for="MenuForm.IsVisible" />
+                                <label class="form-check-label" asp-for="MenuForm.IsVisible"></label>
+                            </div>
+                            <div class="col-md-4 form-check form-switch">
+                                <input class="form-check-input" asp-for="MenuForm.OpenInNewTab" />
+                                <label class="form-check-label" asp-for="MenuForm.OpenInNewTab"></label>
+                            </div>
+                        </div>
+                        <div class="mt-4 d-flex gap-2">
+                            <button type="submit" class="btn btn-primary flex-grow-1" id="menuFormSubmit">
+                                <i class="fas fa-save me-1"></i> Save Menu
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        (function () {
+            const form = document.getElementById('menuForm');
+            const title = document.getElementById('menuFormTitle');
+            const submitBtn = document.getElementById('menuFormSubmit');
+            const resetBtn = document.getElementById('resetMenuForm');
+
+            const setFormMode = (mode) => {
+                if (mode === 'create') {
+                    form.action = '@Url.Action("Create", "MenuManagement")';
+                    title.textContent = 'Create Menu';
+                    submitBtn.innerHTML = '<i class="fas fa-save me-1"></i> Create Menu';
+                } else {
+                    form.action = '@Url.Action("Update", "MenuManagement")';
+                    title.textContent = 'Update Menu';
+                    submitBtn.innerHTML = '<i class="fas fa-save me-1"></i> Update Menu';
+                }
+            };
+
+            document.querySelectorAll('.edit-menu').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    setFormMode('update');
+                    form.querySelector('[name="MenuForm.Id"]').value = btn.dataset.id ?? '';
+                    form.querySelector('[name="MenuForm.Code"]').value = btn.dataset.code ?? '';
+                    form.querySelector('[name="MenuForm.DisplayName"]').value = btn.dataset.name ?? '';
+                    form.querySelector('[name="MenuForm.ParentCode"]').value = btn.dataset.parent ?? '';
+                    form.querySelector('[name="MenuForm.Description"]').value = btn.dataset.description ?? '';
+                    form.querySelector('[name="MenuForm.Area"]').value = btn.dataset.area ?? '';
+                    form.querySelector('[name="MenuForm.ControllerName"]').value = btn.dataset.controller ?? '';
+                    form.querySelector('[name="MenuForm.ActionName"]').value = btn.dataset.action ?? '';
+                    form.querySelector('[name="MenuForm.RouteValues"]').value = btn.dataset.route ?? '';
+                    form.querySelector('[name="MenuForm.CustomUrl"]').value = btn.dataset.url ?? '';
+                    form.querySelector('[name="MenuForm.IconCss"]').value = btn.dataset.icon ?? '';
+                    form.querySelector('[name="MenuForm.DisplayOrder"]').value = btn.dataset.order ?? 1;
+                    form.querySelector('[name="MenuForm.ShortcutHint"]').value = btn.dataset.shortcut ?? '';
+                    form.querySelector('[name="MenuForm.ThemeColor"]').value = btn.dataset.theme ?? '';
+                    form.querySelector('[name="MenuForm.IsActive"]').checked = btn.dataset.active === 'true';
+                    form.querySelector('[name="MenuForm.IsVisible"]').checked = btn.dataset.visible === 'true';
+                    form.querySelector('[name="MenuForm.OpenInNewTab"]').checked = btn.dataset.newtab === 'true';
+                    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            });
+
+            resetBtn.addEventListener('click', () => {
+                form.reset();
+                form.querySelector('[name="MenuForm.Id"]').value = '';
+                setFormMode('create');
+            });
+
+            setFormMode('create');
+        })();
+    </script>
+}

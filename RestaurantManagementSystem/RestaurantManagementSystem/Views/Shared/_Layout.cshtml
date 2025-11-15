@@ -1,4 +1,13 @@
-﻿<!DOCTYPE html>
+﻿@using RestaurantManagementSystem.Utilities
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@{
+    var activeRoleName = User?.FindFirst("ActiveRoleName")?.Value;
+    var requiresRoleSelection = User?.FindFirst("RoleSelectionConfirmed")?.Value == "false";
+    var hasMultipleRoles = User?.FindFirst("HasMultipleRoles")?.Value == "true";
+    var activeRoleId = User?.FindFirst("ActiveRoleId")?.Value;
+    var antiforgeryToken = (User?.Identity?.IsAuthenticated ?? false) ? Antiforgery.GetAndStoreTokens(Context).RequestToken : null;
+}
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
@@ -11,6 +20,10 @@
         if (!string.IsNullOrEmpty(sessionToken))
         {
             <meta name="session-token" content="@sessionToken" />
+        }
+        if (!string.IsNullOrEmpty(antiforgeryToken))
+        {
+            <meta name="request-verification-token" content="@antiforgeryToken" />
         }
     }
     <script type="importmap"></script>
@@ -25,7 +38,9 @@
     <link rel="stylesheet" href="~/css/settings.css" asp-append-version="true" />
     @await RenderSectionAsync("Styles", required: false)
 </head>
-<body>
+<body data-requires-role-selection="@(requiresRoleSelection ? "true" : "false")"
+    data-has-multiple-roles="@(hasMultipleRoles ? "true" : "false")"
+    data-active-role-id="@(activeRoleId ?? string.Empty)">
     <style>
         /* Compact navigation styles */
         .navbar {
@@ -109,142 +124,7 @@
                     <span class="navbar-toggler-icon"></span>
                 </button>
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
-                    <ul class="navbar-nav flex-grow-1 align-items-center">
-                        <li class="nav-item">
-                            <a class="nav-link text-white" asp-area="" asp-controller="Home" asp-action="Index">
-                                <i class="fas fa-home compact-icon"></i> Home
-                            </a>
-                        </li>
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle text-white" href="#" id="reservationsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="far fa-calendar-alt compact-icon"></i> Reservations
-                            </a>
-                            <ul class="dropdown-menu shadow-lg" aria-labelledby="reservationsDropdown" style="border-top: 2px solid #f8b133;">
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reservation" asp-action="Dashboard"><i class="fas fa-th-large compact-icon text-primary"></i> Dashboard</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reservation" asp-action="List"><i class="fas fa-list compact-icon text-primary"></i> Reservations</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reservation" asp-action="Waitlist"><i class="fas fa-clock compact-icon text-primary"></i> Waitlist</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reservation" asp-action="Tables"><i class="fas fa-table compact-icon text-primary"></i> Tables</a></li>
-                                <li><hr class="dropdown-divider" /></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Feedback" asp-action="Form"><i class="fas fa-comment-dots compact-icon text-primary"></i> Guest Feedback</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Feedback" asp-action="Summary"><i class="fas fa-chart-line compact-icon text-primary"></i> Feedback Summary</a></li>
-                            </ul>
-                        </li>
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle text-white" href="#" id="tableServiceDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fas fa-chair compact-icon"></i> Tables
-                            </a>
-                            <ul class="dropdown-menu shadow-lg" aria-labelledby="tableServiceDropdown" style="border-top: 2px solid #f8b133;">
-                                <li>
-                                    <a class="dropdown-item d-flex justify-content-between align-items-center" asp-area="" asp-controller="TableService" asp-action="Dashboard">
-                                        <span><i class="fas fa-th-large compact-icon text-primary"></i> Dashboard</span>
-                                        <span class="hotkey-badge" style="font-size: 0.6rem;">Shift+T</span>
-                                    </a>
-                                </li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="TableService" asp-action="ActiveTables"><i class="fas fa-list-alt compact-icon text-primary"></i> Active Tables</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="TableService" asp-action="SeatGuest"><i class="fas fa-user-plus compact-icon text-primary"></i> Seat Guest</a></li>
-                            </ul>
-                        </li>
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle text-white" href="#" id="orderDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fas fa-clipboard-list compact-icon"></i> Orders
-                            </a>
-                            <ul class="dropdown-menu shadow-lg" aria-labelledby="orderDropdown" style="border-top: 2px solid #f8b133;">
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Order" asp-action="Dashboard"><i class="fas fa-th-large compact-icon text-primary"></i> Dashboard</a></li>
-                                <li>
-                                    <a class="dropdown-item d-flex justify-content-between align-items-center" asp-area="" asp-controller="Order" asp-action="Create">
-                                        <span><i class="fas fa-plus compact-icon text-primary"></i> Create Order</span>
-                                        <span class="hotkey-badge" style="font-size: 0.6rem;">Shift+F</span>
-                                    </a>
-                                </li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Order" asp-action="Estimation" target="_blank"><i class="fas fa-calculator compact-icon text-primary"></i> Menu Items & Estimation</a></li>
-                                <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Payment" asp-action="Dashboard"><i class="fas fa-chart-line compact-icon text-success"></i> Payment Dashboard</a></li>
-                            </ul>
-                        </li>
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle text-white" href="#" id="kitchenDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fas fa-fire compact-icon"></i> Kitchen
-                            </a>
-                            <ul class="dropdown-menu shadow-lg" aria-labelledby="kitchenDropdown" style="border-top: 2px solid #f8b133;">
-                                <li>
-                                    <a class="dropdown-item d-flex justify-content-between align-items-center" asp-area="" asp-controller="Kitchen" asp-action="Dashboard">
-                                        <span><i class="fas fa-th-large compact-icon text-primary"></i> Dashboard</span>
-                                        <span class="hotkey-badge" style="font-size: 0.6rem;">Shift+K</span>
-                                    </a>
-                                </li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Kitchen" asp-action="Tickets"><i class="fas fa-receipt compact-icon text-primary"></i> Tickets</a></li>
-                            </ul>
-                        </li>
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle text-white" href="#" id="barDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fas fa-cocktail compact-icon"></i> Bar
-                            </a>
-                            <ul class="dropdown-menu shadow-lg" aria-labelledby="barDropdown" style="border-top: 2px solid #7c3aed;">
-                                <li><a class="dropdown-item" asp-area="" asp-controller="BOT" asp-action="BarOrderDashboard"><i class="fas fa-tachometer-alt compact-icon text-primary"></i> Bar Order Dashboard</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="BOT" asp-action="Dashboard"><i class="fas fa-th-large compact-icon text-primary"></i> BOT Dashboard</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="BOT" asp-action="Tickets"><i class="fas fa-receipt compact-icon text-primary"></i> Bar Tickets</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="BOT" asp-action="BarOrderCreate"><i class="fas fa-plus compact-icon text-primary"></i> Bar Order Create</a></li>
-                            </ul>
-                        </li>
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle text-white" href="#" id="onlineOrderDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fas fa-globe compact-icon"></i> Online
-                            </a>
-                            <ul class="dropdown-menu shadow-lg" aria-labelledby="onlineOrderDropdown" style="border-top: 2px solid #f8b133;">
-                                <li><a class="dropdown-item" asp-area="" asp-controller="OnlineOrder" asp-action="Dashboard"><i class="fas fa-th-large compact-icon text-primary"></i> Dashboard</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="OnlineOrder" asp-action="Index"><i class="fas fa-list compact-icon text-primary"></i> Order List</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="OnlineOrder" asp-action="OrderSources"><i class="fas fa-external-link-alt compact-icon text-primary"></i> Sources</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="OnlineOrder" asp-action="MenuItemMappings"><i class="fas fa-exchange-alt compact-icon text-primary"></i> Mappings</a></li>
-                            </ul>
-                        </li>
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle text-white" href="#" id="menuDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fas fa-book-open compact-icon"></i> Menu
-                            </a>
-                            <ul class="dropdown-menu shadow-lg" aria-labelledby="menuDropdown" style="border-top: 2px solid #f8b133;">
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Menu" asp-action="Index"><i class="fas fa-utensils compact-icon text-primary"></i> Menu Items</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Recipe" asp-action="Dashboard"><i class="fas fa-clipboard-list compact-icon text-primary"></i> Recipe Dashboard</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Recipe" asp-action="Index"><i class="fas fa-book compact-icon text-primary"></i> All Recipes</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Category" asp-action="Index"><i class="fas fa-tags compact-icon text-primary"></i> Categories</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="SubCategory" asp-action="Index"><i class="fas fa-list-ul compact-icon text-primary"></i> Sub Categories</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Master" asp-action="IngredientsList"><i class="fas fa-carrot compact-icon text-primary"></i> Ingredients</a></li>
-                                <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="MenuQR" asp-action="Index"><i class="fas fa-qrcode compact-icon text-success"></i> QR Code Menu</a></li>
-                            </ul>
-                        </li>
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle text-white" href="#" id="masterDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fas fa-cogs compact-icon"></i> Settings
-                            </a>
-                            <ul class="dropdown-menu shadow-lg" aria-labelledby="masterDropdown" style="border-top: 2px solid #f8b133;">
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Settings" asp-action="Index"><i class="fas fa-store compact-icon text-primary"></i> Restaurant Settings</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="DayClosing" asp-action="Index"><i class="fas fa-cash-register compact-icon text-success"></i> Day Closing</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="User" asp-action="UserList"><i class="fas fa-users compact-icon text-primary"></i> Users & Roles</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Bank" asp-action="Index"><i class="fas fa-university compact-icon text-primary"></i> Bank Master</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Kitchen" asp-action="Stations"><i class="fas fa-map-signs compact-icon text-primary"></i> Stations</a></li>
-                            </ul>
-                        </li>
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle text-white" href="#" id="reportsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fas fa-chart-bar compact-icon"></i> Reports
-                            </a>
-                            <ul class="dropdown-menu shadow-lg" aria-labelledby="reportsDropdown" style="border-top: 2px solid #f8b133;">
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="Sales"><i class="fas fa-dollar-sign compact-icon text-primary"></i> Sales Reports</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="Orders"><i class="fas fa-shopping-cart compact-icon text-primary"></i> Order Reports</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="CollectionRegister"><i class="fas fa-cash-register compact-icon text-success"></i> Collection Register</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="CashClosing"><i class="fas fa-money-check-alt compact-icon text-info"></i> Cash Closing Report</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="DiscountReport"><i class="fas fa-percentage compact-icon text-primary"></i> Discount Report</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="GSTBreakup"><i class="fas fa-file-invoice-dollar compact-icon text-primary"></i> GST Breakup</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="Menu"><i class="fas fa-utensils compact-icon text-primary"></i> Menu Analysis</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="Kitchen"><i class="fas fa-hamburger compact-icon text-primary"></i> Kitchen KOT</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="Bar"><i class="fas fa-cocktail compact-icon text-purple"></i> Bar BOT</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="Customers"><i class="fas fa-users compact-icon text-primary"></i> Customer Reports</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="FeedbackSurveyReport"><i class="fas fa-poll-h compact-icon text-primary"></i> Feedback Survey Report</a></li>
-                                <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Reports" asp-action="Financial"><i class="fas fa-calculator compact-icon text-primary"></i> Financial Summary</a></li>
-                            </ul>
-                        </li>
-                    </ul>
+                    @await Component.InvokeAsync("NavigationMenu")
                     <partial name="_LoginPartial" />
                 </div>
             </div>
@@ -313,10 +193,312 @@
             }
         });
     </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const body = document.body;
+            const modalEl = document.getElementById('roleSelectionModal');
+            if (!body || !modalEl || typeof bootstrap === 'undefined') {
+                return;
+            }
+
+            const dataset = body.dataset || {};
+            const hasMultipleRoles = dataset.hasMultipleRoles === 'true';
+            const requiresRoleSelection = dataset.requiresRoleSelection === 'true';
+            const antiforgeryMeta = document.querySelector('meta[name="request-verification-token"]');
+            const antiforgeryToken = antiforgeryMeta ? antiforgeryMeta.getAttribute('content') : '';
+
+            const controls = {
+                options: modalEl.querySelector('[data-role-options]'),
+                loading: modalEl.querySelector('[data-role-loading]'),
+                error: modalEl.querySelector('[data-role-error]'),
+                confirmBtn: modalEl.querySelector('[data-role-confirm]'),
+                confirmText: modalEl.querySelector('[data-role-confirm-text]'),
+                confirmSpinner: modalEl.querySelector('[data-role-confirm-spinner]'),
+                closeButtons: modalEl.querySelectorAll('[data-role-close]'),
+                title: modalEl.querySelector('[data-role-modal-title]'),
+                description: modalEl.querySelector('[data-role-modal-description]')
+            };
+
+            const state = {
+                selectedRoleId: null,
+                modal: null,
+                forceSelection: false
+            };
+
+            function wireSwitchRoleTriggers() {
+                document.querySelectorAll('[data-role-switch-trigger]').forEach(function (trigger) {
+                    trigger.addEventListener('click', function (event) {
+                        event.preventDefault();
+                        if (!hasMultipleRoles) {
+                            return;
+                        }
+                        openRoleModal(false);
+                    });
+                });
+            }
+
+            wireSwitchRoleTriggers();
+
+            function ensureModalInstance(forceSelection) {
+                if (state.modal) {
+                    state.modal.dispose();
+                }
+                state.modal = new bootstrap.Modal(modalEl, {
+                    backdrop: forceSelection ? 'static' : true,
+                    keyboard: !forceSelection
+                });
+                state.forceSelection = forceSelection;
+
+                controls.closeButtons.forEach(function (btn) {
+                    btn.classList.toggle('d-none', forceSelection);
+                });
+
+                if (controls.title) {
+                    controls.title.textContent = forceSelection
+                        ? 'Choose your role to continue'
+                        : 'Switch your active role';
+                }
+
+                if (controls.description) {
+                    controls.description.textContent = forceSelection
+                        ? 'Please pick a role to continue working. Your dashboard will reload after confirmation.'
+                        : 'Select the role you want to work in. You can switch again at any time from the profile menu.';
+                }
+            }
+
+            function resetState() {
+                state.selectedRoleId = null;
+                if (controls.options) {
+                    controls.options.innerHTML = '';
+                    controls.options.classList.add('d-none');
+                }
+                if (controls.loading) {
+                    controls.loading.classList.remove('d-none');
+                }
+                hideError();
+                setConfirmBusy(false);
+                if (controls.confirmBtn) {
+                    controls.confirmBtn.disabled = true;
+                }
+            }
+
+            function hideError() {
+                if (controls.error) {
+                    controls.error.classList.add('d-none');
+                    controls.error.textContent = '';
+                }
+            }
+
+            function showError(message) {
+                if (controls.loading) {
+                    controls.loading.classList.add('d-none');
+                }
+                if (controls.options) {
+                    controls.options.classList.add('d-none');
+                }
+                if (controls.error) {
+                    controls.error.textContent = message;
+                    controls.error.classList.remove('d-none');
+                }
+                if (controls.confirmBtn) {
+                    controls.confirmBtn.disabled = true;
+                }
+            }
+
+            function setConfirmBusy(isBusy) {
+                if (!controls.confirmBtn) {
+                    return;
+                }
+                controls.confirmBtn.disabled = isBusy || !state.selectedRoleId;
+                if (controls.confirmSpinner) {
+                    controls.confirmSpinner.classList.toggle('d-none', !isBusy);
+                }
+                if (controls.confirmText) {
+                    controls.confirmText.classList.toggle('d-none', isBusy);
+                }
+            }
+
+            async function loadRoles() {
+                resetState();
+                try {
+                    const response = await fetch('/Account/UserRoles', {
+                        method: 'GET',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Unable to load roles. Please try again.');
+                    }
+
+                    const payload = await response.json();
+                    const roles = Array.isArray(payload) ? payload : [];
+                    renderRoles(roles);
+                } catch (error) {
+                    const message = error && error.message ? error.message : 'Unable to load your roles right now.';
+                    showError(message);
+                }
+            }
+
+            function resolveRoleField(role, camelKey, pascalKey) {
+                if (Object.prototype.hasOwnProperty.call(role, camelKey) && role[camelKey] !== undefined && role[camelKey] !== null) {
+                    return role[camelKey];
+                }
+                return role[pascalKey];
+            }
+
+            function renderRoles(roles) {
+                if (controls.loading) {
+                    controls.loading.classList.add('d-none');
+                }
+
+                if (!roles.length) {
+                    showError('No roles are assigned to this account. Please contact an administrator.');
+                    return;
+                }
+
+                if (controls.options) {
+                    controls.options.classList.remove('d-none');
+                }
+
+                roles.forEach(function (role) {
+                    if (!controls.options) {
+                        return;
+                    }
+
+                    const roleId = resolveRoleField(role, 'roleId', 'RoleId');
+                    const roleName = resolveRoleField(role, 'name', 'Name') || 'Role';
+                    const description = resolveRoleField(role, 'description', 'Description');
+                    const isActive = Boolean(resolveRoleField(role, 'isActive', 'IsActive'));
+
+                    const item = document.createElement('button');
+                    item.type = 'button';
+                    item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+                    item.dataset.roleId = roleId;
+                    item.innerHTML = `
+                        <div>
+                            <div class="fw-semibold">${roleName}</div>
+                            ${description ? `<div class="text-muted small">${description}</div>` : ''}
+                        </div>
+                        <span class="badge ${isActive ? 'bg-success' : 'bg-light text-dark'}">${isActive ? 'Current' : 'Select'}</span>
+                    `;
+
+                    item.addEventListener('click', function () {
+                        setSelectedRole(roleId, item);
+                    });
+
+                    controls.options.appendChild(item);
+
+                    if (isActive && !state.selectedRoleId) {
+                        setSelectedRole(roleId, item, true);
+                    }
+                });
+            }
+
+            function setSelectedRole(roleId, button, silent) {
+                state.selectedRoleId = roleId;
+                if (controls.options) {
+                    controls.options.querySelectorAll('.list-group-item').forEach(function (item) {
+                        item.classList.remove('active');
+                    });
+                }
+                if (button) {
+                    button.classList.add('active');
+                }
+                if (!silent) {
+                    hideError();
+                }
+                if (controls.confirmBtn) {
+                    controls.confirmBtn.disabled = !state.selectedRoleId;
+                }
+            }
+
+            async function submitRoleSelection() {
+                if (!state.selectedRoleId) {
+                    return;
+                }
+
+                setConfirmBusy(true);
+                hideError();
+
+                try {
+                    const response = await fetch('/Account/SwitchRole', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': antiforgeryToken
+                        },
+                        body: JSON.stringify({ roleId: state.selectedRoleId })
+                    });
+
+                    if (!response.ok) {
+                        const payload = await response.json().catch(function () { return null; });
+                        const message = payload && payload.message ? payload.message : 'Unable to switch roles right now. Please try again.';
+                        throw new Error(message);
+                    }
+
+                    window.location.reload();
+                } catch (error) {
+                    setConfirmBusy(false);
+                    const message = error && error.message ? error.message : 'Unable to switch roles right now.';
+                    showError(message);
+                }
+            }
+
+            if (controls.confirmBtn) {
+                controls.confirmBtn.addEventListener('click', submitRoleSelection);
+            }
+
+            function openRoleModal(forceSelection) {
+                ensureModalInstance(forceSelection);
+                state.modal.show();
+                loadRoles();
+            }
+
+            if (requiresRoleSelection && hasMultipleRoles) {
+                openRoleModal(true);
+            }
+        });
+    </script>
     @await RenderSectionAsync("Scripts", required: false)
 
     @* Inject global help modal partial right before closing body *@
     <partial name="_HelpInfo" />
+
+    <!-- Role Selection Modal -->
+    <div class="modal fade" id="roleSelectionModal" tabindex="-1" aria-labelledby="roleSelectionModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="roleSelectionModalLabel" data-role-modal-title>Choose a role to continue</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" data-role-close></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3" data-role-modal-description>
+                        Select the role you want to use for this session. You can switch roles later from the profile menu.
+                    </p>
+                    <div class="alert alert-danger d-none" role="alert" data-role-error></div>
+                    <div class="text-center py-4" data-role-loading>
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading roles…</span>
+                        </div>
+                        <div class="mt-2 text-muted small">Fetching your assigned roles</div>
+                    </div>
+                    <div class="list-group role-selection-options d-none" data-role-options></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-role-close>Cancel</button>
+                    <button type="button" class="btn btn-primary" data-role-confirm disabled>
+                        <span data-role-confirm-text>Continue</span>
+                        <span class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true" data-role-confirm-spinner></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Menu Items Modal -->
     <div class="modal fade" id="menuItemsModal" tabindex="-1" role="dialog" aria-labelledby="menuItemsModalLabel" aria-hidden="true">

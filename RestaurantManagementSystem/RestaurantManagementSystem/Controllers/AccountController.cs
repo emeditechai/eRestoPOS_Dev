@@ -15,6 +15,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Services;
+using RestaurantManagementSystem.Utilities;
+using RestaurantManagementSystem.ViewModels.Authorization;
 using RestaurantManagementSystem.ViewModels;
 
 namespace RestaurantManagementSystem.Controllers
@@ -339,6 +341,49 @@ namespace RestaurantManagementSystem.Controllers
         public IActionResult AccessDenied()
         {
             return View();
+        }
+
+        [Authorize]
+        [HttpGet]
+        public async Task<IActionResult> UserRoles()
+        {
+            var userId = User.GetUserId();
+            if (userId is null)
+            {
+                return Unauthorized();
+            }
+
+            var roles = await _userRoleService.GetUserRolesAsync(userId.Value);
+            var activeRoleId = User.GetActiveRoleId();
+
+            var payload = roles.Select(role => new RoleSelectionOptionViewModel
+            {
+                RoleId = role.Id,
+                Name = role.Name,
+                Description = role.Description,
+                IsActive = activeRoleId.HasValue && activeRoleId.Value == role.Id
+            }).ToList();
+
+            return Json(payload);
+        }
+
+        [Authorize]
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> SwitchRole([FromBody] SwitchRoleRequest request)
+        {
+            if (request == null || request.RoleId <= 0)
+            {
+                return BadRequest(new { message = "Invalid role selection." });
+            }
+
+            var result = await _authService.SwitchRoleAsync(User, request.RoleId);
+            if (!result.success)
+            {
+                return BadRequest(new { message = result.message });
+            }
+
+            return Ok(new { message = result.message });
         }
     }
 }

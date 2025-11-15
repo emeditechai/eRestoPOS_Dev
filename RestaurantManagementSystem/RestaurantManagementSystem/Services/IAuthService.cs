@@ -21,5 +21,6 @@ namespace RestaurantManagementSystem.Services
         Task<List<User>> GetUsersAsync();
         Task<User> GetUserForEditAsync(int userId);
         Task<(bool success, string message)> UpdateUserAsync(User user, int updatedByUserId);
+        Task<(bool success, string message)> SwitchRoleAsync(ClaimsPrincipal currentUser, int roleId);
     }
 }

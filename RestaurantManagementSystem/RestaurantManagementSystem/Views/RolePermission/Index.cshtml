@@ -1,0 +1,241 @@
+@model RestaurantManagementSystem.ViewModels.Authorization.RolePermissionMatrixViewModel
+@{
+    ViewData["Title"] = "Role Permission Matrix";
+}
+
+<div class="container-fluid mt-3">
+    <div class="d-flex mb-3 align-items-center">
+        <div>
+            <h2 class="mb-0">Role Permission Matrix</h2>
+            <p class="text-muted mb-0 small">Choose a role to review and update its module permissions.</p>
+        </div>
+        <div class="ms-auto">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="checkAllView">Grant View</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="clearAllView">Revoke View</button>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-body row g-3 align-items-end">
+            <div class="col-md-4">
+                <label for="permissionRoleSelector" class="form-label fw-semibold">Select Role</label>
+                <select class="form-select" id="permissionRoleSelector">
+                    <option value="">-- Choose a role --</option>
+                    @foreach (var role in Model.Roles)
+                    {
+                        <option value="@role.Value">@role.Text</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-8 text-end">
+                <button class="btn btn-primary" id="savePermissions" type="button" disabled>
+                    <i class="fas fa-save me-1"></i> Save Permissions
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-white">
+            <h5 class="card-title mb-0"><i class="fas fa-user-shield me-2 text-danger"></i>Permission Matrix</h5>
+        </div>
+        <div class="card-body table-responsive" id="permissionTableWrapper">
+            <p class="text-muted mb-0">Select a role to view its permissions.</p>
+        </div>
+    </div>
+</div>
+
+<form id="permissionForm" method="post" asp-action="Save">
+    @Html.AntiForgeryToken()
+</form>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const roleSelector = document.getElementById('permissionRoleSelector');
+            const tableWrapper = document.getElementById('permissionTableWrapper');
+            const saveButton = document.getElementById('savePermissions');
+            const grantAllBtn = document.getElementById('checkAllView');
+            const revokeAllBtn = document.getElementById('clearAllView');
+            const antiForgeryToken = document.querySelector('#permissionForm input[name="__RequestVerificationToken"]')?.value;
+
+            let currentRoleId = null;
+            let hasRows = false;
+            let isLoading = false;
+            let isSaving = false;
+            const defaultSaveLabel = saveButton.innerHTML;
+
+            const setSaveEnabled = (enabled) => {
+                saveButton.disabled = !enabled;
+                saveButton.classList.toggle('disabled', !enabled);
+            };
+
+            const refreshSaveState = () => {
+                const canSave = Boolean(currentRoleId) && hasRows && !isLoading && !isSaving;
+                setSaveEnabled(canSave);
+            };
+
+            const renderTable = (rows) => {
+                if (!rows?.length) {
+                    hasRows = false;
+                    tableWrapper.innerHTML = '<p class="text-muted mb-0">No menus were found for this role. Assign menus first via Role Menu Mapping.</p>';
+                    return;
+                }
+
+                hasRows = true;
+                const headers = ['Menu', 'View', 'Add', 'Edit', 'Delete', 'Approve', 'Print', 'Export'];
+                const headerHtml = headers.map(h => `<th class="text-center">${h}</th>`).join('');
+
+                const body = rows.map(row => {
+                    const indentClass = row.parentCode ? 'ps-4' : 'fw-semibold bg-light';
+                    const toggles = ['canView','canAdd','canEdit','canDelete','canApprove','canPrint','canExport']
+                        .map(key => {
+                            const checked = row[key] ? 'checked' : '';
+                            const perm = key.replace('can', '').toLowerCase();
+                            return `<td class="text-center">
+                                        <div class="form-check form-switch d-inline-flex">
+                                            <input class="form-check-input perm-toggle" type="checkbox" data-perm="${perm}" ${checked}>
+                                        </div>
+                                    </td>`;
+                        }).join('');
+
+                    return `<tr data-menu-id="${row.menuId}" data-parent="${row.parentCode ?? ''}" class="${row.parentCode ? '' : 'table-light'}">
+                                <td class="${indentClass}">${row.menuName}</td>
+                                ${toggles}
+                            </tr>`;
+                }).join('');
+
+                tableWrapper.innerHTML = `<table class="table table-hover align-middle">
+                        <thead class="table-secondary">
+                            <tr>${headerHtml}</tr>
+                        </thead>
+                        <tbody>${body}</tbody>
+                    </table>`;
+
+                enforceToggleRules();
+            };
+
+            const enforceToggleRules = () => {
+                tableWrapper.querySelectorAll('tr').forEach(row => {
+                    const viewToggle = row.querySelector('[data-perm="view"]');
+                    const otherToggles = row.querySelectorAll('[data-perm]:not([data-perm="view"])');
+                    if (!viewToggle) return;
+
+                    const sync = () => {
+                        const enabled = viewToggle.checked;
+                        otherToggles.forEach(cb => {
+                            cb.disabled = !enabled;
+                            if (!enabled) cb.checked = false;
+                        });
+                    };
+
+                    viewToggle.addEventListener('change', sync);
+                    sync();
+                });
+            };
+
+            const loadMatrix = async () => {
+                const roleId = roleSelector.value;
+                if (!roleId) {
+                    currentRoleId = null;
+                    hasRows = false;
+                    tableWrapper.innerHTML = '<p class="text-muted mb-0">Select a role to view permissions.</p>';
+                    refreshSaveState();
+                    return;
+                }
+
+                currentRoleId = parseInt(roleId, 10);
+                isLoading = true;
+                hasRows = false;
+                tableWrapper.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
+                refreshSaveState();
+
+                try {
+                    const response = await fetch(`@Url.Action("Matrix", "RolePermission")?roleId=${roleId}`);
+                    if (!response.ok) {
+                        throw new Error('Unable to load permissions.');
+                    }
+                    const data = await response.json();
+                    renderTable(data);
+                } catch (err) {
+                    console.error(err);
+                    hasRows = false;
+                    tableWrapper.innerHTML = '<div class="alert alert-danger">Unable to load permissions for the selected role.</div>';
+                    toastr?.error('Unable to load permissions for the selected role.');
+                } finally {
+                    isLoading = false;
+                    refreshSaveState();
+                }
+            };
+
+            const collectPayload = () => {
+                const rows = Array.from(tableWrapper.querySelectorAll('tbody tr'));
+                return rows.map(row => {
+                    const get = perm => row.querySelector(`[data-perm="${perm}"]`)?.checked ?? false;
+                    return {
+                        menuId: parseInt(row.dataset.menuId, 10),
+                        canView: get('view'),
+                        canAdd: get('add'),
+                        canEdit: get('edit'),
+                        canDelete: get('delete'),
+                        canApprove: get('approve'),
+                        canPrint: get('print'),
+                        canExport: get('export')
+                    };
+                });
+            };
+
+            const saveMatrix = async () => {
+                if (!currentRoleId || !hasRows || isSaving) return;
+
+                isSaving = true;
+                setSaveEnabled(false);
+                saveButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving';
+
+                const payload = {
+                    roleId: currentRoleId,
+                    permissions: collectPayload()
+                };
+
+                try {
+                    const response = await fetch('@Url.Action("Save", "RolePermission")', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(antiForgeryToken ? { 'RequestVerificationToken': antiForgeryToken } : {})
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error?.message ?? 'Failed to save permissions.');
+                    }
+
+                    toastr?.success('Permissions saved successfully.');
+                } catch (err) {
+                    console.error('Failed to save permissions', err);
+                    toastr?.error(err.message ?? 'Unexpected error while saving permissions.');
+                } finally {
+                    isSaving = false;
+                    saveButton.innerHTML = defaultSaveLabel;
+                    refreshSaveState();
+                }
+            };
+
+            const toggleViewColumn = (value) => {
+                tableWrapper.querySelectorAll('[data-perm="view"]').forEach(cb => {
+                    cb.checked = value;
+                    cb.dispatchEvent(new Event('change'));
+                });
+            };
+
+            roleSelector.addEventListener('change', loadMatrix);
+            saveButton.addEventListener('click', saveMatrix);
+            grantAllBtn.addEventListener('click', () => toggleViewColumn(true));
+            revokeAllBtn.addEventListener('click', () => toggleViewColumn(false));
+
+            refreshSaveState();
+        });
+    </script>
+}

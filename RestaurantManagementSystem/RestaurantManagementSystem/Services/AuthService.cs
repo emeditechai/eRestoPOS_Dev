@@ -12,6 +12,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.Utilities;
 
 namespace RestaurantManagementSystem.Services
 {
@@ -29,6 +30,86 @@ namespace RestaurantManagementSystem.Services
             _configuration = configuration;
             _httpContextAccessor = httpContextAccessor;
             _logger = logger;
+        }
+
+        private ClaimsPrincipal BuildPrincipal(User user, List<Role> roles, int? preferredRoleId = null, bool roleSelectionConfirmed = true, IEnumerable<Claim> extraClaims = null)
+        {
+            roles ??= new List<Role>();
+
+            var fullName = $"{user.FirstName ?? string.Empty} {user.LastName ?? string.Empty}".Trim();
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Name, user.Username ?? string.Empty),
+                new Claim("FullName", fullName),
+                new Claim(ClaimTypes.GivenName, user.FirstName ?? string.Empty)
+            };
+
+            if (!string.IsNullOrWhiteSpace(user.Email))
+            {
+                claims.Add(new Claim(ClaimTypes.Email, user.Email));
+            }
+
+            if (!string.IsNullOrWhiteSpace(user.LastName))
+            {
+                claims.Add(new Claim(ClaimTypes.Surname, user.LastName));
+            }
+
+            if (user.RequiresMFA)
+            {
+                claims.Add(new Claim("RequiresMFA", "true"));
+            }
+
+            var activeRole = ResolveActiveRole(roles, preferredRoleId);
+            if (activeRole != null)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, activeRole.Name));
+                claims.Add(new Claim("ActiveRoleId", activeRole.Id.ToString()));
+                claims.Add(new Claim("ActiveRoleName", activeRole.Name));
+            }
+
+            if (roles.Count > 1)
+            {
+                claims.Add(new Claim("HasMultipleRoles", "true"));
+                claims.Add(new Claim("RoleSelectionConfirmed", roleSelectionConfirmed ? "true" : "false"));
+            }
+            else
+            {
+                claims.Add(new Claim("RoleSelectionConfirmed", "true"));
+            }
+
+            if (extraClaims != null)
+            {
+                foreach (var claim in extraClaims)
+                {
+                    // Avoid duplicating core identity claims
+                    if (!claims.Any(c => c.Type == claim.Type))
+                    {
+                        claims.Add(claim);
+                    }
+                }
+            }
+
+            return new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
+        }
+
+        private static Role? ResolveActiveRole(List<Role> roles, int? preferredRoleId)
+        {
+            if (roles == null || roles.Count == 0)
+            {
+                return null;
+            }
+
+            if (preferredRoleId.HasValue)
+            {
+                var matched = roles.FirstOrDefault(r => r.Id == preferredRoleId.Value);
+                if (matched != null)
+                {
+                    return matched;
+                }
+            }
+
+            return roles[0];
         }
         
         public async Task<(bool Success, string Message, ClaimsPrincipal Principal)> AuthenticateUserAsync(string username, string password)
@@ -85,43 +166,12 @@ namespace RestaurantManagementSystem.Services
                 // Get user roles
                 user.Roles = await GetUserRolesAsync(user.Id);
                 
-                // Create claims for the user
-                var claims = new List<Claim>
-                {
-                    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                    new Claim(ClaimTypes.Name, user.Username),
-                    new Claim("FullName", $"{user.FirstName} {user.LastName}".Trim()),
-                    new Claim(ClaimTypes.GivenName, user.FirstName)
-                };
-                
-                // Add email if available
-                if (!string.IsNullOrEmpty(user.Email))
-                {
-                    claims.Add(new Claim(ClaimTypes.Email, user.Email));
-                }
-                
-                // Add surname if available
-                if (!string.IsNullOrEmpty(user.LastName))
-                {
-                    claims.Add(new Claim(ClaimTypes.Surname, user.LastName));
-                }
-                
-                // Add MFA claim if applicable
-                if (user.RequiresMFA)
-                {
-                    claims.Add(new Claim("RequiresMFA", "true"));
-                }
-                
-                // Add user roles to claims
-                foreach (var role in user.Roles)
-                {
-                    claims.Add(new Claim(ClaimTypes.Role, role.Name));
-                    _logger?.LogInformation("Added role claim: {Role} for user: {Username}", role.Name, username);
-                }
-                
-                // Create identity and principal
-                var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-                var principal = new ClaimsPrincipal(identity);
+                var roles = user.Roles ?? new List<Role>();
+                user.Roles = roles;
+                var preferredRoleId = roles.FirstOrDefault()?.Id;
+                var roleSelectionConfirmed = roles.Count <= 1;
+                var principal = BuildPrincipal(user, roles, preferredRoleId, roleSelectionConfirmed);
+                _logger?.LogInformation("Built principal for user {Username} with {RoleCount} role(s)", username, roles.Count);
                 
                 // Update last login time
                 await UpdateLastLoginTimeAsync(user.Id);
@@ -556,6 +606,50 @@ namespace RestaurantManagementSystem.Services
             
             return null;
         }
+
+        private async Task<User> GetUserByIdAsync(int userId)
+        {
+            var connectionString = _configuration.GetConnectionString("DefaultConnection");
+            using var connection = new SqlConnection(connectionString);
+            try
+            {
+                await connection.OpenAsync();
+                var tableCandidates = new[] { "dbo.Users", "Users" };
+                foreach (var table in tableCandidates)
+                {
+                    try
+                    {
+                        using var command = new SqlCommand($"SELECT * FROM {table} WHERE Id = @UserId", connection);
+                        command.Parameters.AddWithValue("@UserId", userId);
+                        using var reader = await command.ExecuteReaderAsync();
+                        if (await reader.ReadAsync())
+                        {
+                            return new User
+                            {
+                                Id = reader.GetInt32(reader.GetOrdinal("Id")),
+                                Username = reader["Username"].ToString(),
+                                FirstName = reader["FirstName"]?.ToString(),
+                                LastName = reader["LastName"]?.ToString(),
+                                Email = reader["Email"]?.ToString(),
+                                IsActive = reader.IsDBNull(reader.GetOrdinal("IsActive")) ? true : Convert.ToBoolean(reader["IsActive"]),
+                                IsLockedOut = reader.IsDBNull(reader.GetOrdinal("IsLockedOut")) ? false : Convert.ToBoolean(reader["IsLockedOut"]),
+                                RequiresMFA = reader.IsDBNull(reader.GetOrdinal("RequiresMFA")) ? false : Convert.ToBoolean(reader["RequiresMFA"])
+                            };
+                        }
+                    }
+                    catch (SqlException sqlEx)
+                    {
+                        _logger?.LogDebug(sqlEx, "Query against {Table} failed while fetching ID {UserId}", table, userId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error retrieving user {UserId}", userId);
+            }
+
+            return null;
+        }
         
         private async Task<List<Role>> GetUserRolesAsync(int userId)
         {
@@ -805,6 +899,68 @@ namespace RestaurantManagementSystem.Services
                 _logger?.LogError(ex, "Error unlocking user");
                 return (false, $"Error unlocking user: {ex.Message}");
             }
+        }
+
+        public async Task<(bool success, string message)> SwitchRoleAsync(ClaimsPrincipal currentUser, int roleId)
+        {
+            if (currentUser?.Identity?.IsAuthenticated != true)
+            {
+                return (false, "User is not authenticated.");
+            }
+
+            var userId = currentUser.GetUserId();
+            if (userId is null)
+            {
+                return (false, "Unable to determine signed-in user.");
+            }
+
+            var roles = await GetUserRolesAsync(userId.Value);
+            if (roles == null || roles.All(r => r.Id != roleId))
+            {
+                return (false, "Selected role is not assigned to this user.");
+            }
+
+            var user = await GetUserByIdAsync(userId.Value);
+            if (user == null)
+            {
+                return (false, "User could not be loaded.");
+            }
+
+            user.Roles = roles;
+
+            var sessionClaims = new List<Claim>();
+            var sessionToken = currentUser.FindFirst("SessionToken");
+            if (sessionToken != null)
+            {
+                sessionClaims.Add(sessionToken);
+            }
+            var sessionId = currentUser.FindFirst("SessionId");
+            if (sessionId != null)
+            {
+                sessionClaims.Add(sessionId);
+            }
+
+            var principal = BuildPrincipal(user, roles, roleId, roleSelectionConfirmed: true, extraClaims: sessionClaims);
+
+            var context = _httpContextAccessor.HttpContext;
+            if (context == null)
+            {
+                return (false, "No active HTTP context available.");
+            }
+
+            var authResult = await context.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            var properties = authResult?.Properties ?? new AuthenticationProperties
+            {
+                IsPersistent = false,
+                ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12)
+            };
+
+            await context.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                principal,
+                properties);
+
+            return (true, "Role switched successfully.");
         }
         
         public async Task<(bool success, string message)> ChangePasswordAsync(int userId, string currentPassword, string newPassword)

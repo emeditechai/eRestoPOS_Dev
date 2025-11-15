@@ -1,0 +1,220 @@
+@model RestaurantManagementSystem.ViewModels.Authorization.RoleMenuMappingViewModel
+@{
+    ViewData["Title"] = "Role Menu Mapping";
+}
+
+<div class="container-fluid mt-3">
+    <div class="d-flex mb-3 align-items-center">
+        <div>
+            <h2 class="mb-0">Role Menu Mapping</h2>
+            <small class="text-muted">Choose which menus and submenus each role can see in the navigation bar.</small>
+        </div>
+        <div class="ms-auto">
+            <button type="button" class="btn btn-light btn-sm" id="expandAll">Expand All</button>
+            <button type="button" class="btn btn-light btn-sm" id="collapseAll">Collapse All</button>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label for="roleSelector" class="form-label fw-semibold">Select Role</label>
+                    <select id="roleSelector" class="form-select">
+                        <option value="">-- Choose a role --</option>
+                        @foreach (var role in Model.Roles)
+                        {
+                            <option value="@role.Value">@role.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-8 text-end">
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-outline-secondary" id="selectAll">Select All</button>
+                        <button type="button" class="btn btn-outline-secondary" id="clearAll">Clear All</button>
+                        <button type="button" class="btn btn-primary" id="saveMapping" disabled>
+                            <i class="fas fa-save me-1"></i> Save Mapping
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-white">
+            <h5 class="card-title mb-0"><i class="fas fa-project-diagram me-2 text-primary"></i>Menus</h5>
+        </div>
+        <div class="card-body" id="menuTreeContainer">
+            <p class="text-muted mb-0">Select a role to load its menu tree.</p>
+        </div>
+    </div>
+</div>
+
+<form id="mappingForm" method="post" asp-action="Save">
+    @Html.AntiForgeryToken()
+</form>
+
+@section Scripts {
+    <script>
+        (function () {
+            const roleSelector = document.getElementById('roleSelector');
+            const treeContainer = document.getElementById('menuTreeContainer');
+            const saveButton = document.getElementById('saveMapping');
+            const selectAllBtn = document.getElementById('selectAll');
+            const clearAllBtn = document.getElementById('clearAll');
+            const expandBtn = document.getElementById('expandAll');
+            const collapseBtn = document.getElementById('collapseAll');
+            const token = document.querySelector('#mappingForm input[name="__RequestVerificationToken"]').value;
+            let currentRoleId = null;
+
+            const buildTree = (nodes) => {
+                if (!nodes || !nodes.length) {
+                    return '<p class="text-muted mb-0">No menus available.</p>';
+                }
+
+                const buildNodes = (list) => {
+                    const items = list.map(node => {
+                        const children = node.children && node.children.length ? buildNodes(node.children) : '';
+                        const hasChildren = children !== '';
+                        const caret = hasChildren ? '<span class="tree-toggle"><i class="fas fa-chevron-right"></i></span>' : '';
+                        return `<li class="tree-node">
+                                    <div class="d-flex align-items-center gap-2">
+                                        ${caret}
+                                        <input type="checkbox" class="form-check-input menu-checkbox" data-menu-id="${node.menuId}" ${node.isAssigned ? 'checked' : ''}>
+                                        <span class="tree-label">${node.displayName}</span>
+                                    </div>
+                                    ${hasChildren ? `<ul class="tree-children collapsed">${children}</ul>` : ''}
+                                </li>`;
+                    }).join('');
+                    return items;
+                };
+
+                return `<ul class="menu-tree list-unstyled">${buildNodes(nodes)}</ul>`;
+            };
+
+            const refreshTree = async () => {
+                const roleId = roleSelector.value;
+                if (!roleId) {
+                    treeContainer.innerHTML = '<p class="text-muted mb-0">Select a role to begin mapping.</p>';
+                    saveButton.disabled = true;
+                    currentRoleId = null;
+                    return;
+                }
+
+                treeContainer.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
+                saveButton.disabled = true;
+
+                const response = await fetch(`@Url.Action("Tree", "RoleMenuMapping")?roleId=${roleId}`);
+                if (!response.ok) {
+                    treeContainer.innerHTML = '<div class="alert alert-danger">Unable to load menus.</div>';
+                    return;
+                }
+
+                const data = await response.json();
+                treeContainer.innerHTML = buildTree(data);
+                currentRoleId = parseInt(roleId, 10);
+                saveButton.disabled = false;
+                wireTreeInteractions();
+            };
+
+            const wireTreeInteractions = () => {
+                treeContainer.querySelectorAll('.tree-toggle').forEach(toggle => {
+                    toggle.addEventListener('click', () => {
+                        const icon = toggle.querySelector('i');
+                        const branch = toggle.closest('li').querySelector('.tree-children');
+                        if (!branch) return;
+                        branch.classList.toggle('collapsed');
+                        icon.classList.toggle('fa-chevron-right');
+                        icon.classList.toggle('fa-chevron-down');
+                    });
+                });
+
+                treeContainer.querySelectorAll('.menu-checkbox').forEach(cb => {
+                    cb.addEventListener('change', () => {
+                        const branch = cb.closest('li');
+                        branch.querySelectorAll('.tree-children .menu-checkbox').forEach(childCb => {
+                            childCb.checked = cb.checked;
+                        });
+                    });
+                });
+            };
+
+            const gatherMenuIds = () => Array.from(treeContainer.querySelectorAll('.menu-checkbox:checked'))
+                .map(cb => parseInt(cb.dataset.menuId, 10));
+
+            const postMapping = async () => {
+                if (!currentRoleId) return;
+                saveButton.disabled = true;
+                saveButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving';
+
+                const payload = {
+                    roleId: currentRoleId,
+                    menuIds: gatherMenuIds()
+                };
+
+                const response = await fetch('@Url.Action("Save", "RoleMenuMapping")', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': token
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                saveButton.disabled = false;
+                saveButton.innerHTML = '<i class="fas fa-save me-1"></i> Save Mapping';
+
+                if (response.ok) {
+                    toastr.success('Role menu mapping saved.');
+                } else {
+                    const error = await response.json();
+                    toastr.error(error?.message ?? 'Failed to save role mapping.');
+                }
+            };
+
+            roleSelector.addEventListener('change', refreshTree);
+            saveButton.addEventListener('click', postMapping);
+            selectAllBtn.addEventListener('click', () => {
+                treeContainer.querySelectorAll('.menu-checkbox').forEach(cb => cb.checked = true);
+            });
+            clearAllBtn.addEventListener('click', () => {
+                treeContainer.querySelectorAll('.menu-checkbox').forEach(cb => cb.checked = false);
+            });
+            expandBtn.addEventListener('click', () => {
+                treeContainer.querySelectorAll('.tree-children').forEach(branch => branch.classList.remove('collapsed'));
+                treeContainer.querySelectorAll('.tree-toggle i').forEach(icon => {
+                    icon.classList.remove('fa-chevron-right');
+                    icon.classList.add('fa-chevron-down');
+                });
+            });
+            collapseBtn.addEventListener('click', () => {
+                treeContainer.querySelectorAll('.tree-children').forEach(branch => branch.classList.add('collapsed'));
+                treeContainer.querySelectorAll('.tree-toggle i').forEach(icon => {
+                    icon.classList.add('fa-chevron-right');
+                    icon.classList.remove('fa-chevron-down');
+                });
+            });
+        })();
+    </script>
+    <style>
+        .menu-tree li {
+            padding: 0.35rem 0.5rem;
+        }
+        .tree-children {
+            margin-left: 1.4rem;
+        }
+        .tree-children.collapsed {
+            display: none;
+        }
+        .tree-toggle {
+            width: 18px;
+            text-align: center;
+            cursor: pointer;
+            color: #64748b;
+        }
+        .tree-label {
+            font-weight: 500;
+        }
+    </style>
+}

@@ -20,6 +20,7 @@ namespace RestaurantManagementSystem
 
             // Add services to the container.
             builder.Services.AddControllersWithViews();
+            builder.Services.AddMemoryCache();
             builder.Services.AddHttpContextAccessor();
 
             // Add authentication services
@@ -51,6 +52,7 @@ namespace RestaurantManagementSystem
             builder.Services.AddScoped<IAuthService, AuthService>();
             builder.Services.AddScoped<UserService>();
             builder.Services.AddScoped<UserRoleService>();
+            builder.Services.AddScoped<RolePermissionService>();
             builder.Services.AddScoped<AdminSetupService>();
             builder.Services.AddScoped<PasswordResetTool>();
             builder.Services.AddScoped<UrlEncryptionService>();
