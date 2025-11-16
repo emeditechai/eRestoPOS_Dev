@@ -361,17 +361,32 @@ namespace RestaurantManagementSystem.Controllers
                     }
                 }
                 
-                // Get unoccupied tables (available tables, not part of active orders)
+                // Get ALL tables with their current status (available, reserved, occupied, dirty)
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
-                    SELECT t.Id, t.TableName, t.Capacity, t.Status
+                    SELECT t.Id, t.TableName, t.Capacity, t.Status,
+                        CASE 
+                            WHEN ot.TableId IS NOT NULL OR t.Status = 2 THEN 2 -- Occupied
+                            WHEN t.Status = 3 THEN 3 -- Dirty
+                            WHEN t.Status = 1 THEN 1 -- Reserved (can take orders)
+                            WHEN t.Status = 0 THEN 0 -- Available
+                            ELSE t.Status
+                        END AS CurrentStatus,
+                        CASE 
+                            WHEN ot.TableId IS NOT NULL OR t.Status = 2 THEN 'Occupied'
+                            WHEN t.Status = 3 THEN 'Dirty'
+                            WHEN t.Status = 1 THEN 'Reserved'
+                            WHEN t.Status = 0 THEN 'Available'
+                            ELSE 'Unknown'
+                        END AS StatusDisplay,
+                        ISNULL(t.Section, 'Main') AS Section
                     FROM Tables t
                     LEFT JOIN (
                         SELECT DISTINCT ot.TableId
                         FROM OrderTables ot
                         INNER JOIN Orders o ON ot.OrderId = o.Id AND o.Status IN (0, 1, 2)
                     ) ot ON t.Id = ot.TableId
-                    WHERE t.Status = 0 AND t.IsActive = 1 AND ot.TableId IS NULL -- Available and not in active order
-                    ORDER BY t.TableName", connection))
+                    WHERE t.IsActive = 1
+                    ORDER BY t.Section, t.TableName", connection))
                 {
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
@@ -382,8 +397,9 @@ namespace RestaurantManagementSystem.Controllers
                                 Id = reader.GetInt32(0),
                                 TableName = reader.GetString(1),
                                 Capacity = reader.GetInt32(2),
-                                Status = reader.GetInt32(3),
-                                StatusDisplay = "Available"
+                                Status = reader.GetInt32(4), // CurrentStatus
+                                StatusDisplay = reader.GetString(5),
+                                Section = reader.GetString(6)
                             });
                         }
                     }

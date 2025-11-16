@@ -76,44 +76,108 @@
     </div>
 
     <div class="row">
-        <!-- Available Tables Section -->
+        <!-- All Tables Section -->
         <div class="col-lg-12 mt-4">
-            <div class="card shadow-sm">
-                <div class="card-header bg-gradient bg-success text-white d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0 fw-bold">
-                        <i class="fas fa-chair me-2"></i>Available Tables
+            <div class="card shadow-lg border-0" style="border-radius: 20px; overflow: hidden;">
+                <div class="card-header text-white d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border: none;">
+                    <h5 class="mb-0 fw-bold d-flex align-items-center">
+                        <i class="fas fa-th-large me-3" style="font-size: 1.3rem;"></i>
+                        <span style="font-size: 1.25rem; letter-spacing: 0.5px;">All Tables</span>
                     </h5>
-                    <small class="text-light">Click on a table to create an order</small>
+                    <div class="d-flex gap-3 align-items-center">
+                        <span class="badge" style="background: rgba(255,255,255,0.25); padding: 0.5rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;"><i class="fas fa-circle text-success me-1"></i>Available</span>
+                        <span class="badge" style="background: rgba(255,255,255,0.25); padding: 0.5rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;"><i class="fas fa-circle text-info me-1"></i>Reserved</span>
+                        <span class="badge" style="background: rgba(255,255,255,0.25); padding: 0.5rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;"><i class="fas fa-circle text-danger me-1"></i>Occupied</span>
+                        <span class="badge" style="background: rgba(255,255,255,0.25); padding: 0.5rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;"><i class="fas fa-circle text-warning me-1"></i>Dirty</span>
+                    </div>
                 </div>
-                <div class="card-body p-4">
+                <div class="card-body p-4" style="background: linear-gradient(to bottom, #f8f9fa 0%, #ffffff 100%); max-height: calc(100vh - 350px); overflow-y: auto;">
                     @if (Model.UnoccupiedTables.Any())
                     {
+                        var tableCount = Model.UnoccupiedTables.Count;
+                        // Auto-resize cards based on table count to fit all on one screen
+                        var colClass = tableCount <= 6 ? "col-xxl-2 col-xl-2 col-lg-3 col-md-4 col-sm-6" : 
+                                      tableCount <= 12 ? "col-xxl-2 col-xl-2 col-lg-2 col-md-3 col-sm-4 col-6" : 
+                                      tableCount <= 20 ? "col-xxl-1 col-xl-2 col-lg-2 col-md-3 col-sm-4 col-6" :
+                                      "col-xxl-1 col-xl-1 col-lg-2 col-md-2 col-sm-3 col-4";
+                        
                         <div class="row g-2">
                             @foreach (var table in Model.UnoccupiedTables)
                             {
-                                <div class="col-xxl-2 col-xl-2 col-lg-3 col-md-4 col-sm-6 col-6">
-                                    <div class="card table-card border-0 shadow-lg position-relative" style="background: linear-gradient(145deg, #f8f9fa 0%, #e9ecef 100%); border: 2px solid #28a745; transition: all 0.3s ease; aspect-ratio: 1; height: 160px; width: 100%; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
-                                        <div class="card-body text-center p-3 d-flex flex-column justify-content-center align-items-center h-100" style="color: #2c3e50; position: relative; z-index: 2;">
-                                            <div class="d-flex flex-column align-items-center justify-content-center h-100">
-                                                <div class="table-icon mb-2" style="color: #198754;">
-                                                    <i class="fas fa-utensils fa-2x" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));"></i>
+                                var isAvailable = table.Status == 0;
+                                var isReserved = table.Status == 1;
+                                var isOccupied = table.Status == 2;
+                                var isDirty = table.Status == 3;
+                                var canOrder = isAvailable || isReserved;
+                                
+                                var bgGradient = isAvailable ? "linear-gradient(145deg, #ffffff 0%, #f0fdf4 100%)" : 
+                                                (isReserved ? "linear-gradient(145deg, #ffffff 0%, #dbeafe 100%)" : 
+                                                (isOccupied ? "linear-gradient(145deg, #ffffff 0%, #fee2e2 100%)" : "linear-gradient(145deg, #ffffff 0%, #fef3c7 100%)"));
+                                var borderColor = isAvailable ? "#22c55e" : (isReserved ? "#3b82f6" : (isOccupied ? "#ef4444" : "#f59e0b"));
+                                var iconColor = isAvailable ? "#16a34a" : (isReserved ? "#2563eb" : (isOccupied ? "#dc2626" : "#d97706"));
+                                var badgeGradient = isAvailable ? "linear-gradient(135deg, #22c55e 0%, #10b981 100%)" : 
+                                                   (isReserved ? "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)" : 
+                                                   (isOccupied ? "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)" : "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"));
+                                var statusIcon = isAvailable ? "fa-check-circle" : (isReserved ? "fa-bookmark" : (isOccupied ? "fa-user-clock" : "fa-broom"));
+                                var statusText = table.StatusDisplay.ToUpper();
+                                
+                                <div class="@colClass">
+                                    <div class="card table-card border-0 position-relative @(canOrder ? "" : "table-disabled")" style="background: @bgGradient; border: 2px solid @borderColor !important; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.1), 0 2px 6px rgba(0,0,0,0.06); @(canOrder ? "cursor: pointer;" : "opacity: 0.7; cursor: not-allowed;") overflow: hidden; height: 100%;">
+                                        <!-- Decorative corner accent -->
+                                        <div class="position-absolute" style="top: 0; right: 0; width: 60px; height: 60px; background: @badgeGradient; opacity: 0.12; clip-path: polygon(100% 0, 100% 100%, 0 0); z-index: 1;"></div>
+                                        
+                                        <div class="card-body text-center d-flex flex-column justify-content-between" style="position: relative; z-index: 2; padding: 0.75rem; min-height: 160px;">
+                                            <!-- Top Section: Icon & Table Name -->
+                                            <div class="mb-2">
+                                                <div class="table-icon-wrapper d-inline-flex align-items-center justify-content-center mb-2" style="width: 48px; height: 48px; background: @badgeGradient; border-radius: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.12); transform: rotate(-4deg); transition: all 0.3s ease;">
+                                                    <i class="fas fa-utensils" style="font-size: 1.3rem; color: #ffffff; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); transform: rotate(4deg);"></i>
                                                 </div>
-                                                <h3 class="card-title fw-bold mb-2 text-center" style="color: #1a1a1a; font-size: 1.6rem; text-shadow: 0 1px 3px rgba(0,0,0,0.2); font-family: 'Arial Black', Arial, sans-serif;">@table.TableName</h3>
-                                                <p class="card-text mb-2" style="font-size: 0.95rem; color: #495057; font-weight: 700;">
-                                                    <i class="fas fa-users me-1" style="color: #198754;"></i>@table.Capacity seats
-                                                </p>
-                                                <span class="badge text-white fw-bold px-3 py-2 mb-2" style="font-size: 0.8rem; border-radius: 20px; background: linear-gradient(135deg, #198754 0%, #20c997 100%); box-shadow: 0 3px 10px rgba(25,135,84,0.4); border: 1px solid rgba(255,255,255,0.2);">
-                                                    <i class="fas fa-check-circle me-1"></i>AVAILABLE
+                                                <h3 class="table-name fw-bold mb-1" style="color: #1a1a1a; font-size: 1.4rem; letter-spacing: 0.3px; font-family: 'Segoe UI', system-ui, sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,0.05);">@table.TableName</h3>
+                                                @if (!string.IsNullOrEmpty(table.Section))
+                                                {
+                                                    <div class="d-inline-block px-2 py-1 mb-1" style="background: rgba(0,0,0,0.05); border-radius: 8px; font-size: 0.75rem; color: #666; font-weight: 600;">
+                                                        <i class="fas fa-map-marker-alt me-1" style="font-size: 0.7rem;"></i>@table.Section
+                                                    </div>
+                                                }
+                                            </div>
+                                            
+                                            <!-- Middle Section: Capacity -->
+                                            <div class="mb-2">
+                                                <div class="d-inline-flex align-items-center gap-2 px-2 py-1" style="background: rgba(0,0,0,0.04); border-radius: 10px; font-size: 0.85rem; color: #495057; font-weight: 600;">
+                                                    <i class="fas fa-users" style="color: @iconColor; font-size: 0.9rem;"></i>
+                                                    <span>@table.Capacity</span>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Status Badge -->
+                                            <div class="mb-2">
+                                                <span class="badge text-white fw-bold px-3 py-1 w-100" style="font-size: 0.75rem; border-radius: 12px; background: @badgeGradient; box-shadow: 0 3px 10px rgba(0,0,0,0.15); border: 1.5px solid rgba(255,255,255,0.3); letter-spacing: 0.4px;">
+                                                    <i class="fas @statusIcon me-1" style="font-size: 0.7rem;"></i>@statusText
                                                 </span>
-                                                <a href="@Url.Action("Create", "Order", new { tableId = table.Id })" 
-                                                   class="btn fw-bold text-white create-order-btn" style="background: linear-gradient(135deg, #198754 0%, #20c997 100%); font-size: 0.9rem; padding: 0.6rem 1.4rem; border-radius: 20px; border: none; width: 95%; box-shadow: 0 4px 15px rgba(25,135,84,0.4); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 800;">
-                                                    <i class="fas fa-plus me-1"></i> Create Order
-                                                </a>
+                                            </div>
+                                            
+                                            <!-- Bottom Section: Action Button -->
+                                            <div>
+                                                @if (canOrder)
+                                                {
+                                                    <a href="@Url.Action("Create", "Order", new { tableId = table.Id })" 
+                                                       class="btn fw-bold text-white create-order-btn w-100" style="background: @badgeGradient; font-size: 0.85rem; padding: 0.6rem 1rem; border-radius: 12px; border: none; box-shadow: 0 3px 12px rgba(0,0,0,0.2); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; transition: all 0.3s ease;">
+                                                        <i class="fas fa-plus me-1" style="font-size: 0.75rem;"></i>Order
+                                                    </a>
+                                                }
+                                                else
+                                                {
+                                                    <button disabled class="btn fw-bold text-white w-100" style="background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%); font-size: 0.85rem; padding: 0.6rem 1rem; border-radius: 12px; border: none; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; cursor: not-allowed; opacity: 0.5;">
+                                                        <i class="fas fa-lock me-1" style="font-size: 0.75rem;"></i>@table.StatusDisplay
+                                                    </button>
+                                                }
                                             </div>
                                         </div>
-                                        <div class="position-absolute top-0 end-0 m-2">
-                                            <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 28px; height: 28px; background: linear-gradient(135deg, #198754 0%, #20c997 100%); box-shadow: 0 3px 12px rgba(25,135,84,0.5); border: 2px solid rgba(255,255,255,0.9);">
-                                                <i class="fas fa-check text-white" style="font-size: 0.9rem; font-weight: bold;"></i>
+                                        
+                                        <!-- Status Indicator Badge -->
+                                        <div class="position-absolute" style="top: 8px; right: 8px; z-index: 10;">
+                                            <div class="d-flex align-items-center justify-content-center" style="width: 32px; height: 32px; background: @badgeGradient; border-radius: 10px; box-shadow: 0 3px 12px rgba(0,0,0,0.25); border: 2px solid rgba(255,255,255,0.95);">
+                                                <i class="fas @statusIcon text-white" style="font-size: 0.9rem;"></i>
                                             </div>
                                         </div>
                                     </div>
@@ -127,8 +191,8 @@
                             <div class="mb-3">
                                 <i class="fas fa-chair fa-4x text-muted opacity-50"></i>
                             </div>
-                            <h5 class="text-muted">No Available Tables</h5>
-                            <p class="text-muted mb-0">All tables are currently occupied or being cleaned.</p>
+                            <h5 class="text-muted">No Tables Found</h5>
+                            <p class="text-muted mb-0">No tables are configured in the system.</p>
                         </div>
                     }
                 </div>
@@ -140,52 +204,42 @@
 @section Scripts {
     <style>
         .table-card {
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            border-radius: 15px !important;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 20px !important;
             overflow: hidden;
         }
         
-        .table-card:hover {
-            transform: translateY(-12px) scale(1.08);
-            box-shadow: 0 25px 50px rgba(25,135,84,0.3) !important;
-            border-color: #20c997 !important;
+        .table-card:not(.table-disabled):hover {
+            transform: translateY(-8px) scale(1.03);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.2), 0 8px 16px rgba(0,0,0,0.1) !important;
         }
         
-        .table-card:hover::after {
-            background: linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%);
+        .table-card:not(.table-disabled):hover .table-icon-wrapper {
+            transform: rotate(0deg) scale(1.1);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.25);
         }
         
-        .table-card:hover .create-order-btn {
-            background: linear-gradient(135deg, #20c997 0%, #0dcaf0 100%) !important;
-            color: #fff !important;
-            transform: scale(1.12);
-            box-shadow: 0 8px 25px rgba(32,201,151,0.5) !important;
+        .table-card.table-disabled {
+            pointer-events: none;
         }
         
-        .table-card:hover .table-icon {
-            animation: pulse 0.8s ease-in-out;
-            color: #0dcaf0 !important;
-            filter: drop-shadow(0 3px 6px rgba(0,0,0,0.2));
+        .table-card:not(.table-disabled):hover .create-order-btn {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.35) !important;
         }
         
-        .table-card:hover .card-title {
-            color: #0dcaf0 !important;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        .table-card:not(.table-disabled):hover .table-name {
+            transform: scale(1.05);
+            transition: transform 0.3s ease;
         }
         
-        @@keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.2); }
+        @@keyframes slideInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         
-        @@keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-5px); }
-        }
-        
-        .card-header.bg-gradient {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
+        .table-card {
+            animation: slideInUp 0.5s ease-out;
         }
         
         .create-order-btn {

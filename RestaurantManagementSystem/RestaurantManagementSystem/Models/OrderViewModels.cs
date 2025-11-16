@@ -270,4 +270,5 @@ namespace RestaurantManagementSystem.Models
         public int Capacity { get; set; }
         public int Status { get; set; }
         public string StatusDisplay { get; set; }
+        public string Section { get; set; }
     }
