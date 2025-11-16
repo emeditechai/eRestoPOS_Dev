@@ -36,14 +36,24 @@
     }
     
     .dashboard-header {
-        background: linear-gradient(135deg, rgba(52,152,219,0.95) 0%, rgba(46,204,113,0.95) 100%);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
         color: #ffffff;
-        padding: 22px;
-        border-radius: 12px;
-        box-shadow: 0 6px 18px rgba(33,37,41,0.06);
-        margin-bottom: 22px;
+        padding: 28px;
+        border-radius: 16px;
+        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4), 0 1px 8px rgba(0,0,0,0.1);
+        margin-bottom: 28px;
         position: relative;
         overflow: hidden;
+    }
+    .dashboard-header::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -10%;
+        width: 300px;
+        height: 300px;
+        background: radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%);
+        border-radius: 50%;
     }
         /* Help button (top-left to avoid overlap with brand logo on right) */
         .dashboard-help-btn {
@@ -54,17 +64,24 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            background: rgba(255,255,255,0.22);
+            background: rgba(255,255,255,0.25);
             color: #fff;
-            backdrop-filter: blur(4px);
-            border: 1px solid rgba(255,255,255,0.35);
-            padding: 6px 12px;
-            font-size: .8rem;
+            backdrop-filter: blur(8px);
+            border: 1.5px solid rgba(255,255,255,0.5);
+            padding: 8px 16px;
+            font-size: .85rem;
+            font-weight: 600;
             border-radius: 30px;
             text-decoration: none;
-            transition: background .2s, box-shadow .2s;
+            transition: all .3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
         }
-        .dashboard-help-btn:hover { background: rgba(255,255,255,0.35); box-shadow: 0 2px 6px rgba(0,0,0,0.25); color:#fff; }
+        .dashboard-help-btn:hover { 
+            background: rgba(255,255,255,0.4); 
+            box-shadow: 0 6px 20px rgba(0,0,0,0.25); 
+            color:#fff; 
+            transform: translateY(-2px);
+        }
         .dashboard-help-btn i { font-size: 1rem; }
     .dashboard-header .brand-logo-wrapper {
         position: absolute;
@@ -72,13 +89,14 @@
         right: 15px;
         display: flex;
         align-items: center;
-        gap: 10px;
-        background: rgba(255,255,255,0.15);
-        padding: 6px 14px 6px 10px;
-        border-radius: 40px;
-        backdrop-filter: blur(4px);
-        box-shadow: 0 2px 4px rgba(0,0,0,0.25);
-        max-width: 260px;
+        gap: 12px;
+        background: linear-gradient(135deg, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0.15) 100%);
+        padding: 8px 18px 8px 12px;
+        border-radius: 50px;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2), inset 0 1px 1px rgba(255,255,255,0.3);
+        max-width: 280px;
+        border: 1px solid rgba(255,255,255,0.3);
     }
     .dashboard-header .brand-logo-wrapper img.brand-logo {
         height: 48px;
@@ -140,58 +158,87 @@
     
     .stats-card {
         color: #fff;
-        border-radius: 12px;
-        box-shadow: 0 6px 16px rgba(33,37,41,0.06);
-        padding: 18px 16px;
-        margin-bottom: 16px;
-        transition: transform 0.28s ease, box-shadow 0.28s ease;
-        min-height: 110px;
+        border-radius: 16px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.15), 0 2px 6px rgba(0,0,0,0.1);
+        padding: 24px 20px;
+        margin-bottom: 20px;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        min-height: 130px;
         display:flex;
         flex-direction:column;
         justify-content: center;
         position: relative;
+        overflow: hidden;
+    }
+    .stats-card::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -20%;
+        width: 200px;
+        height: 200px;
+        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+        border-radius: 50%;
     }
     
     .stats-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        transform: translateY(-5px) scale(1.02);
+        box-shadow: 0 12px 35px rgba(0, 0, 0, 0.22), 0 4px 10px rgba(0,0,0,0.12);
     }
     
     .stats-card .icon {
-        font-size: 1.45rem;
-        margin-bottom: 10px;
+        font-size: 1.6rem;
+        margin-bottom: 12px;
         display: inline-flex;
         align-items:center;
         justify-content:center;
-        width:44px;
-        height:44px;
-        border-radius: 10px;
-        color: rgba(255,255,255,0.95);
-        background: rgba(255,255,255,0.12);
-        box-shadow: inset 0 -2px 6px rgba(0,0,0,0.06);
+        width:52px;
+        height:52px;
+        border-radius: 14px;
+        color: #fff;
+        background: rgba(255,255,255,0.2);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15), inset 0 1px 2px rgba(255,255,255,0.3);
+        backdrop-filter: blur(4px);
+        border: 1px solid rgba(255,255,255,0.25);
+        transition: transform 0.3s ease;
+    }
+    .stats-card:hover .icon {
+        transform: scale(1.1) rotate(5deg);
     }
     
-    /* gradient variants for different stats */
-    .stats-card.sales { background: linear-gradient(135deg,#3b82f6 0%, #1e66d2 100%); }
-    .stats-card.orders { background: linear-gradient(135deg,#06d6a0 0%, #04a57a 100%); }
-    .stats-card.tables { background: linear-gradient(135deg,#ffb86b 0%, #ff8a4b 100%); }
-    .stats-card.reservations { background: linear-gradient(135deg,#8b5cf6 0%, #6a40e6 100%); }
+    /* gradient variants for different stats - vibrant colors */
+    .stats-card.sales { 
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .stats-card.orders { 
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+    .stats-card.tables { 
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    }
+    .stats-card.reservations { 
+        background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    }
 
     .sparkline { position: absolute; top: 12px; right: 12px; width: 110px; height: 36px; }
     .sparkline canvas { width: 100% !important; height: 100% !important; }
     
     .stats-card h3 {
-        font-size: 1.1rem;
-        margin-bottom: 6px;
+        font-size: 1.15rem;
+        margin-bottom: 8px;
         font-weight: 600;
-        color: rgba(255,255,255,0.95);
+        color: #fff;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        letter-spacing: 0.3px;
     }
     
     .stats-card p.number {
-        font-size: 1.6rem;
+        font-size: 2rem;
         margin-bottom: 0;
-        font-weight: 700;
+        font-weight: 800;
         color: #fff;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.25);
+        letter-spacing: -0.5px;
     }
     
     .stats-card p.text-muted {
@@ -199,28 +246,38 @@
     }
     
     .chart-container {
-        background-color: white;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        padding: 15px;
+        background: linear-gradient(to bottom, #ffffff 0%, #f8f9fa 100%);
+        border-radius: 16px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
+        padding: 24px;
         max-height: 400px;
         overflow-y: auto;
-        margin-bottom: 20px;
+        margin-bottom: 24px;
+        border: 1px solid rgba(0,0,0,0.06);
     }
     
     .data-table-container {
-        background-color: white;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        padding: 20px;
-        margin-bottom: 20px;
+        background: linear-gradient(to bottom, #ffffff 0%, #f8f9fa 100%);
+        border-radius: 16px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
+        padding: 28px;
+        margin-bottom: 24px;
+        border: 1px solid rgba(0,0,0,0.06);
     }
     
     .data-table-container h3 {
-        margin-bottom: 20px;
-        color: var(--dark-color);
-        border-bottom: 2px solid var(--primary-color);
-        padding-bottom: 10px;
+        margin-bottom: 24px;
+        color: #2d3748;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        border-bottom: 3px solid transparent;
+        border-image: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        border-image-slice: 1;
+        padding-bottom: 12px;
+        font-weight: 700;
+        font-size: 1.5rem;
     }
     
     .action-buttons .btn {
@@ -465,54 +522,8 @@
         </div>
     </div>
 
-    <!-- Help Modal -->
-    <div class="modal fade" id="appHelpModal" tabindex="-1" aria-labelledby="appHelpModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="appHelpModalLabel"><i class="fas fa-life-ring me-2"></i>Application Help & Shortcuts</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <h6 class="text-uppercase text-muted">Hot Keys</h6>
-                    <div class="table-responsive mb-3">
-                        <table class="table table-sm table-bordered align-middle">
-                            <thead class="table-light">
-                                <tr><th>Shortcut</th><th>Action</th><th>Context</th></tr>
-                            </thead>
-                            <tbody>
-                                <tr><td><code>Shift+F</code></td><td>Create New Order</td><td>Dashboard / Global</td></tr>
-                                <tr><td><code>Shift+T</code></td><td>Open Tables View</td><td>Dashboard / Global</td></tr>
-                                <tr><td><code>Esc</code></td><td>Close Modals / Cancel</td><td>Global</td></tr>
-                                <tr><td><code>Ctrl+S</code></td><td>Save Current Form (where supported)</td><td>Forms</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <h6 class="text-uppercase text-muted">Workflow Summary</h6>
-                    <ol class="small mb-3">
-                        <li><strong>Seat Guests</strong>: Assign table, record party size & server.</li>
-                        <li><strong>Create Order</strong>: Add items, modifiers, and notes. Use hotkeys for speed.</li>
-                        <li><strong>Send to Kitchen / Bar</strong>: Items routed by station type automatically.</li>
-                        <li><strong>Monitor Preparation</strong>: Track item status; update as prepared / served.</li>
-                        <li><strong>Apply Discounts / Complementary</strong>: Follow approval workflow if required.</li>
-                        <li><strong>Split / Merge Payments</strong>: Handle multiple tenders, ensure GST breakup visible.</li>
-                        <li><strong>Close Order</strong>: Confirm payments, print receipt, release table.</li>
-                        <li><strong>Day Closing</strong>: Run authorization, generate collection & GST reports.</li>
-                    </ol>
-                    <h6 class="text-uppercase text-muted">Tips</h6>
-                    <ul class="small mb-0">
-                        <li>Use sparklines and KPI tiles for at-a-glance performance.</li>
-                        <li>CSV / Print buttons on reports speed up data sharing.</li>
-                        <li>Watch loyalty & demographics to guide targeted promotions.</li>
-                        <li>If PDF export fails, ensure network access to CDN or contact admin.</li>
-                    </ul>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- Help Modal - Comprehensive Version -->
+    @await Html.PartialAsync("_HelpInfo")
 
     <!-- Removed Popular Menu Items & Customers by Time for a cleaner dashboard -->
     
