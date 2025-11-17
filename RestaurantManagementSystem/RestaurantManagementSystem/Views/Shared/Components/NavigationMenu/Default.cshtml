@@ -20,6 +20,183 @@
         => string.IsNullOrWhiteSpace(node.ThemeColor) ? "#f8b133" : node.ThemeColor;
 }
 
+    <style>
+    /* Modern Navigation Menu Bar Styles */
+    .navbar-nav .nav-link {
+        color: rgba(255, 255, 255, 0.95) !important;
+        padding: 0.5rem 0.85rem !important;
+        border-radius: 10px;
+        font-weight: 500;
+        font-size: 0.875rem;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        position: relative;
+        overflow: hidden;
+        white-space: nowrap;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+    }    .navbar-nav .nav-link::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+        transition: left 0.5s ease;
+    }
+    
+    .navbar-nav .nav-link:hover::before {
+        left: 100%;
+    }
+    
+    .navbar-nav .nav-link::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 0;
+        height: 3px;
+        background: linear-gradient(90deg, #ffffff, rgba(255, 255, 255, 0.5));
+        border-radius: 3px 3px 0 0;
+        transition: width 0.3s ease;
+    }
+    
+    .navbar-nav .nav-link:hover::after {
+        width: 80%;
+    }
+    
+    .navbar-nav .nav-link:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+        background: rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.4);
+    }
+    
+    .navbar-nav .nav-link:active {
+        transform: translateY(-1px);
+    }
+    
+    /* Modern Dropdown Menu Styles */
+    .navbar-nav .dropdown-menu {
+        border: none;
+        border-radius: 16px;
+        padding: 0.75rem;
+        margin-top: 0.5rem;
+        background: linear-gradient(180deg, #ffffff 0%, #fafbff 100%);
+        box-shadow: 0 12px 40px rgba(102, 126, 234, 0.15), 
+                    0 4px 12px rgba(0, 0, 0, 0.1),
+                    0 0 0 1px rgba(102, 126, 234, 0.1);
+        min-width: 240px;
+        backdrop-filter: blur(10px);
+        animation: slideDownFade 0.3s ease-out;
+    }
+    
+    @@keyframes slideDownFade {
+        from {
+            opacity: 0;
+            transform: translateY(-15px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    /* Modern Dropdown Item Styles with Selection Effect */
+    .navbar-nav .dropdown-item {
+        padding: 0.75rem 1.25rem;
+        border-radius: 10px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: #374151;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.875rem;
+        margin-bottom: 0.3rem;
+        position: relative;
+        border: 2px solid transparent;
+        background: #f8f9fa;
+    }
+    
+    .navbar-nav .dropdown-item:last-child {
+        margin-bottom: 0;
+    }
+    
+    /* Selection Indicator Bar */
+    .navbar-nav .dropdown-item::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 4px;
+        height: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 0 4px 4px 0;
+        transition: height 0.25s ease;
+    }
+    
+    .navbar-nav .dropdown-item:hover::before,
+    .navbar-nav .dropdown-item:active::before {
+        height: 70%;
+    }
+    
+    .navbar-nav .dropdown-item i {
+        font-size: 1.1rem;
+        width: 22px;
+        text-align: center;
+        color: #667eea;
+        transition: all 0.25s ease;
+        filter: drop-shadow(0 2px 4px rgba(102, 126, 234, 0.2));
+    }
+    
+    .navbar-nav .dropdown-item:hover {
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+        color: #667eea;
+        transform: translateX(8px) scale(1.02);
+        border-color: #667eea;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15), 
+                    0 2px 4px rgba(102, 126, 234, 0.1),
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+    }
+    
+    .navbar-nav .dropdown-item:active {
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+        transform: translateX(6px) scale(1);
+    }
+    
+    .navbar-nav .dropdown-item:hover i {
+        color: #764ba2;
+        transform: scale(1.15) rotate(-5deg);
+    }
+    
+    /* Hotkey Badge Styling */
+    .navbar-nav .dropdown-item .hotkey-badge {
+        background: linear-gradient(135deg, #e0e7ff 0%, #ede9fe 100%);
+        padding: 0.2rem 0.6rem;
+        border-radius: 6px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: #667eea;
+        border: 1px solid #c7d2fe;
+        box-shadow: 0 1px 3px rgba(102, 126, 234, 0.1);
+        transition: all 0.25s ease;
+    }
+    
+    .navbar-nav .dropdown-item:hover .hotkey-badge {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #ffffff;
+        border-color: transparent;
+        box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+        transform: scale(1.05);
+    }
+</style>
+
 <ul class="navbar-nav flex-grow-1 align-items-center">
     @foreach (var root in Model.OrderBy(m => m.DisplayOrder))
     {
