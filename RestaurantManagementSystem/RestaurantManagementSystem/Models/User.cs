@@ -95,6 +95,13 @@ namespace RestaurantManagementSystem.Models
         // Helper property to get/set selected roles
         [Display(Name = "Roles")]
         public List<int> SelectedRoleIds { get; set; } = new List<int>();
+
+        [NotMapped]
+        [Display(Name = "Branches")]
+        public List<int> SelectedBranchIds { get; set; } = new List<int>();
+
+        [NotMapped]
+        public List<BranchMaster> Branches { get; set; } = new List<BranchMaster>();
         
         // Helper property for backward compatibility
         [NotMapped]

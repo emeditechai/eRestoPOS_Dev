@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +11,7 @@ using RestaurantManagementSystem.Data;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.ViewModels;
 using RestaurantManagementSystem.Helpers;
+using RestaurantManagementSystem.Utilities;
 using System.IO;
 using Microsoft.AspNetCore.Hosting;
 using ViewModelsMenuItemIngredientViewModel = RestaurantManagementSystem.ViewModels.MenuItemIngredientViewModel;
@@ -19,6 +21,12 @@ namespace RestaurantManagementSystem.Controllers
 {
     public class MenuController : Controller
     {
+        public class CopyMenuItemsRequest
+        {
+            public int TargetBranchId { get; set; }
+            public List<int> MenuItemIds { get; set; } = new List<int>();
+        }
+
         private readonly string _connectionString;
         private readonly IWebHostEnvironment _webHostEnvironment;
 
@@ -26,6 +34,70 @@ namespace RestaurantManagementSystem.Controllers
         {
             _connectionString = configuration.GetConnectionString("DefaultConnection");
             _webHostEnvironment = webHostEnvironment;
+        }
+
+        private int? GetActiveBranchId()
+        {
+            return User.GetActiveBranchId();
+        }
+
+        private bool IsActiveBranchMain(Microsoft.Data.SqlClient.SqlConnection connection, int branchId)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT COUNT(1)
+FROM dbo.Branches
+WHERE BranchId = @BranchId
+  AND ISNULL(IsActive, 1) = 1
+  AND ISNULL(Is_MainBranch, 0) = 1", connection))
+            {
+                cmd.Parameters.AddWithValue("@BranchId", branchId);
+                return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+            }
+        }
+
+        private bool CanCurrentUserCopyMenuItems()
+        {
+            if (User?.Identity?.IsAuthenticated != true || !User.IsInRole("Administrator"))
+            {
+                return false;
+            }
+
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return false;
+            }
+
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    return IsActiveBranchMain(connection, activeBranchId.Value);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void EnsureMenuItemsBranchColumnExists(Microsoft.Data.SqlClient.SqlConnection connection)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+IF COL_LENGTH('dbo.MenuItems', 'BranchId') IS NULL
+BEGIN
+    ALTER TABLE dbo.MenuItems ADD BranchId INT NULL;
+END
+", connection))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        private static string NormalizePluCode(string? pluCode)
+        {
+            return (pluCode ?? string.Empty).Trim().ToUpperInvariant();
         }
         
         private bool HasColumn(Microsoft.Data.SqlClient.SqlDataReader reader, string columnName)
@@ -129,6 +201,37 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var isAdmin = User?.Identity?.IsAuthenticated == true && User.IsInRole("Administrator");
+                var activeBranchId = GetActiveBranchId();
+                var activeBranchName = User.GetActiveBranchName() ?? string.Empty;
+                var isMainBranch = false;
+
+                if (activeBranchId.HasValue)
+                {
+                    try
+                    {
+                        using (var branchConnection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                        {
+                            branchConnection.Open();
+                            isMainBranch = IsActiveBranchMain(branchConnection, activeBranchId.Value);
+                        }
+                    }
+                    catch
+                    {
+                        isMainBranch = false;
+                    }
+                }
+
+                var canCopyMenuItems = isAdmin && isMainBranch;
+                ViewBag.CanCopyMenuItems = canCopyMenuItems;
+                ViewBag.CopyFeatureDebug = $"IsAdmin={isAdmin}, ActiveBranchId={(activeBranchId?.ToString() ?? "null")}, ActiveBranchName={(string.IsNullOrWhiteSpace(activeBranchName) ? "(empty)" : activeBranchName)}, IsMainBranch={isMainBranch}, CanCopy={canCopyMenuItems}";
+
+                if (!GetActiveBranchId().HasValue)
+                {
+                    TempData["ErrorMessage"] = "Please select an active branch first.";
+                    return View(new List<MenuItem>());
+                }
+
                 var menuItems = GetAllMenuItems();
                 return View(menuItems);
             }
@@ -286,6 +389,12 @@ namespace RestaurantManagementSystem.Controllers
         // GET: Menu/Create
         public IActionResult Create()
         {
+            if (!GetActiveBranchId().HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch first.";
+                return RedirectToAction(nameof(Index));
+            }
+
             ViewBag.Categories = GetCategorySelectList();
             ViewBag.SubCategories = GetSubCategorySelectList(); // Empty list initially
             ViewBag.Allergens = GetAllAllergens();
@@ -303,6 +412,11 @@ namespace RestaurantManagementSystem.Controllers
         [ValidateAntiForgeryTokenAttribute]
         public IActionResult Create(MenuItemViewModel model)
         {
+            if (!GetActiveBranchId().HasValue)
+            {
+                ModelState.AddModelError("", "Please select an active branch first.");
+            }
+
             if (ModelState.IsValid)
             {
                 try
@@ -368,12 +482,28 @@ namespace RestaurantManagementSystem.Controllers
                     // Server-side duplicate PLUCode check (prevent duplicate PLU on Create)
                     if (!string.IsNullOrWhiteSpace(model.PLUCode))
                     {
+                        model.PLUCode = NormalizePluCode(model.PLUCode);
+                        var activeBranchId = GetActiveBranchId();
+                        if (!activeBranchId.HasValue)
+                        {
+                            ModelState.AddModelError("", "Please select an active branch first.");
+                            ViewBag.Categories = GetCategorySelectList();
+                            ViewBag.SubCategories = GetSubCategorySelectList(model.CategoryId);
+                            ViewBag.Allergens = GetAllAllergens();
+                            ViewBag.Modifiers = GetAllModifiers();
+                            ViewBag.KitchenStations = GetKitchenStationSelectList();
+                            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+                            return View(model);
+                        }
+
                         using (Microsoft.Data.SqlClient.SqlConnection dupConn = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                         {
                             dupConn.Open();
-                            using (var dupCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT COUNT(*) FROM dbo.MenuItems WHERE LTRIM(RTRIM(PLUCode)) = @PLU", dupConn))
+                            EnsureMenuItemsBranchColumnExists(dupConn);
+                            using (var dupCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT COUNT(*) FROM dbo.MenuItems WHERE UPPER(LTRIM(RTRIM(ISNULL(PLUCode,'')))) = @PLU AND BranchId = @BranchId", dupConn))
                             {
-                                dupCmd.Parameters.AddWithValue("@PLU", model.PLUCode.Trim());
+                                dupCmd.Parameters.AddWithValue("@PLU", model.PLUCode);
+                                dupCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                                 int existing = (int)dupCmd.ExecuteScalar();
                                 if (existing > 0)
                                 {
@@ -469,6 +599,12 @@ namespace RestaurantManagementSystem.Controllers
         // GET: Menu/Edit/5
         public IActionResult Edit(int id)
         {
+            if (!GetActiveBranchId().HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch first.";
+                return RedirectToAction(nameof(Index));
+            }
+
             var menuItem = GetMenuItemById(id);
             if (menuItem == null)
             {
@@ -555,6 +691,11 @@ namespace RestaurantManagementSystem.Controllers
         [ValidateAntiForgeryTokenAttribute]
         public IActionResult Edit(int id, MenuItemViewModel model)
         {
+            if (!GetActiveBranchId().HasValue)
+            {
+                ModelState.AddModelError("", "Please select an active branch first.");
+            }
+
             if (id != model.Id)
             {
                 return NotFound();
@@ -626,13 +767,29 @@ namespace RestaurantManagementSystem.Controllers
                     // Server-side duplicate PLUCode check (prevent duplicate PLU on Edit)
                     if (!string.IsNullOrWhiteSpace(model.PLUCode))
                     {
+                        model.PLUCode = NormalizePluCode(model.PLUCode);
+                        var activeBranchId = GetActiveBranchId();
+                        if (!activeBranchId.HasValue)
+                        {
+                            ModelState.AddModelError("", "Please select an active branch first.");
+                            ViewBag.Categories = GetCategorySelectList();
+                            ViewBag.SubCategories = GetSubCategorySelectList(model.CategoryId);
+                            ViewBag.Allergens = GetAllAllergens();
+                            ViewBag.Modifiers = GetAllModifiers();
+                            ViewBag.KitchenStations = GetKitchenStationSelectList();
+                            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+                            return View(model);
+                        }
+
                         using (Microsoft.Data.SqlClient.SqlConnection dupConn = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                         {
                             dupConn.Open();
-                            using (var dupCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT COUNT(*) FROM dbo.MenuItems WHERE LTRIM(RTRIM(PLUCode)) = @PLU AND Id <> @Id", dupConn))
+                            EnsureMenuItemsBranchColumnExists(dupConn);
+                            using (var dupCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT COUNT(*) FROM dbo.MenuItems WHERE UPPER(LTRIM(RTRIM(ISNULL(PLUCode,'')))) = @PLU AND Id <> @Id AND BranchId = @BranchId", dupConn))
                             {
-                                dupCmd.Parameters.AddWithValue("@PLU", model.PLUCode.Trim());
+                                dupCmd.Parameters.AddWithValue("@PLU", model.PLUCode);
                                 dupCmd.Parameters.AddWithValue("@Id", id);
+                                dupCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                                 int existing = (int)dupCmd.ExecuteScalar();
                                 if (existing > 0)
                                 {
@@ -733,6 +890,12 @@ namespace RestaurantManagementSystem.Controllers
         // GET: Menu/Delete/5
         public IActionResult Delete(int id)
         {
+            if (!GetActiveBranchId().HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch first.";
+                return RedirectToAction(nameof(Index));
+            }
+
             var menuItem = GetMenuItemById(id);
             if (menuItem == null)
             {
@@ -749,6 +912,12 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                if (!GetActiveBranchId().HasValue)
+                {
+                    TempData["ErrorMessage"] = "Please select an active branch first.";
+                    return RedirectToAction(nameof(Index));
+                }
+
                 // Get image path before deleting
                 var menuItem = GetMenuItemById(id);
                 if (menuItem != null && !string.IsNullOrEmpty(menuItem.ImagePath))
@@ -894,10 +1063,16 @@ namespace RestaurantManagementSystem.Controllers
         private List<MenuItem> GetAllMenuItems()
         {
             var menuItems = new List<MenuItem>();
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return menuItems;
+            }
             
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+                EnsureMenuItemsBranchColumnExists(connection);
                 
                 // Check if SubCategoryId column exists and SubCategories table exists
                 bool hasSubCategoryColumn = false;
@@ -971,6 +1146,7 @@ namespace RestaurantManagementSystem.Controllers
                         INNER JOIN [dbo].[Categories] c ON m.[CategoryId] = c.[Id]
                         LEFT JOIN {subCategoriesTable} sc ON m.[SubCategoryId] = sc.[Id]
                         {joinGroup}
+                        WHERE m.[BranchId] = @BranchId
                         ORDER BY m.[Name]";
                 }
                 else
@@ -1005,11 +1181,13 @@ namespace RestaurantManagementSystem.Controllers
                         FROM [dbo].[MenuItems] m
                         INNER JOIN [dbo].[Categories] c ON m.[CategoryId] = c.[Id]
                         {joinGroup}
+                        WHERE m.[BranchId] = @BranchId
                         ORDER BY m.[Name]";
                 }
                 
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(query, connection))
                 {
+                    command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     try
                     {
                         using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
@@ -1079,10 +1257,16 @@ namespace RestaurantManagementSystem.Controllers
         private MenuItem GetMenuItemById(int id)
         {
             MenuItem menuItem = null;
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return null;
+            }
             
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+                EnsureMenuItemsBranchColumnExists(connection);
                 
                 // Check if SubCategoryId column exists and SubCategories table exists
                 bool hasSubCategoryColumn = false;
@@ -1169,7 +1353,7 @@ namespace RestaurantManagementSystem.Controllers
                         LEFT JOIN {subCategoriesTable} sc ON m.[SubCategoryId] = sc.[Id]
                         {joinGroup}
                         {joinUOM}
-                        WHERE m.[Id] = @Id";
+                        WHERE m.[Id] = @Id AND m.[BranchId] = @BranchId";
                 }
                 else
                 {
@@ -1208,12 +1392,13 @@ namespace RestaurantManagementSystem.Controllers
                         INNER JOIN [dbo].[Categories] c ON m.[CategoryId] = c.[Id]
                         {joinGroup}
                         {joinUOM}
-                        WHERE m.[Id] = @Id";
+                        WHERE m.[Id] = @Id AND m.[BranchId] = @BranchId";
                 }
                 
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(query, connection))
                 {
                     command.Parameters.AddWithValue("@Id", id);
+                    command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
@@ -1332,10 +1517,16 @@ namespace RestaurantManagementSystem.Controllers
         private int CreateMenuItem(MenuItemViewModel model)
         {
             int menuItemId = 0;
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                throw new InvalidOperationException("Active branch is required.");
+            }
             
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+                EnsureMenuItemsBranchColumnExists(connection);
                 
                 // Check if SubCategoryId column exists
                 bool hasSubCategoryColumn = false;
@@ -1380,10 +1571,10 @@ namespace RestaurantManagementSystem.Controllers
                     string roomServicePriceParam = hasRoomServicePriceColumn ? ", @RoomServicePrice" : string.Empty;
                     
                     insertQuery = $@"
-                        INSERT INTO [dbo].[MenuItems] (PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice{roomServicePriceColumn}, CategoryId, SubCategoryId, ImagePath,
+                        INSERT INTO [dbo].[MenuItems] (BranchId, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice{roomServicePriceColumn}, CategoryId, SubCategoryId, ImagePath,
                                   IsAvailable, PrepTime, CalorieCount, 
                                   IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{groupColumn}{uomColumn})
-                        VALUES (@PLUCode, @Name, @Description, @Price, @TakeoutPrice, @DeliveryPrice{roomServicePriceParam}, @CategoryId, @SubCategoryId, @ImagePath,
+                        VALUES (@BranchId, @PLUCode, @Name, @Description, @Price, @TakeoutPrice, @DeliveryPrice{roomServicePriceParam}, @CategoryId, @SubCategoryId, @ImagePath,
                             @IsAvailable, @PreparationTimeMinutes, @CalorieCount, 
                             @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{groupParam}{uomParam});
                         SELECT SCOPE_IDENTITY();";
@@ -1398,10 +1589,10 @@ namespace RestaurantManagementSystem.Controllers
                     string roomServicePriceParam = hasRoomServicePriceColumn ? ", @RoomServicePrice" : string.Empty;
                     
                     insertQuery = $@"
-                        INSERT INTO [dbo].[MenuItems] (PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice{roomServicePriceColumn}, CategoryId, ImagePath,
+                        INSERT INTO [dbo].[MenuItems] (BranchId, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice{roomServicePriceColumn}, CategoryId, ImagePath,
                                   IsAvailable, PrepTime, CalorieCount, 
                                   IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{groupColumn}{uomColumn})
-                        VALUES (@PLUCode, @Name, @Description, @Price, @TakeoutPrice, @DeliveryPrice{roomServicePriceParam}, @CategoryId, @ImagePath,
+                        VALUES (@BranchId, @PLUCode, @Name, @Description, @Price, @TakeoutPrice, @DeliveryPrice{roomServicePriceParam}, @CategoryId, @ImagePath,
                             @IsAvailable, @PreparationTimeMinutes, @CalorieCount, 
                             @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{groupParam}{uomParam});
                         SELECT SCOPE_IDENTITY();";
@@ -1409,6 +1600,7 @@ namespace RestaurantManagementSystem.Controllers
                 
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(insertQuery, connection))
                 {
+                    command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     command.Parameters.AddWithValue("@PLUCode", model.PLUCode);
                     command.Parameters.AddWithValue("@Name", model.Name);
                     command.Parameters.AddWithValue("@Description", model.Description);
@@ -1684,9 +1876,16 @@ namespace RestaurantManagementSystem.Controllers
 
         private void UpdateMenuItem(MenuItemViewModel model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                throw new InvalidOperationException("Active branch is required.");
+            }
+
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+                EnsureMenuItemsBranchColumnExists(connection);
                 
                 // Build UPDATE query for dbo schema
                 bool hasMenuItemGroupColumn = false;
@@ -1730,11 +1929,12 @@ namespace RestaurantManagementSystem.Controllers
                         GSTPercentage = @GSTPercentage,
                         IsGstApplicable = @IsGstApplicable,
                         NotAvailable = @NotAvailable{groupUpdate}{uomUpdate}
-                    WHERE Id = @Id";
+                    WHERE Id = @Id AND BranchId = @BranchId";
                 
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(updateQuery, connection))
                 {
                     command.Parameters.AddWithValue("@Id", model.Id);
+                    command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     command.Parameters.AddWithValue("@PLUCode", model.PLUCode ?? string.Empty);
                     command.Parameters.AddWithValue("@Name", model.Name);
                     command.Parameters.AddWithValue("@Description", model.Description);
@@ -1864,9 +2064,16 @@ namespace RestaurantManagementSystem.Controllers
 
         private void DeleteMenuItem(int id)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                throw new InvalidOperationException("Active branch is required.");
+            }
+
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+                EnsureMenuItemsBranchColumnExists(connection);
                 
                 using (var transaction = connection.BeginTransaction())
                 {
@@ -1908,9 +2115,10 @@ namespace RestaurantManagementSystem.Controllers
                         }
 
                         // Delete menu item
-                        using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand("DELETE FROM MenuItems WHERE Id = @Id", connection, transaction))
+                        using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand("DELETE FROM MenuItems WHERE Id = @Id AND BranchId = @BranchId", connection, transaction))
                         {
                             command.Parameters.AddWithValue("@Id", id);
+                            command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                             command.ExecuteNonQuery();
                         }
 
@@ -2802,12 +3010,427 @@ namespace RestaurantManagementSystem.Controllers
             }).ToList();
         }
 
+        [Authorize]
+        [HttpGet]
+        public IActionResult CopyTargetBranches()
+        {
+            if (User?.Identity?.IsAuthenticated != true)
+            {
+                return Unauthorized(new { message = "Please login to continue." });
+            }
+
+            if (!User.IsInRole("Administrator"))
+            {
+                return StatusCode(403, new { message = "Access denied. Only Administrator users can view copy target branches." });
+            }
+
+            var sourceBranchId = GetActiveBranchId();
+            if (!sourceBranchId.HasValue)
+            {
+                return BadRequest(new { message = "Please select an active source branch first." });
+            }
+
+            using (var branchCon = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+            {
+                branchCon.Open();
+                if (!IsActiveBranchMain(branchCon, sourceBranchId.Value))
+                {
+                    return StatusCode(403, new { message = "Copy is allowed only when logged into a Main Branch." });
+                }
+            }
+
+            try
+            {
+                var branches = new List<object>();
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT BranchId, BranchCode, BranchName
+FROM dbo.Branches
+WHERE ISNULL(IsActive, 1) = 1
+  AND BranchId <> @SourceBranchId
+ORDER BY CASE WHEN ISNULL(Is_MainBranch, 0) = 1 THEN 0 ELSE 1 END, BranchCode, BranchName", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@SourceBranchId", sourceBranchId.Value);
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                branches.Add(new
+                                {
+                                    BranchId = reader.GetInt32(0),
+                                    BranchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                                    BranchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2)
+                                });
+                            }
+                        }
+                    }
+                }
+
+                return Json(branches);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = "Unable to load target branches: " + ex.Message });
+            }
+        }
+
+        [Authorize]
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult CopyToBranch([FromBody] CopyMenuItemsRequest request)
+        {
+            if (User?.Identity?.IsAuthenticated != true)
+            {
+                return Unauthorized(new { message = "Please login to continue." });
+            }
+
+            if (!User.IsInRole("Administrator"))
+            {
+                return StatusCode(403, new { message = "Access denied. Only Administrator users can copy menu items across branches." });
+            }
+
+            var sourceBranchId = GetActiveBranchId();
+            if (!sourceBranchId.HasValue)
+            {
+                return BadRequest(new { message = "Please select an active source branch first." });
+            }
+
+            using (var branchCon = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+            {
+                branchCon.Open();
+                if (!IsActiveBranchMain(branchCon, sourceBranchId.Value))
+                {
+                    return StatusCode(403, new { message = "Copy is allowed only when logged into a Main Branch." });
+                }
+            }
+
+            if (request == null || request.TargetBranchId <= 0)
+            {
+                return BadRequest(new { message = "Please select a valid target branch." });
+            }
+
+            if (request.TargetBranchId == sourceBranchId.Value)
+            {
+                return BadRequest(new { message = "Source and target branch cannot be the same." });
+            }
+
+            var selectedIds = (request.MenuItemIds ?? new List<int>()).Where(x => x > 0).Distinct().ToList();
+            if (selectedIds.Count == 0)
+            {
+                return BadRequest(new { message = "Please select at least one menu item to copy." });
+            }
+
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    EnsureMenuItemsBranchColumnExists(connection);
+
+                    using (var transaction = connection.BeginTransaction())
+                    {
+                        try
+                        {
+                            if (!IsActiveBranch(connection, transaction, request.TargetBranchId))
+                            {
+                                transaction.Rollback();
+                                return BadRequest(new { message = "Target branch is invalid or inactive." });
+                            }
+
+                            var columnsToCopy = GetCopyableMenuItemColumns(connection, transaction);
+                            if (columnsToCopy.Count == 0)
+                            {
+                                transaction.Rollback();
+                                return BadRequest(new { message = "Unable to determine menu item columns for copy." });
+                            }
+
+                            var copied = 0;
+                            var skipped = 0;
+
+                            var allergensTable = GetMenuItemRelationshipTableName(connection, transaction, "Allergens");
+                            var ingredientsTable = GetMenuItemRelationshipTableName(connection, transaction, "Ingredients");
+                            var modifiersTable = GetMenuItemRelationshipTableName(connection, transaction, "Modifiers");
+
+                            foreach (var sourceMenuItemId in selectedIds)
+                            {
+                                var sourcePlu = GetMenuItemPluCode(connection, transaction, sourceMenuItemId, sourceBranchId.Value, out var sourceExists);
+                                if (!sourceExists)
+                                {
+                                    skipped++;
+                                    continue;
+                                }
+
+                                if (!string.IsNullOrWhiteSpace(sourcePlu) && MenuItemPluExistsInBranch(connection, transaction, request.TargetBranchId, sourcePlu))
+                                {
+                                    skipped++;
+                                    continue;
+                                }
+
+                                var newMenuItemId = CopyMenuItemRecord(connection, transaction, sourceMenuItemId, sourceBranchId.Value, request.TargetBranchId, columnsToCopy);
+                                if (!newMenuItemId.HasValue || newMenuItemId.Value <= 0)
+                                {
+                                    skipped++;
+                                    continue;
+                                }
+
+                                CopyMenuItemRelationshipRows(connection, transaction, allergensTable, sourceMenuItemId, newMenuItemId.Value);
+                                CopyMenuItemRelationshipRows(connection, transaction, ingredientsTable, sourceMenuItemId, newMenuItemId.Value);
+                                CopyMenuItemRelationshipRows(connection, transaction, modifiersTable, sourceMenuItemId, newMenuItemId.Value);
+                                copied++;
+                            }
+
+                            transaction.Commit();
+
+                            return Ok(new
+                            {
+                                message = $"Copy completed. Copied: {copied}, Skipped: {skipped}.",
+                                copied,
+                                skipped
+                            });
+                        }
+                        catch
+                        {
+                            transaction.Rollback();
+                            throw;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = "Copy failed: " + ex.Message });
+            }
+        }
+
+                private bool IsActiveBranch(Microsoft.Data.SqlClient.SqlConnection connection, Microsoft.Data.SqlClient.SqlTransaction transaction, int branchId)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT COUNT(1)
+FROM dbo.Branches
+WHERE BranchId = @BranchId
+    AND ISNULL(IsActive, 1) = 1", connection, transaction))
+            {
+                                cmd.Parameters.AddWithValue("@BranchId", branchId);
+                return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+            }
+        }
+
+        private List<string> GetCopyableMenuItemColumns(Microsoft.Data.SqlClient.SqlConnection connection, Microsoft.Data.SqlClient.SqlTransaction transaction)
+        {
+            var candidateColumns = new List<string>
+            {
+                "PLUCode",
+                "Name",
+                "Description",
+                "Price",
+                "TakeoutPrice",
+                "DeliveryPrice",
+                "RoomServicePrice",
+                "CategoryId",
+                "SubCategoryId",
+                "ImagePath",
+                "IsAvailable",
+                "PrepTime",
+                "CalorieCount",
+                "IsFeatured",
+                "IsSpecial",
+                "DiscountPercentage",
+                "KitchenStationId",
+                "GSTPercentage",
+                "IsGstApplicable",
+                "NotAvailable",
+                "menuitemgroupID",
+                "UOMId",
+                "TargetGP",
+                "ItemType"
+            };
+
+            var columns = new List<string>();
+            foreach (var column in candidateColumns)
+            {
+                if (TableColumnExists(connection, transaction, "MenuItems", column))
+                {
+                    columns.Add(column);
+                }
+            }
+
+            return columns;
+        }
+
+        private bool TableColumnExists(Microsoft.Data.SqlClient.SqlConnection connection, Microsoft.Data.SqlClient.SqlTransaction transaction, string tableName, string columnName)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT COUNT(1)
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'dbo'
+  AND TABLE_NAME = @TableName
+  AND COLUMN_NAME = @ColumnName", connection, transaction))
+            {
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+            }
+        }
+
+        private string? GetMenuItemPluCode(Microsoft.Data.SqlClient.SqlConnection connection, Microsoft.Data.SqlClient.SqlTransaction transaction, int menuItemId, int sourceBranchId, out bool exists)
+        {
+            exists = false;
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT TOP 1 LTRIM(RTRIM(ISNULL(PLUCode, '')))
+FROM dbo.MenuItems
+WHERE Id = @Id
+  AND BranchId = @SourceBranchId", connection, transaction))
+            {
+                cmd.Parameters.AddWithValue("@Id", menuItemId);
+                cmd.Parameters.AddWithValue("@SourceBranchId", sourceBranchId);
+                var value = cmd.ExecuteScalar();
+                if (value == null || value == DBNull.Value)
+                {
+                    return null;
+                }
+
+                exists = true;
+                return NormalizePluCode(value.ToString());
+            }
+        }
+
+        private bool MenuItemPluExistsInBranch(Microsoft.Data.SqlClient.SqlConnection connection, Microsoft.Data.SqlClient.SqlTransaction transaction, int branchId, string pluCode)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT COUNT(1)
+FROM dbo.MenuItems
+WHERE BranchId = @BranchId
+    AND UPPER(LTRIM(RTRIM(ISNULL(PLUCode, '')))) = @PluCode", connection, transaction))
+            {
+                cmd.Parameters.AddWithValue("@BranchId", branchId);
+                                cmd.Parameters.AddWithValue("@PluCode", NormalizePluCode(pluCode));
+                return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+            }
+        }
+
+        private int? CopyMenuItemRecord(
+            Microsoft.Data.SqlClient.SqlConnection connection,
+            Microsoft.Data.SqlClient.SqlTransaction transaction,
+            int sourceMenuItemId,
+            int sourceBranchId,
+            int targetBranchId,
+            List<string> columnsToCopy)
+        {
+            if (columnsToCopy == null || columnsToCopy.Count == 0)
+            {
+                return null;
+            }
+
+            var insertColumns = "BranchId, " + string.Join(", ", columnsToCopy.Select(c => $"[{c}]"));
+            var selectColumns = "@TargetBranchId, " + string.Join(", ", columnsToCopy.Select(c => $"src.[{c}]"));
+
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand($@"
+INSERT INTO dbo.MenuItems ({insertColumns})
+OUTPUT INSERTED.Id
+SELECT {selectColumns}
+FROM dbo.MenuItems src
+WHERE src.Id = @SourceMenuItemId
+  AND src.BranchId = @SourceBranchId", connection, transaction))
+            {
+                cmd.Parameters.AddWithValue("@TargetBranchId", targetBranchId);
+                cmd.Parameters.AddWithValue("@SourceMenuItemId", sourceMenuItemId);
+                cmd.Parameters.AddWithValue("@SourceBranchId", sourceBranchId);
+
+                var inserted = cmd.ExecuteScalar();
+                if (inserted == null || inserted == DBNull.Value)
+                {
+                    return null;
+                }
+
+                return Convert.ToInt32(inserted);
+            }
+        }
+
+        private void CopyMenuItemRelationshipRows(
+            Microsoft.Data.SqlClient.SqlConnection connection,
+            Microsoft.Data.SqlClient.SqlTransaction transaction,
+            string tableName,
+            int sourceMenuItemId,
+            int targetMenuItemId)
+        {
+            if (string.IsNullOrWhiteSpace(tableName))
+            {
+                return;
+            }
+
+            if (!TableExists(connection, transaction, tableName))
+            {
+                return;
+            }
+
+            var relationColumns = new List<string>();
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT c.name
+FROM sys.columns c
+WHERE c.object_id = OBJECT_ID(@TableName)
+  AND c.is_identity = 0
+  AND c.name <> 'MenuItemId'
+ORDER BY c.column_id", connection, transaction))
+            {
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        relationColumns.Add(reader.GetString(0));
+                    }
+                }
+            }
+
+            var quotedTableName = tableName.StartsWith("dbo.", StringComparison.OrdinalIgnoreCase)
+                ? tableName
+                : $"dbo.{tableName}";
+
+            if (relationColumns.Count == 0)
+            {
+                using (var copyCmd = new Microsoft.Data.SqlClient.SqlCommand($@"
+INSERT INTO {quotedTableName} (MenuItemId)
+SELECT @TargetMenuItemId
+FROM {quotedTableName}
+WHERE MenuItemId = @SourceMenuItemId", connection, transaction))
+                {
+                    copyCmd.Parameters.AddWithValue("@TargetMenuItemId", targetMenuItemId);
+                    copyCmd.Parameters.AddWithValue("@SourceMenuItemId", sourceMenuItemId);
+                    copyCmd.ExecuteNonQuery();
+                }
+
+                return;
+            }
+
+            var insertColumns = "MenuItemId, " + string.Join(", ", relationColumns.Select(c => $"[{c}]"));
+            var selectColumns = "@TargetMenuItemId, " + string.Join(", ", relationColumns.Select(c => $"src.[{c}]"));
+
+            using (var copyCmd = new Microsoft.Data.SqlClient.SqlCommand($@"
+INSERT INTO {quotedTableName} ({insertColumns})
+SELECT {selectColumns}
+FROM {quotedTableName} src
+WHERE src.MenuItemId = @SourceMenuItemId", connection, transaction))
+            {
+                copyCmd.Parameters.AddWithValue("@TargetMenuItemId", targetMenuItemId);
+                copyCmd.Parameters.AddWithValue("@SourceMenuItemId", sourceMenuItemId);
+                copyCmd.ExecuteNonQuery();
+            }
+        }
+
         // API endpoint for Estimation page to get menu items with SubCategory data
         [HttpGet]
         public JsonResult GetMenuItemsForEstimation()
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return Json(new { error = "No active branch selected. Please select a branch first." });
+                }
+
                 var menuItems = GetAllMenuItems();
                 var result = menuItems.Select(item => new
                 {

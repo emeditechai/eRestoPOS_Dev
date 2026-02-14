@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -18,6 +19,11 @@ namespace RestaurantManagementSystem.Controllers
         public ReservationController(IConfiguration configuration)
         {
             _config = configuration;
+        }
+
+        private int? GetActiveBranchId()
+        {
+            return User.GetActiveBranchId();
         }
 
         #region Reservations
@@ -582,6 +588,13 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    ViewBag.ErrorMessage = "Please select an active branch first.";
+                    return View(new List<Table>());
+                }
+
                 var tables = GetAllTables();
 
                 // Rebuild merged table relationships directly from active orders to ensure symmetry (each table lists others in its merge group)
@@ -593,13 +606,16 @@ namespace RestaurantManagementSystem.Controllers
                     using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
                     {
                         con.Open();
+                        EnsureTablesBranchColumnExists(con);
                         using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT o.Id AS OrderId, t.TableNumber
                                 FROM Orders o
                                 INNER JOIN OrderTables ot ON o.Id = ot.OrderId
                                 INNER JOIN Tables t ON ot.TableId = t.Id
-                                WHERE o.Status IN (0,1,2)
+                            WHERE o.Status IN (0,1,2)
+                              AND t.BranchId = @BranchId
                                 ORDER BY o.Id", con))
                         {
+                            cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                             var orderTables = new Dictionary<int, List<string>>();
                             using (var reader = cmd.ExecuteReader())
                             {
@@ -656,6 +672,13 @@ namespace RestaurantManagementSystem.Controllers
         // GET: Create/Edit Table Form
         public IActionResult TableForm(int? id)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch first.";
+                return RedirectToAction("Tables");
+            }
+
             Table model = new Table();
 
             if (id.HasValue)
@@ -677,6 +700,13 @@ namespace RestaurantManagementSystem.Controllers
         [HttpPostAttribute]
         public IActionResult SaveTable(Table model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch first.";
+                return RedirectToAction("Tables");
+            }
+
             if (!ModelState.IsValid)
             {
                 ViewBag.SectionOptions = BuildTableSectionSelectList(model.Section);
@@ -687,6 +717,8 @@ namespace RestaurantManagementSystem.Controllers
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 con.Open();
+                EnsureTablesBranchColumnExists(con);
+                EnsureTableSectionsBranchColumnExists(con);
 
                 // Keep the section master list in sync with saved tables.
                 TryEnsureTableSectionExists(con, model.Section);
@@ -694,9 +726,10 @@ namespace RestaurantManagementSystem.Controllers
                 // Check if updating and Id exists
                 if (model.Id > 0)
                 {
-                    using (var checkCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT COUNT(*) FROM Tables WHERE Id = @Id", con))
+                    using (var checkCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT COUNT(*) FROM Tables WHERE Id = @Id AND BranchId = @BranchId", con))
                     {
                         checkCmd.Parameters.AddWithValue("@Id", model.Id);
+                        checkCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         int count = (int)checkCmd.ExecuteScalar();
                         if (count == 0)
                         {
@@ -706,23 +739,45 @@ namespace RestaurantManagementSystem.Controllers
                     }
                 }
 
-                using (var cmd = new Microsoft.Data.SqlClient.SqlCommand("usp_UpsertTable", con))
+                if (model.Id > 0)
                 {
-                    cmd.CommandType = CommandType.StoredProcedure;
-                    cmd.Parameters.AddWithValue("@Id", model.Id == 0 ? 0 : model.Id);
-                    cmd.Parameters.AddWithValue("@TableNumber", model.TableNumber);
-                    cmd.Parameters.AddWithValue("@Capacity", model.Capacity);
-                    cmd.Parameters.AddWithValue("@Section", model.Section ?? (object)DBNull.Value);
-                    cmd.Parameters.AddWithValue("@Status", (int)model.Status);
-                    cmd.Parameters.AddWithValue("@MinPartySize", model.MinPartySize);
-                    cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
-
-                    using (var reader = cmd.ExecuteReader())
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+UPDATE Tables
+SET TableNumber = @TableNumber,
+    Capacity = @Capacity,
+    Section = @Section,
+    Status = @Status,
+    MinPartySize = @MinPartySize,
+    IsActive = @IsActive
+WHERE Id = @Id AND BranchId = @BranchId", con))
                     {
-                        if (reader.Read())
-                        {
-                            resultMessage = reader["Message"].ToString();
-                        }
+                        cmd.Parameters.AddWithValue("@Id", model.Id);
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        cmd.Parameters.AddWithValue("@TableNumber", model.TableNumber);
+                        cmd.Parameters.AddWithValue("@Capacity", model.Capacity);
+                        cmd.Parameters.AddWithValue("@Section", model.Section ?? (object)DBNull.Value);
+                        cmd.Parameters.AddWithValue("@Status", (int)model.Status);
+                        cmd.Parameters.AddWithValue("@MinPartySize", model.MinPartySize);
+                        cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
+                        cmd.ExecuteNonQuery();
+                        resultMessage = "Table updated successfully.";
+                    }
+                }
+                else
+                {
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+INSERT INTO Tables (TableNumber, Capacity, Section, IsAvailable, Status, MinPartySize, LastOccupiedAt, IsActive, BranchId)
+VALUES (@TableNumber, @Capacity, @Section, 1, @Status, @MinPartySize, NULL, @IsActive, @BranchId)", con))
+                    {
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        cmd.Parameters.AddWithValue("@TableNumber", model.TableNumber);
+                        cmd.Parameters.AddWithValue("@Capacity", model.Capacity);
+                        cmd.Parameters.AddWithValue("@Section", model.Section ?? (object)DBNull.Value);
+                        cmd.Parameters.AddWithValue("@Status", (int)model.Status);
+                        cmd.Parameters.AddWithValue("@MinPartySize", model.MinPartySize);
+                        cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
+                        cmd.ExecuteNonQuery();
+                        resultMessage = "Table created successfully.";
                     }
                 }
             }
@@ -733,6 +788,7 @@ namespace RestaurantManagementSystem.Controllers
 
         private List<SelectListItem> BuildTableSectionSelectList(string? selectedSection)
         {
+            var activeBranchId = GetActiveBranchId();
             var items = new List<SelectListItem>
             {
                 new SelectListItem { Value = "", Text = "-- Select Section --" }
@@ -746,20 +802,24 @@ namespace RestaurantManagementSystem.Controllers
                 {
                     con.Open();
                     EnsureTableSectionsTable(con);
+                    EnsureTableSectionsBranchColumnExists(con);
                     SeedTableSectionsIfEmpty(con);
 
                     using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                         SELECT Name
                         FROM TableSections
-                        WHERE IsActive = 1
+                        WHERE IsActive = 1 AND BranchId = @BranchId
                         ORDER BY SortOrder, Name", con))
-                    using (var reader = cmd.ExecuteReader())
                     {
-                        while (reader.Read())
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId ?? (object)DBNull.Value);
+                        using (var reader = cmd.ExecuteReader())
                         {
-                            var name = reader.IsDBNull(0) ? null : reader.GetString(0);
-                            if (string.IsNullOrWhiteSpace(name)) continue;
-                            sections.Add(name);
+                            while (reader.Read())
+                            {
+                                var name = reader.IsDBNull(0) ? null : reader.GetString(0);
+                                if (string.IsNullOrWhiteSpace(name)) continue;
+                                sections.Add(name);
+                            }
                         }
                     }
                 }
@@ -776,14 +836,18 @@ namespace RestaurantManagementSystem.Controllers
                             SELECT DISTINCT LTRIM(RTRIM(ISNULL(Section,'')))
                             FROM Tables
                             WHERE ISNULL(LTRIM(RTRIM(Section)),'') <> ''
+                              AND BranchId = @BranchId
                             ORDER BY LTRIM(RTRIM(Section))", con))
-                        using (var reader = cmd.ExecuteReader())
                         {
-                            while (reader.Read())
+                            cmd.Parameters.AddWithValue("@BranchId", activeBranchId ?? (object)DBNull.Value);
+                            using (var reader = cmd.ExecuteReader())
                             {
-                                var name = reader.IsDBNull(0) ? null : reader.GetString(0);
-                                if (string.IsNullOrWhiteSpace(name)) continue;
-                                sections.Add(name);
+                                while (reader.Read())
+                                {
+                                    var name = reader.IsDBNull(0) ? null : reader.GetString(0);
+                                    if (string.IsNullOrWhiteSpace(name)) continue;
+                                    sections.Add(name);
+                                }
                             }
                         }
                     }
@@ -820,7 +884,8 @@ namespace RestaurantManagementSystem.Controllers
                 BEGIN
                     CREATE TABLE TableSections (
                         Id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-                        Name NVARCHAR(50) NOT NULL UNIQUE,
+                        BranchId INT NULL,
+                        Name NVARCHAR(50) NOT NULL,
                         SortOrder INT NOT NULL CONSTRAINT DF_TableSections_SortOrder DEFAULT 0,
                         IsActive BIT NOT NULL CONSTRAINT DF_TableSections_IsActive DEFAULT 1,
                         CreatedAt DATETIME NOT NULL CONSTRAINT DF_TableSections_CreatedAt DEFAULT GETDATE()
@@ -831,24 +896,55 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
+        private void EnsureTableSectionsBranchColumnExists(Microsoft.Data.SqlClient.SqlConnection con)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+IF COL_LENGTH('dbo.TableSections', 'BranchId') IS NULL
+BEGIN
+    ALTER TABLE dbo.TableSections ADD BranchId INT NULL;
+END
+", con))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        private void EnsureTablesBranchColumnExists(Microsoft.Data.SqlClient.SqlConnection con)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+IF COL_LENGTH('dbo.Tables', 'BranchId') IS NULL
+BEGIN
+    ALTER TABLE dbo.Tables ADD BranchId INT NULL;
+END
+", con))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
+
         private void SeedTableSectionsIfEmpty(Microsoft.Data.SqlClient.SqlConnection con)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return;
+
             // Seed once from existing Tables.Section values, plus a default.
             using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                 IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TableSections')
                 BEGIN
-                    IF NOT EXISTS (SELECT 1 FROM TableSections)
+                    IF NOT EXISTS (SELECT 1 FROM TableSections WHERE BranchId = @BranchId)
                     BEGIN
-                        INSERT INTO TableSections (Name, SortOrder, IsActive)
-                        SELECT DISTINCT LEFT(LTRIM(RTRIM(Section)), 50), 0, 1
+                                                INSERT INTO TableSections (BranchId, Name, SortOrder, IsActive)
+                                                SELECT DISTINCT @BranchId, LEFT(LTRIM(RTRIM(Section)), 50), 0, 1
                         FROM Tables
-                        WHERE ISNULL(LTRIM(RTRIM(Section)),'') <> '';
+                        WHERE ISNULL(LTRIM(RTRIM(Section)),'') <> ''
+                          AND BranchId = @BranchId;
 
-                        IF NOT EXISTS (SELECT 1 FROM TableSections WHERE Name = 'Main')
-                            INSERT INTO TableSections (Name, SortOrder, IsActive) VALUES ('Main', 0, 1);
+                        IF NOT EXISTS (SELECT 1 FROM TableSections WHERE Name = 'Main' AND BranchId = @BranchId)
+                            INSERT INTO TableSections (BranchId, Name, SortOrder, IsActive) VALUES (@BranchId, 'Main', 0, 1);
                     END
                 END", con))
             {
+                cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                 cmd.ExecuteNonQuery();
             }
         }
@@ -856,14 +952,18 @@ namespace RestaurantManagementSystem.Controllers
         private void TryEnsureTableSectionExists(Microsoft.Data.SqlClient.SqlConnection con, string? section)
         {
             if (string.IsNullOrWhiteSpace(section)) return;
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return;
 
             try
             {
                 EnsureTableSectionsTable(con);
+                EnsureTableSectionsBranchColumnExists(con);
                 using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                    IF NOT EXISTS (SELECT 1 FROM TableSections WHERE Name = @Name)
-                        INSERT INTO TableSections (Name, SortOrder, IsActive) VALUES (@Name, 0, 1);", con))
+                    IF NOT EXISTS (SELECT 1 FROM TableSections WHERE Name = @Name AND BranchId = @BranchId)
+                        INSERT INTO TableSections (BranchId, Name, SortOrder, IsActive) VALUES (@BranchId, @Name, 0, 1);", con))
                 {
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     cmd.Parameters.AddWithValue("@Name", section.Trim());
                     cmd.ExecuteNonQuery();
                 }
@@ -878,13 +978,22 @@ namespace RestaurantManagementSystem.Controllers
         [HttpPostAttribute]
         public IActionResult UpdateTableStatus(int id, TableStatus status)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch first.";
+                return RedirectToAction("Tables");
+            }
+
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 con.Open();
-                using (var cmd = new Microsoft.Data.SqlClient.SqlCommand("UPDATE Tables SET Status = @Status WHERE Id = @Id", con))
+                EnsureTablesBranchColumnExists(con);
+                using (var cmd = new Microsoft.Data.SqlClient.SqlCommand("UPDATE Tables SET Status = @Status WHERE Id = @Id AND BranchId = @BranchId", con))
                 {
                     cmd.Parameters.AddWithValue("@Status", (int)status);
                     cmd.Parameters.AddWithValue("@Id", id);
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     cmd.ExecuteNonQuery();
                 }
             }
@@ -917,6 +1026,12 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                if (!GetActiveBranchId().HasValue)
+                {
+                    TempData["ErrorMessage"] = "Please select an active branch first.";
+                    return RedirectToAction(nameof(TableSections));
+                }
+
                 EnsureTableSectionsTableExists();
 
                 if (!id.HasValue)
@@ -945,6 +1060,12 @@ namespace RestaurantManagementSystem.Controllers
         [ValidateAntiForgeryToken]
         public IActionResult SaveTableSection(TableSection model)
         {
+            if (!GetActiveBranchId().HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch first.";
+                return RedirectToAction(nameof(TableSections));
+            }
+
             model.Name = (model.Name ?? string.Empty).Trim();
 
             if (!ModelState.IsValid)
@@ -979,17 +1100,26 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "Please select an active branch first.";
+                    return RedirectToAction(nameof(TableSections));
+                }
+
                 EnsureTableSectionsTableExists();
                 using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
                 {
                     con.Open();
+                    EnsureTableSectionsBranchColumnExists(con);
                     using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                         UPDATE TableSections
                         SET IsActive = @IsActive
-                        WHERE Id = @Id", con))
+                        WHERE Id = @Id AND BranchId = @BranchId", con))
                     {
                         cmd.Parameters.AddWithValue("@IsActive", isActive);
                         cmd.Parameters.AddWithValue("@Id", id);
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         cmd.ExecuteNonQuery();
                     }
                 }
@@ -1021,28 +1151,39 @@ namespace RestaurantManagementSystem.Controllers
         private List<TableSection> GetTableSections()
         {
             var list = new List<TableSection>();
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return list;
+            }
+
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 con.Open();
                 EnsureTableSectionsTable(con);
+                EnsureTableSectionsBranchColumnExists(con);
                 SeedTableSectionsIfEmpty(con);
 
                 using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT Id, Name, SortOrder, IsActive, CreatedAt
                     FROM TableSections
+                    WHERE BranchId = @BranchId
                     ORDER BY SortOrder, Name", con))
-                using (var reader = cmd.ExecuteReader())
                 {
-                    while (reader.Read())
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    using (var reader = cmd.ExecuteReader())
                     {
-                        list.Add(new TableSection
+                        while (reader.Read())
                         {
-                            Id = reader.GetInt32(0),
-                            Name = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                            SortOrder = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
-                            IsActive = !reader.IsDBNull(3) && reader.GetBoolean(3),
-                            CreatedAt = reader.IsDBNull(4) ? DateTime.MinValue : reader.GetDateTime(4)
-                        });
+                            list.Add(new TableSection
+                            {
+                                Id = reader.GetInt32(0),
+                                Name = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                                SortOrder = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
+                                IsActive = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                                CreatedAt = reader.IsDBNull(4) ? DateTime.MinValue : reader.GetDateTime(4)
+                            });
+                        }
                     }
                 }
             }
@@ -1051,17 +1192,25 @@ namespace RestaurantManagementSystem.Controllers
 
         private TableSection? GetTableSectionById(int id)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return null;
+            }
+
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 con.Open();
                 EnsureTableSectionsTable(con);
+                EnsureTableSectionsBranchColumnExists(con);
 
                 using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT Id, Name, SortOrder, IsActive, CreatedAt
                     FROM TableSections
-                    WHERE Id = @Id", con))
+                    WHERE Id = @Id AND BranchId = @BranchId", con))
                 {
                     cmd.Parameters.AddWithValue("@Id", id);
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     using (var reader = cmd.ExecuteReader())
                     {
                         if (!reader.Read()) return null;
@@ -1080,10 +1229,17 @@ namespace RestaurantManagementSystem.Controllers
 
         private void UpsertTableSection(TableSection model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return;
+            }
+
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 con.Open();
                 EnsureTableSectionsTable(con);
+                EnsureTableSectionsBranchColumnExists(con);
 
                 if (model.Id > 0)
                 {
@@ -1092,9 +1248,10 @@ namespace RestaurantManagementSystem.Controllers
                         SET Name = @Name,
                             SortOrder = @SortOrder,
                             IsActive = @IsActive
-                        WHERE Id = @Id", con))
+                        WHERE Id = @Id AND BranchId = @BranchId", con))
                     {
                         cmd.Parameters.AddWithValue("@Id", model.Id);
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         cmd.Parameters.AddWithValue("@Name", model.Name);
                         cmd.Parameters.AddWithValue("@SortOrder", model.SortOrder);
                         cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
@@ -1104,9 +1261,10 @@ namespace RestaurantManagementSystem.Controllers
                 else
                 {
                     using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                        INSERT INTO TableSections (Name, SortOrder, IsActive)
-                        VALUES (@Name, @SortOrder, @IsActive)", con))
+                        INSERT INTO TableSections (BranchId, Name, SortOrder, IsActive)
+                        VALUES (@BranchId, @Name, @SortOrder, @IsActive)", con))
                     {
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         cmd.Parameters.AddWithValue("@Name", model.Name);
                         cmd.Parameters.AddWithValue("@SortOrder", model.SortOrder);
                         cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
@@ -1524,14 +1682,22 @@ namespace RestaurantManagementSystem.Controllers
             var tables = new List<Table>();
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return tables;
+                }
+
                 using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
                 {
                     con.Open();
+                    EnsureTablesBranchColumnExists(con);
                     
                     // Query with merged table support
                     using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                         SELECT 
                             t.Id, 
+                            t.BranchId,
                             t.TableNumber, 
                             t.Capacity, 
                             t.Section, 
@@ -1560,9 +1726,11 @@ namespace RestaurantManagementSystem.Controllers
                             INNER JOIN Orders o2 ON ot2.OrderId = o2.Id AND o2.Status IN (0, 1, 2)
                             GROUP BY ot2.TableId
                         ) merged ON t.Id = merged.TableId
-                        WHERE t.IsActive = 1
+                                                WHERE t.IsActive = 1
+                                                    AND t.BranchId = @BranchId
                         ORDER BY t.TableNumber", con))
                     {
+                                                cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         cmd.CommandTimeout = 30;
                         
                         using (var reader = cmd.ExecuteReader())
@@ -1572,6 +1740,7 @@ namespace RestaurantManagementSystem.Controllers
                                 tables.Add(new Table
                                 {
                                     Id = reader.GetInt32("Id"),
+                                    BranchId = reader.IsDBNull("BranchId") ? null : reader.GetInt32("BranchId"),
                                     TableNumber = reader.IsDBNull("TableNumber") ? string.Empty : reader.GetString("TableNumber"),
                                     Capacity = reader.GetInt32("Capacity"),
                                     Section = reader.IsDBNull("Section") ? null : reader.GetString("Section"),
@@ -1601,16 +1770,24 @@ namespace RestaurantManagementSystem.Controllers
         private Table GetTableById(int id)
         {
             Table table = null;
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return null;
+            }
+
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 con.Open();
+                EnsureTablesBranchColumnExists(con);
                 using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(
-                    @"SELECT Id, TableNumber, Capacity, Section, IsAvailable, Status, 
+                    @"SELECT Id, BranchId, TableNumber, Capacity, Section, IsAvailable, Status, 
                     MinPartySize, LastOccupiedAt, IsActive 
                     FROM Tables 
-                    WHERE Id = @Id", con))
+                    WHERE Id = @Id AND BranchId = @BranchId", con))
                 {
                     cmd.Parameters.AddWithValue("@Id", id);
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     using (var reader = cmd.ExecuteReader())
                     {
                         if (reader.Read())
@@ -1618,14 +1795,15 @@ namespace RestaurantManagementSystem.Controllers
                             table = new Table
                             {
                                 Id = reader.GetInt32(0),
-                                TableNumber = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                                Capacity = reader.GetInt32(2),
-                                Section = reader.IsDBNull(3) ? null : reader.GetString(3),
-                                IsAvailable = reader.GetBoolean(4),
-                                Status = (TableStatus)reader.GetInt32(5),
-                                MinPartySize = reader.GetInt32(6),
-                                LastOccupiedAt = reader.IsDBNull(7) ? null : (DateTime?)reader.GetDateTime(7),
-                                IsActive = reader.GetBoolean(8)
+                                BranchId = reader.IsDBNull(1) ? null : reader.GetInt32(1),
+                                TableNumber = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                                Capacity = reader.GetInt32(3),
+                                Section = reader.IsDBNull(4) ? null : reader.GetString(4),
+                                IsAvailable = reader.GetBoolean(5),
+                                Status = (TableStatus)reader.GetInt32(6),
+                                MinPartySize = reader.GetInt32(7),
+                                LastOccupiedAt = reader.IsDBNull(8) ? null : (DateTime?)reader.GetDateTime(8),
+                                IsActive = reader.GetBoolean(9)
                             };
                         }
                     }
@@ -1637,14 +1815,22 @@ namespace RestaurantManagementSystem.Controllers
         private List<Table> GetAvailableTables(DateTime reservationDateTime, int partySize, int? currentTableId = null)
         {
             var tables = new List<Table>();
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return tables;
+            }
+
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 con.Open();
+                EnsureTablesBranchColumnExists(con);
                 using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(
-                    @"SELECT t.Id, t.TableNumber, t.Capacity, t.Section, t.IsAvailable, t.Status, 
+                    @"SELECT t.Id, t.BranchId, t.TableNumber, t.Capacity, t.Section, t.IsAvailable, t.Status, 
                     t.MinPartySize, t.LastOccupiedAt, t.IsActive 
                     FROM Tables t
                     WHERE t.IsActive = 1
+                    AND t.BranchId = @BranchId
                     AND t.Capacity >= @PartySize
                     AND (t.Status = 0 -- Available
                          OR t.Id = @CurrentTableId)
@@ -1659,6 +1845,7 @@ namespace RestaurantManagementSystem.Controllers
                     )
                     ORDER BY ABS(t.Capacity - @PartySize), t.TableNumber", con))
                 {
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     cmd.Parameters.AddWithValue("@PartySize", partySize);
                     cmd.Parameters.AddWithValue("@ReservationDate", reservationDateTime.Date);
                     cmd.Parameters.AddWithValue("@ReservationTime", reservationDateTime);
@@ -1672,14 +1859,15 @@ namespace RestaurantManagementSystem.Controllers
                             tables.Add(new Table
                             {
                                 Id = reader.GetInt32(0),
-                                TableNumber = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                                Capacity = reader.GetInt32(2),
-                                Section = reader.IsDBNull(3) ? null : reader.GetString(3),
-                                IsAvailable = reader.GetBoolean(4),
-                                Status = (TableStatus)reader.GetInt32(5),
-                                MinPartySize = reader.GetInt32(6),
-                                LastOccupiedAt = reader.IsDBNull(7) ? null : (DateTime?)reader.GetDateTime(7),
-                                IsActive = reader.GetBoolean(8)
+                                BranchId = reader.IsDBNull(1) ? null : reader.GetInt32(1),
+                                TableNumber = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                                Capacity = reader.GetInt32(3),
+                                Section = reader.IsDBNull(4) ? null : reader.GetString(4),
+                                IsAvailable = reader.GetBoolean(5),
+                                Status = (TableStatus)reader.GetInt32(6),
+                                MinPartySize = reader.GetInt32(7),
+                                LastOccupiedAt = reader.IsDBNull(8) ? null : (DateTime?)reader.GetDateTime(8),
+                                IsActive = reader.GetBoolean(9)
                             });
                         }
                     }

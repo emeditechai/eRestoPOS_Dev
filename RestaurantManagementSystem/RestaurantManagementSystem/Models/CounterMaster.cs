@@ -6,6 +6,8 @@ namespace RestaurantManagementSystem.Models
     {
         public int Id { get; set; }
 
+        public int? BranchId { get; set; }
+
         [Required]
         [StringLength(50)]
         [Display(Name = "Counter Code")]

@@ -8,6 +8,8 @@ namespace RestaurantManagementSystem.Models
     {
         public int Id { get; set; }
 
+        public int? BranchId { get; set; }
+
         [Required(ErrorMessage = "PLU Code is required")]
         [Display(Name = "PLU Code")]
         public string PLUCode { get; set; }

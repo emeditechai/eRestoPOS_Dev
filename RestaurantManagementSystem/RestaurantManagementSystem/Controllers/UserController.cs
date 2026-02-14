@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace RestaurantManagementSystem.Controllers
@@ -18,6 +19,245 @@ namespace RestaurantManagementSystem.Controllers
 
         // Stub: Ensures required columns exist in Users table (implement as needed)
         private void EnsureUserTableColumns(SqlConnection con) { /* TODO: Implement column check if needed */ }
+
+        private void EnsureUserBranchesTableExists(SqlConnection con)
+        {
+            const string sql = @"
+IF OBJECT_ID(N'dbo.UserBranches', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.UserBranches
+    (
+        Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_UserBranches PRIMARY KEY,
+        UserId INT NOT NULL,
+        BranchId INT NOT NULL,
+        IsDefault BIT NOT NULL CONSTRAINT DF_UserBranches_IsDefault DEFAULT(0),
+        IsActive BIT NOT NULL CONSTRAINT DF_UserBranches_IsActive DEFAULT(1),
+        CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_UserBranches_CreatedAt DEFAULT SYSUTCDATETIME(),
+        UpdatedAt DATETIME2(3) NULL,
+        CONSTRAINT UQ_UserBranches_UserId_BranchId UNIQUE(UserId, BranchId)
+    );
+
+    IF OBJECT_ID(N'dbo.Users', N'U') IS NOT NULL
+        ALTER TABLE dbo.UserBranches ADD CONSTRAINT FK_UserBranches_Users FOREIGN KEY(UserId) REFERENCES dbo.Users(Id);
+
+    IF OBJECT_ID(N'dbo.Branches', N'U') IS NOT NULL
+        ALTER TABLE dbo.UserBranches ADD CONSTRAINT FK_UserBranches_Branches FOREIGN KEY(BranchId) REFERENCES dbo.Branches(BranchId);
+END
+";
+
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(sql, con))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        private void EnsureUserBranchRolesTableExists(SqlConnection con)
+        {
+            const string sql = @"
+IF OBJECT_ID(N'dbo.UserBranchRoles', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.UserBranchRoles
+    (
+        Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_UserBranchRoles PRIMARY KEY,
+        UserId INT NOT NULL,
+        BranchId INT NOT NULL,
+        RoleId INT NOT NULL,
+        IsActive BIT NOT NULL CONSTRAINT DF_UserBranchRoles_IsActive DEFAULT(1),
+        CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_UserBranchRoles_CreatedAt DEFAULT SYSUTCDATETIME(),
+        UpdatedAt DATETIME2(3) NULL,
+        CONSTRAINT UQ_UserBranchRoles_User_Branch_Role UNIQUE(UserId, BranchId, RoleId)
+    );
+
+    IF OBJECT_ID(N'dbo.Users', N'U') IS NOT NULL
+        ALTER TABLE dbo.UserBranchRoles ADD CONSTRAINT FK_UserBranchRoles_Users FOREIGN KEY(UserId) REFERENCES dbo.Users(Id);
+
+    IF OBJECT_ID(N'dbo.Branches', N'U') IS NOT NULL
+        ALTER TABLE dbo.UserBranchRoles ADD CONSTRAINT FK_UserBranchRoles_Branches FOREIGN KEY(BranchId) REFERENCES dbo.Branches(BranchId);
+
+    IF OBJECT_ID(N'dbo.Roles', N'U') IS NOT NULL
+        ALTER TABLE dbo.UserBranchRoles ADD CONSTRAINT FK_UserBranchRoles_Roles FOREIGN KEY(RoleId) REFERENCES dbo.Roles(Id);
+
+    CREATE INDEX IX_UserBranchRoles_User_Branch ON dbo.UserBranchRoles(UserId, BranchId);
+    CREATE INDEX IX_UserBranchRoles_RoleId ON dbo.UserBranchRoles(RoleId);
+END
+";
+
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(sql, con))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        private void EnsureBranchesTableExists(SqlConnection con)
+        {
+            const string sql = @"
+IF OBJECT_ID(N'dbo.Branches', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Branches
+    (
+        BranchId INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Branches PRIMARY KEY,
+        BranchCode NVARCHAR(20) NOT NULL CONSTRAINT UQ_Branches_BranchCode UNIQUE,
+        BranchName NVARCHAR(150) NOT NULL,
+        Is_MainBranch BIT NULL,
+        IsActive BIT NOT NULL CONSTRAINT DF_Branches_IsActive DEFAULT(1),
+        CreatedAt DATETIME NOT NULL CONSTRAINT DF_Branches_CreatedAt DEFAULT(GETDATE()),
+        UpdatedAt DATETIME NULL
+    );
+END
+";
+
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(sql, con))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        private List<BranchMaster> GetAllBranches(SqlConnection con)
+        {
+            var branches = new List<BranchMaster>();
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT BranchId, BranchCode, BranchName, Is_MainBranch, IsActive, CreatedAt, UpdatedAt
+FROM dbo.Branches
+WHERE ISNULL(IsActive, 1) = 1
+ORDER BY BranchCode", con))
+            using (var reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    branches.Add(new BranchMaster
+                    {
+                        BranchId = reader.GetInt32(0),
+                        BranchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                        BranchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                        Is_MainBranch = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                        IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4),
+                        CreatedAt = reader.IsDBNull(5) ? DateTime.Now : reader.GetDateTime(5),
+                        UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6)
+                    });
+                }
+            }
+
+            return branches;
+        }
+
+        private List<int> GetUserBranchIds(SqlConnection con, int userId)
+        {
+            var branchIds = new List<int>();
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT BranchId
+FROM dbo.UserBranches
+WHERE UserId = @UserId
+  AND ISNULL(IsActive, 1) = 1", con))
+            {
+                cmd.Parameters.AddWithValue("@UserId", userId);
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        branchIds.Add(reader.GetInt32(0));
+                    }
+                }
+            }
+
+            return branchIds;
+        }
+
+        private List<BranchMaster> GetUserBranches(SqlConnection con, int userId)
+        {
+            var branches = new List<BranchMaster>();
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT b.BranchId, b.BranchCode, b.BranchName, ISNULL(ub.IsDefault, ISNULL(b.Is_MainBranch, 0)) AS IsMain, b.IsActive, b.CreatedAt, b.UpdatedAt
+FROM dbo.Branches b
+INNER JOIN dbo.UserBranches ub ON ub.BranchId = b.BranchId
+WHERE ub.UserId = @UserId
+  AND ISNULL(ub.IsActive, 1) = 1
+  AND ISNULL(b.IsActive, 1) = 1
+ORDER BY CASE WHEN ISNULL(ub.IsDefault, 0) = 1 THEN 0 ELSE 1 END, b.BranchCode", con))
+            {
+                cmd.Parameters.AddWithValue("@UserId", userId);
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        branches.Add(new BranchMaster
+                        {
+                            BranchId = reader.GetInt32(0),
+                            BranchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                            BranchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                            Is_MainBranch = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                            IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4),
+                            CreatedAt = reader.IsDBNull(5) ? DateTime.Now : reader.GetDateTime(5),
+                            UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6)
+                        });
+                    }
+                }
+            }
+
+            return branches;
+        }
+
+        private Dictionary<int, List<int>> GetUserBranchRoleMappings(SqlConnection con, int userId)
+        {
+            var mappings = new Dictionary<int, List<int>>();
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT BranchId, RoleId
+FROM dbo.UserBranchRoles
+WHERE UserId = @UserId
+  AND ISNULL(IsActive, 1) = 1", con))
+            {
+                cmd.Parameters.AddWithValue("@UserId", userId);
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        var branchId = reader.GetInt32(0);
+                        var roleId = reader.GetInt32(1);
+                        if (!mappings.ContainsKey(branchId))
+                        {
+                            mappings[branchId] = new List<int>();
+                        }
+
+                        if (!mappings[branchId].Contains(roleId))
+                        {
+                            mappings[branchId].Add(roleId);
+                        }
+                    }
+                }
+            }
+
+            return mappings;
+        }
+
+        private Dictionary<int, List<int>> ParseBranchRoleAssignments(string branchRoleAssignmentsJson)
+        {
+            if (string.IsNullOrWhiteSpace(branchRoleAssignmentsJson))
+            {
+                return new Dictionary<int, List<int>>();
+            }
+
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<Dictionary<string, List<int>>>(branchRoleAssignmentsJson) ?? new Dictionary<string, List<int>>();
+                var result = new Dictionary<int, List<int>>();
+
+                foreach (var kvp in parsed)
+                {
+                    if (!int.TryParse(kvp.Key, out var branchId))
+                    {
+                        continue;
+                    }
+
+                    var roleIds = (kvp.Value ?? new List<int>()).Where(x => x > 0).Distinct().ToList();
+                    result[branchId] = roleIds;
+                }
+
+                return result;
+            }
+            catch
+            {
+                return new Dictionary<int, List<int>>();
+            }
+        }
 
         // Stub: Checks if a username exists (implement as needed)
         private bool UserExists(string username, int? excludeUserId = null) { return false; /* TODO: Implement actual check */ }
@@ -42,6 +282,8 @@ namespace RestaurantManagementSystem.Controllers
                     
                     // First ensure Users table exists
                     EnsureUsersTableExists(con);
+                    EnsureBranchesTableExists(con);
+                    EnsureUserBranchesTableExists(con);
                     
                     // Create or update a robust stored procedure to list users safely across schema variants
                     var createSp = @"CREATE OR ALTER PROCEDURE dbo.usp_GetUsersList
@@ -87,6 +329,11 @@ END";
                 foreach (var user in users)
                 {
                     user.Roles = (await _userRoleService.GetUserRolesAsync(user.Id)).ToList();
+                    using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
+                    {
+                        con.Open();
+                        user.Branches = GetUserBranches(con, user.Id);
+                    }
                 }
                 
                 return View(users);
@@ -121,6 +368,9 @@ END";
                         // Ensure Users table and columns exist
                         EnsureUsersTableExists(con);
                         EnsureUserTableColumns(con);
+                        EnsureBranchesTableExists(con);
+                        EnsureUserBranchesTableExists(con);
+                        EnsureUserBranchRolesTableExists(con);
                         
                         // Create or alter a stored procedure to fetch a single user robustly
                         var createSp = @"CREATE OR ALTER PROCEDURE dbo.usp_GetUserById
@@ -169,21 +419,47 @@ END";
                         
                         // Populate the SelectedRoleIds based on assigned roles
                         model.SelectedRoleIds = model.Roles.Select(r => r.Id).ToList();
+
+                        using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
+                        {
+                            con.Open();
+                            EnsureUserBranchRolesTableExists(con);
+                            model.SelectedBranchIds = GetUserBranchIds(con, model.Id);
+                            var branchRoleMappings = GetUserBranchRoleMappings(con, model.Id);
+                            model.SelectedRoleIds = branchRoleMappings.Values.SelectMany(x => x).Distinct().ToList();
+                            ViewBag.SelectedBranchRoles = JsonSerializer.Serialize(branchRoleMappings.ToDictionary(x => x.Key.ToString(), x => x.Value));
+                        }
                     }
                 }
+
+                using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
+                {
+                    con.Open();
+                    EnsureBranchesTableExists(con);
+                    EnsureUserBranchesTableExists(con);
+                    EnsureUserBranchRolesTableExists(con);
+                    ViewBag.AllBranches = GetAllBranches(con);
+                }
+
+                if (ViewBag.SelectedBranchRoles == null)
+                {
+                    ViewBag.SelectedBranchRoles = "{}";
+                }
+
                 return View(model);
             }
             catch (Exception ex)
             {
                 // Display error in a friendly way
                 ViewBag.ErrorMessage = $"Error loading user: {ex.Message}";
+                ViewBag.AllBranches = new List<BranchMaster>();
                 return View(new User { Username = "", FirstName = "", LastName = "" });
             }
         }
 
         // Save User
         [HttpPostAttribute]
-        public async Task<IActionResult> SaveUser(User model, List<int> selectedRoles)
+        public async Task<IActionResult> SaveUser(User model, List<int> selectedRoles, List<int> selectedBranches, string branchRoleAssignmentsJson)
         {
             // Always remove Password validation for existing users
             if (model.Id > 0 && ModelState.ContainsKey("Password"))
@@ -222,6 +498,49 @@ END";
             var allRoles = await _userRoleService.GetAllRolesAsync();
             ViewBag.AllRoles = allRoles;
             ViewBag.Roles = allRoles; // Adding this for backward compatibility
+            selectedBranches ??= new List<int>();
+            model.SelectedBranchIds = selectedBranches.Distinct().ToList();
+
+            var branchRoleAssignments = ParseBranchRoleAssignments(branchRoleAssignmentsJson);
+
+            if (branchRoleAssignments.Count == 0 && model.SelectedBranchIds.Count > 0 && selectedRoles != null && selectedRoles.Count > 0)
+            {
+                foreach (var branchId in model.SelectedBranchIds)
+                {
+                    branchRoleAssignments[branchId] = selectedRoles.Distinct().ToList();
+                }
+            }
+
+            model.SelectedRoleIds = branchRoleAssignments.Values.SelectMany(x => x).Distinct().ToList();
+            ViewBag.SelectedBranchRoles = JsonSerializer.Serialize(branchRoleAssignments.ToDictionary(x => x.Key.ToString(), x => x.Value));
+
+            if (model.SelectedBranchIds == null || model.SelectedBranchIds.Count == 0)
+            {
+                ModelState.AddModelError("SelectedBranchIds", "Please assign at least one branch.");
+            }
+
+            if (branchRoleAssignments.Count == 0)
+            {
+                ModelState.AddModelError("SelectedRoleIds", "Please assign at least one role for selected branches.");
+            }
+
+            foreach (var branchId in model.SelectedBranchIds)
+            {
+                if (!branchRoleAssignments.TryGetValue(branchId, out var rolesForBranch) || rolesForBranch == null || rolesForBranch.Count == 0)
+                {
+                    ModelState.AddModelError("SelectedRoleIds", "Each selected branch must have at least one role.");
+                    break;
+                }
+            }
+
+            using (var branchCon = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
+            {
+                branchCon.Open();
+                EnsureBranchesTableExists(branchCon);
+                EnsureUserBranchesTableExists(branchCon);
+                EnsureUserBranchRolesTableExists(branchCon);
+                ViewBag.AllBranches = GetAllBranches(branchCon);
+            }
 
             if (ModelState.IsValid)
             {
@@ -244,9 +563,13 @@ END";
                         // Ensure Users table and columns exist
                         EnsureUsersTableExists(con);
                         EnsureUserTableColumns(con);
+                        EnsureBranchesTableExists(con);
+                        EnsureUserBranchesTableExists(con);
+                        EnsureUserBranchRolesTableExists(con);
                         
                         int userId = model.Id;
-                        string roleIds = selectedRoles != null && selectedRoles.Count > 0 ? string.Join(",", selectedRoles) : "";
+                        var effectiveRoleIds = branchRoleAssignments.Values.SelectMany(x => x).Distinct().ToList();
+                        string roleIds = effectiveRoleIds.Count > 0 ? string.Join(",", effectiveRoleIds) : "";
                         // Determine password and salt to use. If a plaintext password was provided, hash it with BCrypt and save its salt.
                         string passwordToUse = null;
                         string saltToUse = null;
@@ -304,6 +627,51 @@ END";
                             result.Close();
                             resultMessage = model.Id == 0 ? "User added successfully" : "User updated successfully";
                         }
+
+                        using (var deleteBranchCmd = new Microsoft.Data.SqlClient.SqlCommand("DELETE FROM dbo.UserBranches WHERE UserId = @UserId", con))
+                        {
+                            deleteBranchCmd.Parameters.AddWithValue("@UserId", userId);
+                            deleteBranchCmd.ExecuteNonQuery();
+                        }
+
+                        using (var deleteBranchRoleCmd = new Microsoft.Data.SqlClient.SqlCommand("DELETE FROM dbo.UserBranchRoles WHERE UserId = @UserId", con))
+                        {
+                            deleteBranchRoleCmd.Parameters.AddWithValue("@UserId", userId);
+                            deleteBranchRoleCmd.ExecuteNonQuery();
+                        }
+
+                        if (model.SelectedBranchIds.Count > 0)
+                        {
+                            int defaultBranchId = model.SelectedBranchIds[0];
+                            foreach (var branchId in model.SelectedBranchIds)
+                            {
+                                using (var insertBranchCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+INSERT INTO dbo.UserBranches (UserId, BranchId, IsDefault, IsActive, CreatedAt, UpdatedAt)
+VALUES (@UserId, @BranchId, @IsDefault, 1, SYSUTCDATETIME(), NULL)", con))
+                                {
+                                    insertBranchCmd.Parameters.AddWithValue("@UserId", userId);
+                                    insertBranchCmd.Parameters.AddWithValue("@BranchId", branchId);
+                                    insertBranchCmd.Parameters.AddWithValue("@IsDefault", branchId == defaultBranchId);
+                                    insertBranchCmd.ExecuteNonQuery();
+                                }
+
+                                if (branchRoleAssignments.TryGetValue(branchId, out var roleList))
+                                {
+                                    foreach (var roleId in roleList.Distinct())
+                                    {
+                                        using (var insertBranchRoleCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+INSERT INTO dbo.UserBranchRoles (UserId, BranchId, RoleId, IsActive, CreatedAt, UpdatedAt)
+VALUES (@UserId, @BranchId, @RoleId, 1, SYSUTCDATETIME(), NULL)", con))
+                                        {
+                                            insertBranchRoleCmd.Parameters.AddWithValue("@UserId", userId);
+                                            insertBranchRoleCmd.Parameters.AddWithValue("@BranchId", branchId);
+                                            insertBranchRoleCmd.Parameters.AddWithValue("@RoleId", roleId);
+                                            insertBranchRoleCmd.ExecuteNonQuery();
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     TempData["ResultMessage"] = resultMessage;
                     return RedirectToAction("UserList");
@@ -317,6 +685,18 @@ END";
             var userRoles = _userRoleService.GetAllRolesAsync().Result;
             ViewBag.AllRoles = userRoles;
             ViewBag.Roles = userRoles; // Adding this for backward compatibility
+            using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
+            {
+                con.Open();
+                EnsureBranchesTableExists(con);
+                EnsureUserBranchesTableExists(con);
+                EnsureUserBranchRolesTableExists(con);
+                ViewBag.AllBranches = GetAllBranches(con);
+            }
+            if (ViewBag.SelectedBranchRoles == null)
+            {
+                ViewBag.SelectedBranchRoles = "{}";
+            }
             // Show all ModelState errors in TempData for debugging
             if (!ModelState.IsValid)
             {

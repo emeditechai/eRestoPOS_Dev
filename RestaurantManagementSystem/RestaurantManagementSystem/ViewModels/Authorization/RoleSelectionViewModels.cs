@@ -14,4 +14,17 @@ namespace RestaurantManagementSystem.ViewModels.Authorization
     {
         public int RoleId { get; set; }
     }
+
+    public class BranchSelectionOptionViewModel
+    {
+        public int BranchId { get; set; }
+        public string BranchCode { get; set; }
+        public string BranchName { get; set; }
+        public bool IsActive { get; set; }
+    }
+
+    public class SwitchBranchRequest
+    {
+        public int BranchId { get; set; }
+    }
 }

@@ -1,0 +1,55 @@
+@model RestaurantManagementSystem.Models.BranchMaster
+@{
+    ViewData["Title"] = Model.BranchId == 0 ? "Add Branch" : "Edit Branch";
+}
+
+<h2 class="mb-4">@ViewData["Title"]</h2>
+
+<form asp-action="BranchForm" asp-controller="Master" method="post">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="BranchId" />
+
+    <div class="mb-3">
+        <label asp-for="BranchCode" class="form-label"></label>
+        <input asp-for="BranchCode" class="form-control" autocomplete="off" maxlength="4" />
+        <span asp-validation-for="BranchCode" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="BranchName" class="form-label"></label>
+        <input asp-for="BranchName" class="form-control" autocomplete="off" />
+        <span asp-validation-for="BranchName" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3 form-check">
+        <input asp-for="Is_MainBranch" class="form-check-input" />
+        <label asp-for="Is_MainBranch" class="form-check-label"></label>
+        <span asp-validation-for="Is_MainBranch" class="text-danger d-block"></span>
+    </div>
+
+    <div class="mb-3 form-check">
+        <input asp-for="IsActive" class="form-check-input" />
+        <label asp-for="IsActive" class="form-check-label"></label>
+    </div>
+
+    <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a href="@Url.Action("BranchList", "Master")" class="btn btn-secondary">Back</a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        $(document).ready(function () {
+            var isView = '@ViewBag.IsView' === 'True';
+            if (isView) {
+                $('#BranchCode').prop('disabled', true);
+                $('#BranchName').prop('disabled', true);
+                $('#Is_MainBranch').prop('disabled', true);
+                $('#IsActive').prop('disabled', true);
+                $('button[type=submit]').prop('disabled', true).addClass('disabled');
+            }
+        });
+    </script>
+}

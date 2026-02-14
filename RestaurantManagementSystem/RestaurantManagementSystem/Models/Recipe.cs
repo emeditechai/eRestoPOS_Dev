@@ -7,6 +7,7 @@ namespace RestaurantManagementSystem.Models
     public class Recipe
     {
         public int Id { get; set; }
+        public int? BranchId { get; set; }
         
         [Required]
         public int MenuItemId { get; set; }

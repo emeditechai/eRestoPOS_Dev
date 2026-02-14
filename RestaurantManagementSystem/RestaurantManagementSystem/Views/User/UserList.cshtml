@@ -31,6 +31,7 @@
                     <th>Email</th>
                     <th>Phone</th>
                     <th>Role</th>
+                    <th>Branch</th>
                     <th>Status</th>
                     <th>Actions</th>
                 </tr>
@@ -44,6 +45,7 @@
                         <td>@user.Email</td>
                         <td>@user.Phone</td>
                         <td>@(user.Roles != null && user.Roles.Any() ? string.Join(", ", user.Roles.Select(r => r.Name)) : "-")</td>
+                        <td>@(user.Branches != null && user.Branches.Any() ? string.Join(", ", user.Branches.Select(b => string.IsNullOrWhiteSpace(b.BranchCode) ? b.BranchName : $"{b.BranchCode} - {b.BranchName}")) : "-")</td>
                         <td>@(user.IsActive ? "Active" : "Inactive")</td>
                         <td>
                             <a asp-action="UserForm" asp-route-id="@user.Id" class="btn btn-sm btn-primary">Edit</a>

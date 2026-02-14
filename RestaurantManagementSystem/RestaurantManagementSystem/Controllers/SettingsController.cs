@@ -7,6 +7,7 @@ using RestaurantManagementSystem.Data;
 using RestaurantManagementSystem.Helpers;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Services;
+using RestaurantManagementSystem.Utilities;
 using RestaurantManagementSystem.ViewModels;
 using System.Diagnostics;
 using Microsoft.Data.SqlClient;
@@ -42,6 +43,13 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "Please select an active branch to access Settings.";
+                    return RedirectToAction("Index", "Home");
+                }
+
                 // Try to ensure the settings table exists
                 bool tableCreated = await _settingsService.EnsureSettingsTableExistsAsync();
                 
@@ -51,7 +59,7 @@ namespace RestaurantManagementSystem.Controllers
                     TempData["SuccessMessage"] = "Restaurant Settings table created successfully.";
                 }
                 
-                var settings = await _settingsService.GetSettingsAsync();
+                var settings = await _settingsService.GetSettingsAsync(activeBranchId);
                 var viewModel = MapToViewModel(settings);
                 return View(viewModel);
             }
@@ -74,10 +82,17 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "Please select an active branch to edit Settings.";
+                    return RedirectToAction("Index", "Home");
+                }
+
                 // Try to ensure the settings table exists
                 await _settingsService.EnsureSettingsTableExistsAsync();
                 
-                var settings = await _settingsService.GetSettingsAsync();
+                var settings = await _settingsService.GetSettingsAsync(activeBranchId);
                 var viewModel = MapToViewModel(settings);
                 return View(viewModel);
             }
@@ -100,6 +115,13 @@ namespace RestaurantManagementSystem.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(RestaurantSettingsViewModel viewModel)
         {
+            var activeBranchId = User.GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch to update Settings.";
+                return RedirectToAction("Index", "Home");
+            }
+
             if (!ModelState.IsValid)
             {
                 return View(viewModel);
@@ -136,7 +158,7 @@ namespace RestaurantManagementSystem.Controllers
                 var settings = MapToModel(viewModel);
                 
                 // Update settings
-                await _settingsService.UpdateSettingsAsync(settings);
+                await _settingsService.UpdateSettingsAsync(settings, activeBranchId);
 
                 // Bust cache so Order/Create sees changes immediately for all users
                 _cache.Set(OrderTypeHelper.AllowedOrderTypesCacheVersionKey, Guid.NewGuid().ToString("N"));

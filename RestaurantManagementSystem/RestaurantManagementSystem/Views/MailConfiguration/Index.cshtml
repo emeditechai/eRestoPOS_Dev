@@ -1,6 +1,9 @@
 @model RestaurantManagementSystem.ViewModels.MailConfigurationViewModel
+@using RestaurantManagementSystem.Models
 @{
     ViewData["Title"] = "Mail Configuration";
+    var targetBranches = ViewBag.TargetBranches as List<BranchMaster> ?? new List<BranchMaster>();
+    bool canCopyMailConfiguration = ViewBag.CanCopyMailConfiguration != null && (bool)ViewBag.CanCopyMailConfiguration;
 }
 
 <link rel="stylesheet" href="~/css/settings.css" />
@@ -180,6 +183,36 @@
                                 <i class="fas fa-paper-plane me-1"></i>Send Test Email
                             </button>
                         </div>
+
+                        @if (canCopyMailConfiguration)
+                        {
+                            <hr class="my-4" />
+                            <h6 class="mb-2">
+                                <span class="icon-chip"><i class="fas fa-code-branch"></i></span>
+                                Copy Mail Configuration
+                            </h6>
+                            <div class="row g-2 align-items-end">
+                                <div class="col-md-8">
+                                    <label class="form-label fw-semibold">Target Branch</label>
+                                    <select class="form-select" id="mailCopyTargetBranch">
+                                        <option value="">Select target branch</option>
+                                        @foreach (var branch in targetBranches)
+                                        {
+                                            <option value="@branch.BranchId">@branch.BranchName (@branch.BranchCode)</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-4 d-grid">
+                                    <button type="button" class="btn btn-outline-primary" id="copyMailConfigBtn">
+                                        <i class="fas fa-copy me-1"></i>Copy To Branch
+                                    </button>
+                                </div>
+                            </div>
+                            <small class="form-text text-muted d-block mt-2">
+                                Available only for Administrator while logged into Main Branch.
+                            </small>
+                            <div id="mailCopyResult" class="mt-2"></div>
+                        }
                     </form>
                 </div>
             </div>
@@ -339,5 +372,40 @@
             document.getElementById('testEmailAddress').focus();
             document.getElementById('testEmailAddress').scrollIntoView({ behavior: 'smooth', block: 'center' });
         });
+
+        const copyMailConfigBtn = document.getElementById('copyMailConfigBtn');
+        if (copyMailConfigBtn) {
+            copyMailConfigBtn.addEventListener('click', async function() {
+                const targetBranchId = document.getElementById('mailCopyTargetBranch').value;
+                const resultDiv = document.getElementById('mailCopyResult');
+
+                if (!targetBranchId) {
+                    resultDiv.innerHTML = '<div class="alert alert-danger p-2 mb-0 small"><i class="fas fa-exclamation-circle me-1"></i>Please select target branch</div>';
+                    return;
+                }
+
+                resultDiv.innerHTML = '<div class="text-center p-2"><div class="spinner-border spinner-border-sm text-primary" role="status"><span class="visually-hidden">Copying...</span></div></div>';
+
+                try {
+                    const response = await fetch('/MailConfiguration/CopyToBranch', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': document.querySelector('input[name="__RequestVerificationToken"]').value
+                        },
+                        body: JSON.stringify({ targetBranchId: parseInt(targetBranchId) })
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        resultDiv.innerHTML = '<div class="alert alert-success p-2 mb-0 small"><i class="fas fa-check-circle me-1"></i>' + result.message + '</div>';
+                    } else {
+                        resultDiv.innerHTML = '<div class="alert alert-danger p-2 mb-0 small"><i class="fas fa-exclamation-circle me-1"></i>' + result.message + '</div>';
+                    }
+                } catch (error) {
+                    resultDiv.innerHTML = '<div class="alert alert-danger p-2 mb-0 small"><i class="fas fa-exclamation-circle me-1"></i>Error: ' + error.message + '</div>';
+                }
+            });
+        }
     </script>
 }

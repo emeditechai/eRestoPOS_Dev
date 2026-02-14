@@ -1,7 +1,9 @@
 @model RestaurantManagementSystem.Models.User
+@using System.Text.Json
 @{
     ViewData["Title"] = Model.Id == 0 ? "Create User" : ((ViewBag.IsView ?? false) ? "View User" : "Edit User");
     bool isView = ViewBag.IsView ?? false;
+    string selectedBranchRolesJson = ViewBag.SelectedBranchRoles as string ?? "{}";
 }
 
 <div class="container-fluid py-3" style="background: #f0f2f5; min-height: 100vh;">
@@ -50,6 +52,7 @@
                     <form asp-action="SaveUser" method="post" id="userForm" autocomplete="off" novalidate>
                         <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
                         <input type="hidden" asp-for="Id" />
+                        <input type="hidden" id="branchRoleAssignmentsJson" name="branchRoleAssignmentsJson" value='@Html.Raw(selectedBranchRolesJson)' />
 
                         <!-- Account Information Section -->
                         <div class="card border-0 shadow-sm mb-3">
@@ -164,34 +167,48 @@
                                         }
                                     </div>
                                     <div class="col-md-6">
-                                        <label asp-for="SelectedRoleIds" class="form-label small fw-semibold mb-1">
-                                            User Roles
+                                        <label asp-for="SelectedBranchIds" class="form-label small fw-semibold mb-1">
+                                            Branch Access
                                         </label>
                                         @if (isView)
                                         {
-                                            <select class="form-select" multiple disabled style="height: 100px;">
-                                                @foreach (var role in ViewBag.AllRoles)
+                                            <select id="selectedBranches" class="form-select" multiple disabled style="height: 100px;">
+                                                @foreach (var branch in ViewBag.AllBranches)
                                                 {
-                                                    <option value="@role.Id" selected="@(Model.SelectedRoleIds?.Contains(role.Id) ?? false)">@role.Name</option>
+                                                    <option value="@branch.BranchId" data-branch-label="@(string.IsNullOrWhiteSpace(branch.BranchCode) ? branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}")" selected="@(Model.SelectedBranchIds?.Contains(branch.BranchId) ?? false)">@(string.IsNullOrWhiteSpace(branch.BranchCode) ? branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}")</option>
                                                 }
                                             </select>
-                                            @if (Model.SelectedRoleIds != null)
+                                            @if (Model.SelectedBranchIds != null)
                                             {
-                                                foreach (var roleId in Model.SelectedRoleIds)
+                                                foreach (var branchId in Model.SelectedBranchIds)
                                                 {
-                                                    <input type="hidden" name="selectedRoles" value="@roleId" />
+                                                    <input type="hidden" name="selectedBranches" value="@branchId" />
                                                 }
                                             }
                                         }
                                         else
                                         {
-                                            <select name="selectedRoles" class="form-select" multiple style="height: 100px;">
-                                                @foreach (var role in ViewBag.AllRoles)
+                                            <select id="selectedBranches" name="selectedBranches" class="form-select" multiple style="height: 100px;">
+                                                @foreach (var branch in ViewBag.AllBranches)
                                                 {
-                                                    <option value="@role.Id" selected="@(Model.SelectedRoleIds?.Contains(role.Id) ?? false)">@role.Name</option>
+                                                    <option value="@branch.BranchId" data-branch-label="@(string.IsNullOrWhiteSpace(branch.BranchCode) ? branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}")" selected="@(Model.SelectedBranchIds?.Contains(branch.BranchId) ?? false)">@(string.IsNullOrWhiteSpace(branch.BranchCode) ? branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}")</option>
                                                 }
                                             </select>
-                                            <small class="text-muted">Hold Ctrl/Cmd to select multiple</small>
+                                            <small class="text-muted">Hold Ctrl/Cmd to select multiple branches</small>
+                                        }
+                                        <span asp-validation-for="SelectedBranchIds" class="text-danger small"></span>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label asp-for="SelectedRoleIds" class="form-label small fw-semibold mb-1">
+                                            Branch-wise Roles
+                                        </label>
+                                        <div id="branchRoleAssignmentsContainer" class="border rounded p-2" style="min-height: 100px; background: #fafbfc;"></div>
+                                        @if (isView && Model.SelectedRoleIds != null)
+                                        {
+                                            foreach (var roleId in Model.SelectedRoleIds)
+                                            {
+                                                <input type="hidden" name="selectedRoles" value="@roleId" />
+                                            }
                                         }
                                         <span asp-validation-for="SelectedRoleIds" class="text-danger small"></span>
                                     </div>
@@ -353,6 +370,106 @@
             const confirmPasswordInput = $('#confirmPassword');
             const form = $('#userForm');
             const isEditMode = @(Model.Id != 0 ? "true" : "false");
+            const isViewMode = @(isView ? "true" : "false");
+            const allRoles = [
+                @foreach (var role in ViewBag.AllRoles)
+                {
+                    @:{ id: @role.Id, name: @Html.Raw(JsonSerializer.Serialize(role.Name)) },
+                }
+            ];
+            let selectedBranchRoles = @Html.Raw(selectedBranchRolesJson);
+
+            function getSelectedBranchIds() {
+                return ($('#selectedBranches').val() || []).map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+            }
+
+            function getBranchLabel(branchId) {
+                const option = $('#selectedBranches option[value="' + branchId + '"]');
+                return option.data('branch-label') || option.text() || ('Branch ' + branchId);
+            }
+
+            function ensureBranchRoleDefaults(selectedBranchIds) {
+                selectedBranchIds.forEach(function(branchId) {
+                    if (!selectedBranchRoles[branchId]) {
+                        selectedBranchRoles[branchId] = [];
+                    }
+                });
+
+                Object.keys(selectedBranchRoles).forEach(function(key) {
+                    const id = parseInt(key, 10);
+                    if (!selectedBranchIds.includes(id)) {
+                        delete selectedBranchRoles[key];
+                    }
+                });
+            }
+
+            function renderBranchRoleAssignments() {
+                const selectedBranchIds = getSelectedBranchIds();
+                ensureBranchRoleDefaults(selectedBranchIds);
+
+                const container = $('#branchRoleAssignmentsContainer');
+                container.empty();
+
+                if (selectedBranchIds.length === 0) {
+                    container.append('<small class="text-muted">Select one or more branches to assign roles.</small>');
+                    return;
+                }
+
+                selectedBranchIds.forEach(function(branchId) {
+                    const branchLabel = getBranchLabel(branchId);
+                    const selectedRolesForBranch = (selectedBranchRoles[branchId] || []).map(x => parseInt(x, 10));
+
+                    const card = $('<div class="mb-2 p-2 border rounded bg-white"></div>');
+                    card.append('<div class="small fw-semibold mb-1">' + branchLabel + '</div>');
+
+                    const select = $('<select class="form-select form-select-sm branch-role-select" multiple style="height: 90px;"></select>');
+                    select.attr('data-branch-id', branchId);
+                    if (isViewMode) {
+                        select.prop('disabled', true);
+                    }
+
+                    allRoles.forEach(function(role) {
+                        const option = $('<option></option>').val(role.id).text(role.name);
+                        if (selectedRolesForBranch.includes(parseInt(role.id, 10))) {
+                            option.attr('selected', 'selected');
+                        }
+                        select.append(option);
+                    });
+
+                    card.append(select);
+                    if (!isViewMode) {
+                        card.append('<small class="text-muted">Select one or more roles for this branch</small>');
+                    }
+                    container.append(card);
+                });
+            }
+
+            function syncBranchRoleAssignmentsToHidden() {
+                const selectedBranchIds = getSelectedBranchIds();
+                const finalMap = {};
+
+                selectedBranchIds.forEach(function(branchId) {
+                    const selectedRoleIds = $('.branch-role-select[data-branch-id="' + branchId + '"]').val() || selectedBranchRoles[branchId] || [];
+                    finalMap[branchId] = selectedRoleIds.map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+                });
+
+                selectedBranchRoles = finalMap;
+                $('#branchRoleAssignmentsJson').val(JSON.stringify(finalMap));
+            }
+
+            $('#selectedBranches').on('change', function() {
+                renderBranchRoleAssignments();
+                syncBranchRoleAssignmentsToHidden();
+            });
+
+            $(document).on('change', '.branch-role-select', function() {
+                const branchId = parseInt($(this).data('branch-id'), 10);
+                selectedBranchRoles[branchId] = ($(this).val() || []).map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+                syncBranchRoleAssignmentsToHidden();
+            });
+
+            renderBranchRoleAssignments();
+            syncBranchRoleAssignmentsToHidden();
             
             // Toggle password visibility
             $('#togglePassword').on('click', function() {
@@ -495,6 +612,23 @@
                 } else {
                     $('#FirstName').removeClass('is-invalid');
                 }
+
+                const selectedBranches = getSelectedBranchIds();
+                if (selectedBranches.length === 0) {
+                    $('#selectedBranches').addClass('is-invalid');
+                    isValid = false;
+                } else {
+                    $('#selectedBranches').removeClass('is-invalid');
+                }
+
+                syncBranchRoleAssignmentsToHidden();
+                selectedBranches.forEach(function(branchId) {
+                    const roles = selectedBranchRoles[branchId] || [];
+                    if (roles.length === 0) {
+                        isValid = false;
+                        $('.branch-role-select[data-branch-id="' + branchId + '"]').addClass('is-invalid');
+                    }
+                });
                 
                 // Password validation for new users or when changing password
                 if (!passwordInput.prop('disabled')) {
@@ -548,6 +682,12 @@
             // Clear invalid state on input
             $('.form-control').on('input', function() {
                 if ($(this).val().trim()) {
+                    $(this).removeClass('is-invalid');
+                }
+            });
+
+            $(document).on('change', '.branch-role-select', function() {
+                if (($(this).val() || []).length > 0) {
                     $(this).removeClass('is-invalid');
                 }
             });

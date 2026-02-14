@@ -69,6 +69,23 @@ Expected output:
 - All 6 stored procedures show "EXISTS"
 - MenuItems.IsAlcoholic shows "EXISTS"
 
+### Step 3A: Branch-wise Role Migration (One-Time, if enabled)
+If your deployment includes branch-wise user role assignment, run these scripts in order:
+
+```bash
+# 1) Branch master table
+sqlcmd -S ServerName -d DatabaseName -i create_branches_table.sql
+
+# 2) User-Branch mapping
+sqlcmd -S ServerName -d DatabaseName -i SQL/create_user_branches_table.sql
+
+# 3) User-Branch-Role mapping
+sqlcmd -S ServerName -d DatabaseName -i RestaurantManagementSystem/RestaurantManagementSystem/SQL/create_user_branch_roles_table.sql
+```
+
+Optional one-time backfill from legacy `UserRoles` is documented in:
+- `BRANCH_ROLE_MIGRATION_ORDER.md`
+
 ### Step 4: Create Bar Menu Group
 ```sql
 -- Check if Bar group exists

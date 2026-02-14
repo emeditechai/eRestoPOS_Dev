@@ -9,6 +9,7 @@ using RestaurantManagementSystem.ViewModels;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using System.IO;
 using Microsoft.AspNetCore.Hosting;
+using RestaurantManagementSystem.Utilities;
 using MenuItemIngredientViewModelModel = RestaurantManagementSystem.Models.MenuItemIngredientViewModel;
 
 namespace RestaurantManagementSystem.Controllers
@@ -23,10 +24,60 @@ namespace RestaurantManagementSystem.Controllers
             _connectionString = configuration.GetConnectionString("DefaultConnection");
             _webHostEnvironment = webHostEnvironment;
         }
+
+        private int? GetActiveBranchId()
+        {
+            return User.GetActiveBranchId();
+        }
+
+        private void EnsureRecipesBranchColumnExists(Microsoft.Data.SqlClient.SqlConnection connection)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+IF COL_LENGTH('dbo.Recipes', 'BranchId') IS NULL
+BEGIN
+    ALTER TABLE dbo.Recipes ADD BranchId INT NULL;
+END
+", connection))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        private void EnsureMenuItemsBranchColumnExists(Microsoft.Data.SqlClient.SqlConnection connection)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+IF COL_LENGTH('dbo.MenuItems', 'BranchId') IS NULL
+BEGIN
+    ALTER TABLE dbo.MenuItems ADD BranchId INT NULL;
+END
+", connection))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        private void EnsureIngredientsBranchColumnExists(Microsoft.Data.SqlClient.SqlConnection connection)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+IF COL_LENGTH('dbo.Ingredients', 'BranchId') IS NULL
+BEGIN
+    ALTER TABLE dbo.Ingredients ADD BranchId INT NULL;
+END
+", connection))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
         
         // GET: Recipe
         public IActionResult Index()
         {
+            if (!GetActiveBranchId().HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch first.";
+                return View(new List<Recipe>());
+            }
+
             var recipes = GetAllRecipes();
             return View(recipes);
         }
@@ -34,6 +85,12 @@ namespace RestaurantManagementSystem.Controllers
         // GET: Recipe/Dashboard
         public IActionResult Dashboard()
         {
+            if (!GetActiveBranchId().HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch first.";
+                return View(new List<Recipe>());
+            }
+
             var recipes = GetAllRecipes();
             return View(recipes);
         }
@@ -141,9 +198,18 @@ namespace RestaurantManagementSystem.Controllers
             if (ModelState.IsValid)
             {
                 int recipeId;
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    ModelState.AddModelError("", "Please select an active branch first.");
+                    ViewBag.Ingredients = new SelectList(GetAllIngredients(), "Id", "IngredientsName");
+                    return View(model);
+                }
+
                 using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
+                    EnsureRecipesBranchColumnExists(connection);
                     
                     using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand("sp_ManageRecipe", connection))
                     {
@@ -173,6 +239,14 @@ namespace RestaurantManagementSystem.Controllers
                                 return View(model);
                             }
                         }
+                    }
+
+                    using (var updateBranchCmd = new Microsoft.Data.SqlClient.SqlCommand(
+                        "UPDATE dbo.Recipes SET BranchId = @BranchId WHERE Id = @RecipeId", connection))
+                    {
+                        updateBranchCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        updateBranchCmd.Parameters.AddWithValue("@RecipeId", recipeId);
+                        updateBranchCmd.ExecuteNonQuery();
                     }
                     
                     // Add recipe steps if provided
@@ -291,9 +365,18 @@ VALUES (@MenuItemId, @IngredientId, @Quantity, @Unit, @IsOptional, @Instructions
             if (ModelState.IsValid)
             {
                 int recipeId;
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    ModelState.AddModelError("", "Please select an active branch first.");
+                    ViewBag.Ingredients = new SelectList(GetAllIngredients(), "Id", "IngredientsName");
+                    return View(model);
+                }
+
                 using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
+                    EnsureRecipesBranchColumnExists(connection);
                     
                     using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand("sp_ManageRecipe", connection))
                     {
@@ -323,6 +406,14 @@ VALUES (@MenuItemId, @IngredientId, @Quantity, @Unit, @IsOptional, @Instructions
                                 return View(model);
                             }
                         }
+                    }
+
+                    using (var updateBranchCmd = new Microsoft.Data.SqlClient.SqlCommand(
+                        "UPDATE dbo.Recipes SET BranchId = @BranchId WHERE Id = @RecipeId", connection))
+                    {
+                        updateBranchCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        updateBranchCmd.Parameters.AddWithValue("@RecipeId", recipeId);
+                        updateBranchCmd.ExecuteNonQuery();
                     }
                     
                     // Update recipe steps
@@ -539,6 +630,11 @@ VALUES (@MenuItemId, @IngredientId, @Quantity, @Unit, @IsOptional, @Instructions
         // Helper methods
         private RecipeViewModel GetRecipeByMenuItemId(int menuItemId)
         {
+            if (GetMenuItemById(menuItemId) == null)
+            {
+                return null;
+            }
+
             RecipeViewModel recipe = null;
             
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
@@ -649,13 +745,27 @@ VALUES (@MenuItemId, @IngredientId, @Quantity, @Unit, @IsOptional, @Instructions
         private MenuItem GetMenuItemById(int id)
         {
             MenuItem menuItem = null;
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return null;
+            }
+
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
-                using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand("sp_GetMenuItemById", connection))
+                EnsureMenuItemsBranchColumnExists(connection);
+                using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT m.Id, m.PLUCode, m.Name, m.Description, m.Price, m.CategoryId, c.Name AS CategoryName,
+       m.ImagePath, m.IsAvailable, ISNULL(m.PrepTime, 0) AS PreparationTimeMinutes,
+       m.CalorieCount, ISNULL(m.IsFeatured, 0) AS IsFeatured, ISNULL(m.IsSpecial, 0) AS IsSpecial,
+       m.DiscountPercentage, m.TargetGP
+FROM dbo.MenuItems m
+INNER JOIN dbo.Categories c ON c.Id = m.CategoryId
+WHERE m.Id = @Id AND m.BranchId = @BranchId", connection))
                 {
-                    command.CommandType = System.Data.CommandType.StoredProcedure;
                     command.Parameters.AddWithValue("@Id", id);
+                    command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         if (reader.Read())
@@ -689,11 +799,19 @@ VALUES (@MenuItemId, @IngredientId, @Quantity, @Unit, @IsOptional, @Instructions
         private List<Ingredients> GetAllIngredients()
         {
             var ingredients = new List<Ingredients>();
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return ingredients;
+            }
+
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
-                using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand("SELECT Id, IngredientsName, DisplayName, Code FROM Ingredients ORDER BY IngredientsName", connection))
+                EnsureIngredientsBranchColumnExists(connection);
+                using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand("SELECT Id, IngredientsName, DisplayName, Code FROM Ingredients WHERE BranchId = @BranchId ORDER BY IngredientsName", connection))
                 {
+                    command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -760,6 +878,11 @@ VALUES (@MenuItemId, @IngredientId, @Quantity, @Unit, @IsOptional, @Instructions
         private List<Recipe> GetAllRecipes()
         {
             List<Recipe> recipes = new List<Recipe>();
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return recipes;
+            }
             
             try
             {
@@ -770,10 +893,21 @@ VALUES (@MenuItemId, @IngredientId, @Quantity, @Unit, @IsOptional, @Instructions
                 using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
+                                        EnsureRecipesBranchColumnExists(connection);
+                                        EnsureMenuItemsBranchColumnExists(connection);
                     
-                    using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand("sp_GetAllRecipes", connection))
+                                        using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT r.Id, r.MenuItemId, r.Title, r.PreparationInstructions, r.CookingInstructions,
+             r.PlatingInstructions, r.Yield, r.YieldPercentage, r.PreparationTimeMinutes,
+             r.CookingTimeMinutes, r.LastUpdated, r.Notes, ISNULL(r.IsArchived, 0) AS IsArchived,
+             ISNULL(r.Version, 1) AS Version, m.Name AS MenuItemName
+FROM dbo.Recipes r
+INNER JOIN dbo.MenuItems m ON m.Id = r.MenuItemId
+WHERE r.BranchId = @BranchId
+    AND m.BranchId = @BranchId
+ORDER BY m.Name", connection))
                     {
-                        command.CommandType = System.Data.CommandType.StoredProcedure;
+                                                command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         
                         using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                         {

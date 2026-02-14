@@ -6,6 +6,7 @@ using RestaurantManagementSystem.Helpers;
 using RestaurantManagementSystem.Filters;
 using RestaurantManagementSystem.Models.Authorization;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.Utilities;
 using System.Linq;
 using System.Security.Claims;
 
@@ -6023,8 +6024,15 @@ END", connection))
         // Menu Items & Estimation Page  
         public IActionResult Estimation()
         {
+            var activeBranchId = User.GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             ViewData["Title"] = "Menu Items & Estimation";
-            return View();
+            return View(new EstimationViewModel());
         }
 
         /// <summary>

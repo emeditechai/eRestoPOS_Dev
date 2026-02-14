@@ -1,6 +1,9 @@
 ﻿@model RestaurantManagementSystem.Models.DashboardViewModel
+@using RestaurantManagementSystem.Utilities
 @{
     ViewData["Title"] = "Restaurant Dashboard";
+    var activeBranchName = User.GetActiveBranchName() ?? "Not Selected";
+    var isActiveMainBranch = string.Equals(User.FindFirst("ActiveBranchIsMain")?.Value, "true", StringComparison.OrdinalIgnoreCase);
 }
 
 <!-- Add jQuery FIRST, before other plugins -->
@@ -613,6 +616,13 @@
                 <h1 class="me-3"><i class="fas fa-utensils me-2" aria-hidden="true"></i>@Model.RestaurantName Dashboard</h1>
             </div>
             <p>Welcome back, <strong>@Model.UserFullName</strong>!</p>
+            <p class="mb-1">
+                Active Branch: <strong>@activeBranchName</strong>
+                @if (isActiveMainBranch)
+                {
+                    <span class="badge bg-light text-primary ms-2" style="font-size: 0.75rem; vertical-align: middle;">Main Branch</span>
+                }
+            </p>
             <div class="d-flex justify-content-end">
                 <div class="live-clock" id="liveClock">
                     <span class="date" id="liveDate">—</span>

@@ -30,6 +30,15 @@ namespace RestaurantManagementSystem.Utilities
         public static string? GetActiveRoleName(this ClaimsPrincipal user)
             => user?.FindFirst("ActiveRoleName")?.Value;
 
+        public static int? GetActiveBranchId(this ClaimsPrincipal user)
+        {
+            var value = user?.FindFirst("ActiveBranchId")?.Value;
+            return int.TryParse(value, out var branchId) ? branchId : null;
+        }
+
+        public static string? GetActiveBranchName(this ClaimsPrincipal user)
+            => user?.FindFirst("ActiveBranchName")?.Value;
+
         public static bool IsSuperAdminUser(this ClaimsPrincipal user)
         {
             if (user?.Identity?.IsAuthenticated != true)
@@ -39,12 +48,18 @@ namespace RestaurantManagementSystem.Utilities
 
             var username = user.Identity?.Name;
             return !string.IsNullOrWhiteSpace(username)
-                   && username.Equals("Admin", StringComparison.OrdinalIgnoreCase);
+                     && username.Trim().Equals("Admin", StringComparison.OrdinalIgnoreCase);
         }
 
         public static bool HasConfirmedRoleSelection(this ClaimsPrincipal user)
         {
             var claimValue = user?.FindFirst("RoleSelectionConfirmed")?.Value;
+            return claimValue != null && claimValue.Equals("true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool HasConfirmedBranchSelection(this ClaimsPrincipal user)
+        {
+            var claimValue = user?.FindFirst("BranchSelectionConfirmed")?.Value;
             return claimValue != null && claimValue.Equals("true", StringComparison.OrdinalIgnoreCase);
         }
     }

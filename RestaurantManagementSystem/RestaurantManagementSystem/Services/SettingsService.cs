@@ -19,23 +19,12 @@ namespace RestaurantManagementSystem.Services
             _connectionString = connectionString;
         }
 
-        public async Task<RestaurantSettings> GetSettingsAsync()
+        public async Task<RestaurantSettings> GetSettingsAsync(int? branchId)
         {
             try
             {
-                // Try EF read first (preferred)
-                try
-                {
-                    var settings = await _dbContext.RestaurantSettings.FirstOrDefaultAsync();
-                    if (settings != null) return settings;
-                }
-                catch
-                {
-                    // Swallow and fallback to raw SQL reader below
-                }
-
                 // Fallback: read using a null-safe SqlDataReader in case EF mapping hits unexpected NULLs
-                var fallback = await ReadSettingsFromSqlAsync();
+                var fallback = await ReadSettingsFromSqlAsync(branchId);
                 if (fallback != null) return fallback;
 
                 // If still null, create default settings and persist
@@ -58,8 +47,7 @@ namespace RestaurantManagementSystem.Services
                     IsCounterRequired = false,
                     BillFormat = "A4"
                 };
-                _dbContext.RestaurantSettings.Add(defaultSettings);
-                await _dbContext.SaveChangesAsync();
+                await EnsureSettingsForBranchExistsAsync(branchId, defaultSettings);
                 return defaultSettings;
             }
             catch (Exception ex)
@@ -67,7 +55,7 @@ namespace RestaurantManagementSystem.Services
                 // Don't throw to the controller UI. Attempt to recover by reading via SQL fallback
                 try
                 {
-                    var fallback = await ReadSettingsFromSqlAsync();
+                    var fallback = await ReadSettingsFromSqlAsync(branchId);
                     if (fallback != null) return fallback;
                 }
                 catch
@@ -97,8 +85,7 @@ namespace RestaurantManagementSystem.Services
                         IsCounterRequired = false,
                         BillFormat = "A4"
                     };
-                    _dbContext.RestaurantSettings.Add(defaultSettings);
-                    await _dbContext.SaveChangesAsync();
+                    await EnsureSettingsForBranchExistsAsync(branchId, defaultSettings);
                     return defaultSettings;
                 }
                 catch
@@ -125,15 +112,26 @@ namespace RestaurantManagementSystem.Services
         }
 
         // Null-safe read using SqlDataReader when EF fails
-        private async Task<RestaurantSettings?> ReadSettingsFromSqlAsync()
+        private async Task<RestaurantSettings?> ReadSettingsFromSqlAsync(int? branchId)
         {
             try
             {
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
-                    using (var command = new SqlCommand("SELECT TOP 1 * FROM dbo.RestaurantSettings ORDER BY Id DESC", connection))
+
+                    var hasBranchColumn = await HasColumnAsync(connection, "RestaurantSettings", "BranchId");
+                    string sql = hasBranchColumn && branchId.HasValue
+                        ? "SELECT TOP 1 * FROM dbo.RestaurantSettings WHERE BranchId = @BranchId ORDER BY Id DESC"
+                        : "SELECT TOP 1 * FROM dbo.RestaurantSettings ORDER BY Id DESC";
+
+                    using (var command = new SqlCommand(sql, connection))
                     {
+                        if (hasBranchColumn && branchId.HasValue)
+                        {
+                            command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                        }
+
                         using (var reader = await command.ExecuteReaderAsync())
                         {
                             if (await reader.ReadAsync())
@@ -379,64 +377,58 @@ INSERT INTO dbo.RestaurantSettings (
             }
         }
 
-        public async Task<bool> UpdateSettingsAsync(RestaurantSettings settings)
+        public async Task<bool> UpdateSettingsAsync(RestaurantSettings settings, int? branchId)
         {
-            // Preferred path: update via EF
             try
             {
-                var currentSettings = await _dbContext.RestaurantSettings.FirstOrDefaultAsync();
-                if (currentSettings != null)
+                using (var connection = new SqlConnection(_connectionString))
                 {
-                    // Update properties
-                    currentSettings.RestaurantName = settings.RestaurantName;
-                    currentSettings.StreetAddress = settings.StreetAddress;
-                    currentSettings.City = settings.City;
-                    currentSettings.State = settings.State;
-                    currentSettings.Pincode = settings.Pincode;
-                    currentSettings.Country = settings.Country;
-                    currentSettings.GSTCode = settings.GSTCode;
-                    currentSettings.PhoneNumber = settings.PhoneNumber;
-                    currentSettings.Email = settings.Email;
-                    currentSettings.Website = settings.Website;
-                    currentSettings.LogoPath = settings.LogoPath;
-                    currentSettings.CurrencySymbol = settings.CurrencySymbol;
-                    currentSettings.DefaultGSTPercentage = settings.DefaultGSTPercentage;
-                    currentSettings.TakeAwayGSTPercentage = settings.TakeAwayGSTPercentage;
-                    currentSettings.BarGSTPerc = settings.BarGSTPerc;
-                    currentSettings.IsDefaultGSTRequired = settings.IsDefaultGSTRequired;
-                    currentSettings.IsTakeAwayGSTRequired = settings.IsTakeAwayGSTRequired;
-                    currentSettings.IsTakeawayIncludedGSTReq = settings.IsTakeawayIncludedGSTReq;
-                    currentSettings.IsDiscountApprovalRequired = settings.IsDiscountApprovalRequired;
-                    currentSettings.IsCardPaymentApprovalRequired = settings.IsCardPaymentApprovalRequired;
-                    currentSettings.IsKOTBillPrintRequired = settings.IsKOTBillPrintRequired;
-                    currentSettings.IsCounterRequired = settings.IsCounterRequired;
-                    currentSettings.IsReqAutoSentbillEmail = settings.IsReqAutoSentbillEmail;
-                    currentSettings.BillFormat = settings.BillFormat;
-                    currentSettings.FssaiNo = settings.FssaiNo;
-                    currentSettings.SelectedOrderType = settings.SelectedOrderType;
-                    currentSettings.UpdatedAt = DateTime.Now;
+                    await connection.OpenAsync();
 
-                    await _dbContext.SaveChangesAsync();
-                    return true;
-                }
-
-                // If no existing settings, insert via EF
-                settings.CreatedAt = DateTime.Now;
-                settings.UpdatedAt = DateTime.Now;
-                _dbContext.RestaurantSettings.Add(settings);
-                await _dbContext.SaveChangesAsync();
-                return true;
-            }
-            catch
-            {
-                // EF failed (possible NULL materialization issues) - fallback to raw SQL UPSERT
-                try
-                {
-                    using (var connection = new SqlConnection(_connectionString))
-                    {
-                        await connection.OpenAsync();
-
-                        var upsertSql = @"
+                    var hasBranchColumn = await HasColumnAsync(connection, "RestaurantSettings", "BranchId");
+                    var upsertSql = hasBranchColumn
+                        ? @"
+IF EXISTS (SELECT 1 FROM dbo.RestaurantSettings WHERE BranchId = @BranchId)
+BEGIN
+    UPDATE dbo.RestaurantSettings
+    SET RestaurantName = @RestaurantName,
+        StreetAddress = @StreetAddress,
+        City = @City,
+        State = @State,
+        Pincode = @Pincode,
+        Country = @Country,
+        GSTCode = @GSTCode,
+        PhoneNumber = @PhoneNumber,
+        Email = @Email,
+        Website = @Website,
+        LogoPath = @LogoPath,
+        CurrencySymbol = @CurrencySymbol,
+        DefaultGSTPercentage = @DefaultGSTPercentage,
+        TakeAwayGSTPercentage = @TakeAwayGSTPercentage,
+        BarGSTPerc = @BarGSTPerc,
+        SelectedOrderType = @SelectedOrderType,
+        IsDefaultGSTRequired = @IsDefaultGSTRequired,
+        IsTakeAwayGSTRequired = @IsTakeAwayGSTRequired,
+        Is_TakeawayIncludedGST_Req = @IsTakeawayIncludedGSTReq,
+        IsDiscountApprovalRequired = @IsDiscountApprovalRequired,
+        IsCardPaymentApprovalRequired = @IsCardPaymentApprovalRequired,
+        IsKOTBillPrintRequired = @IsKOTBillPrintRequired,
+        IsCounterRequired = @IsCounterRequired,
+        isReqAutoSentbillEmail = @IsReqAutoSentbillEmail,
+        BillFormat = @BillFormat,
+        FssaiNo = @FssaiNo,
+        UpdatedAt = GETDATE()
+    WHERE BranchId = @BranchId;
+END
+ELSE
+BEGIN
+    INSERT INTO dbo.RestaurantSettings (
+        BranchId, RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, BillFormat, FssaiNo, CreatedAt, UpdatedAt
+    ) VALUES (
+        @BranchId, @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @BillFormat, @FssaiNo, GETDATE(), GETDATE()
+    );
+END"
+                        : @"
 IF EXISTS (SELECT 1 FROM dbo.RestaurantSettings)
 BEGIN
     UPDATE dbo.RestaurantSettings
@@ -477,45 +469,72 @@ BEGIN
     );
 END";
 
-                        using (var cmd = new SqlCommand(upsertSql, connection))
+                    using (var cmd = new SqlCommand(upsertSql, connection))
+                    {
+                        if (hasBranchColumn && branchId.HasValue)
                         {
-                            cmd.Parameters.AddWithValue("@RestaurantName", (object)settings.RestaurantName ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@StreetAddress", (object)settings.StreetAddress ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@City", (object)settings.City ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@State", (object)settings.State ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@Pincode", (object)settings.Pincode ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@Country", (object)settings.Country ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@GSTCode", (object)settings.GSTCode ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@PhoneNumber", (object)settings.PhoneNumber ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@Email", (object)settings.Email ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@Website", (object)settings.Website ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@LogoPath", (object)settings.LogoPath ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@CurrencySymbol", (object)settings.CurrencySymbol ?? "₹");
-                            cmd.Parameters.AddWithValue("@DefaultGSTPercentage", settings.DefaultGSTPercentage);
-                            cmd.Parameters.AddWithValue("@TakeAwayGSTPercentage", settings.TakeAwayGSTPercentage);
-                            cmd.Parameters.AddWithValue("@BarGSTPerc", settings.BarGSTPerc);
-                            cmd.Parameters.AddWithValue("@SelectedOrderType", (object)settings.SelectedOrderType ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@IsDefaultGSTRequired", settings.IsDefaultGSTRequired);
-                            cmd.Parameters.AddWithValue("@IsTakeAwayGSTRequired", settings.IsTakeAwayGSTRequired);
-                            cmd.Parameters.AddWithValue("@IsTakeawayIncludedGSTReq", settings.IsTakeawayIncludedGSTReq);
-                            cmd.Parameters.AddWithValue("@IsDiscountApprovalRequired", settings.IsDiscountApprovalRequired);
-                            cmd.Parameters.AddWithValue("@IsCardPaymentApprovalRequired", settings.IsCardPaymentApprovalRequired);
-                            cmd.Parameters.AddWithValue("@IsKOTBillPrintRequired", settings.IsKOTBillPrintRequired);
-                            cmd.Parameters.AddWithValue("@IsCounterRequired", settings.IsCounterRequired);
-                            cmd.Parameters.AddWithValue("@IsReqAutoSentbillEmail", settings.IsReqAutoSentbillEmail);
-                            cmd.Parameters.AddWithValue("@BillFormat", (object)settings.BillFormat ?? "A4");
-                            cmd.Parameters.AddWithValue("@FssaiNo", (object)settings.FssaiNo ?? DBNull.Value);
-
-                            await cmd.ExecuteNonQueryAsync();
+                            cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
                         }
+
+                        cmd.Parameters.AddWithValue("@RestaurantName", (object)settings.RestaurantName ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@StreetAddress", (object)settings.StreetAddress ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@City", (object)settings.City ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@State", (object)settings.State ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@Pincode", (object)settings.Pincode ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@Country", (object)settings.Country ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@GSTCode", (object)settings.GSTCode ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@PhoneNumber", (object)settings.PhoneNumber ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@Email", (object)settings.Email ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@Website", (object)settings.Website ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@LogoPath", (object)settings.LogoPath ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@CurrencySymbol", (object)settings.CurrencySymbol ?? "₹");
+                        cmd.Parameters.AddWithValue("@DefaultGSTPercentage", settings.DefaultGSTPercentage);
+                        cmd.Parameters.AddWithValue("@TakeAwayGSTPercentage", settings.TakeAwayGSTPercentage);
+                        cmd.Parameters.AddWithValue("@BarGSTPerc", settings.BarGSTPerc);
+                        cmd.Parameters.AddWithValue("@SelectedOrderType", (object)settings.SelectedOrderType ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@IsDefaultGSTRequired", settings.IsDefaultGSTRequired);
+                        cmd.Parameters.AddWithValue("@IsTakeAwayGSTRequired", settings.IsTakeAwayGSTRequired);
+                        cmd.Parameters.AddWithValue("@IsTakeawayIncludedGSTReq", settings.IsTakeawayIncludedGSTReq);
+                        cmd.Parameters.AddWithValue("@IsDiscountApprovalRequired", settings.IsDiscountApprovalRequired);
+                        cmd.Parameters.AddWithValue("@IsCardPaymentApprovalRequired", settings.IsCardPaymentApprovalRequired);
+                        cmd.Parameters.AddWithValue("@IsKOTBillPrintRequired", settings.IsKOTBillPrintRequired);
+                        cmd.Parameters.AddWithValue("@IsCounterRequired", settings.IsCounterRequired);
+                        cmd.Parameters.AddWithValue("@IsReqAutoSentbillEmail", settings.IsReqAutoSentbillEmail);
+                        cmd.Parameters.AddWithValue("@BillFormat", (object)settings.BillFormat ?? "A4");
+                        cmd.Parameters.AddWithValue("@FssaiNo", (object)settings.FssaiNo ?? DBNull.Value);
+
+                        await cmd.ExecuteNonQueryAsync();
                     }
-                    return true;
                 }
-                catch
-                {
-                    // final failure
-                    return false;
-                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task EnsureSettingsForBranchExistsAsync(int? branchId, RestaurantSettings settings)
+        {
+            await UpdateSettingsAsync(settings, branchId);
+        }
+
+        private static async Task<bool> HasColumnAsync(SqlConnection connection, string tableName, string columnName)
+        {
+            var sql = @"
+SELECT COUNT(1)
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'dbo'
+  AND TABLE_NAME = @TableName
+  AND COLUMN_NAME = @ColumnName";
+
+            using (var cmd = new SqlCommand(sql, connection))
+            {
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                return count > 0;
             }
         }
         

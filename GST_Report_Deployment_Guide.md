@@ -37,6 +37,18 @@ sqlcmd -S YOUR_SERVER -d YOUR_DATABASE -i fix_gst_breakup_report.sql
 # Open fix_gst_breakup_report.sql and execute (F5)
 ```
 
+### 1A. Branch-wise Role Migration (One-Time, if this release includes branch auth)
+Run in this exact order:
+
+```bash
+sqlcmd -S YOUR_SERVER -d YOUR_DATABASE -i create_branches_table.sql
+sqlcmd -S YOUR_SERVER -d YOUR_DATABASE -i SQL/create_user_branches_table.sql
+sqlcmd -S YOUR_SERVER -d YOUR_DATABASE -i RestaurantManagementSystem/RestaurantManagementSystem/SQL/create_user_branch_roles_table.sql
+```
+
+For optional legacy backfill (`UserRoles` + `UserBranches` -> `UserBranchRoles`) and verification queries, use:
+- `BRANCH_ROLE_MIGRATION_ORDER.md`
+
 ### 2. Verify Procedure Created
 ```sql
 -- Check if procedure exists

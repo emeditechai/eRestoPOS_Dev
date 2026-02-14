@@ -5,7 +5,9 @@ using RestaurantManagementSystem.ViewModels;
 using RestaurantManagementSystem.Filters;
 using RestaurantManagementSystem.Models.Authorization;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.Utilities;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Net;
 using System.Net.Mail;
@@ -42,7 +44,15 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
-                var config = await GetMailConfigurationAsync();
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "Please select an active branch to access Mail Configuration.";
+                    return RedirectToAction("Index", "Home");
+                }
+
+                await EnsureMailConfigurationSchemaAsync();
+                var config = await GetMailConfigurationAsync(activeBranchId.Value);
                 if (config == null)
                 {
                     // Return empty config for first time setup
@@ -55,6 +65,9 @@ namespace RestaurantManagementSystem.Controllers
                         FromEmail = "noreply@restaurant.com"
                     };
                 }
+
+                ViewBag.TargetBranches = await GetTargetBranchesAsync(activeBranchId.Value);
+                ViewBag.CanCopyMailConfiguration = CanCurrentUserCopyMailConfiguration(activeBranchId.Value);
                 return View(config);
             }
             catch (Exception ex)
@@ -70,8 +83,19 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission("NAV_SETTINGS_MAIL", PermissionAction.Edit)]
         public async Task<IActionResult> Save(MailConfigurationViewModel model)
         {
+            var activeBranchId = User.GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch to save Mail Configuration.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            await EnsureMailConfigurationSchemaAsync();
+
             if (!ModelState.IsValid)
             {
+                ViewBag.TargetBranches = await GetTargetBranchesAsync(activeBranchId.Value);
+                ViewBag.CanCopyMailConfiguration = CanCurrentUserCopyMailConfiguration(activeBranchId.Value);
                 return View("Index", model);
             }
 
@@ -83,18 +107,35 @@ namespace RestaurantManagementSystem.Controllers
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
+                    var hasBranchColumn = await HasBranchColumnAsync(connection);
                     
                     // Check if configuration exists
-                    var checkSql = "SELECT COUNT(*) FROM dbo.tbl_MailConfiguration";
+                    var checkSql = hasBranchColumn
+                        ? "SELECT COUNT(*) FROM dbo.tbl_MailConfiguration WHERE BranchId = @BranchId"
+                        : "SELECT COUNT(*) FROM dbo.tbl_MailConfiguration";
                     using (var checkCmd = new SqlCommand(checkSql, connection))
                     {
+                        if (hasBranchColumn)
+                        {
+                            checkCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        }
+
                         var count = (int)await checkCmd.ExecuteScalarAsync();
                         
                         string sql;
                         if (count == 0)
                         {
                             // Insert new configuration
-                            sql = @"INSERT INTO dbo.tbl_MailConfiguration 
+                            sql = hasBranchColumn
+                                ? @"INSERT INTO dbo.tbl_MailConfiguration 
+                                    (BranchId, SmtpServer, SmtpPort, SmtpUsername, SmtpPassword, EnableSSL, 
+                                     FromEmail, FromName, AdminNotificationEmail, IsActive, 
+                                     CreatedAt, UpdatedAt)
+                                    VALUES 
+                                    (@BranchId, @SmtpServer, @SmtpPort, @SmtpUsername, @SmtpPassword, @EnableSSL, 
+                                     @FromEmail, @FromName, @AdminNotificationEmail, @IsActive, 
+                                     SYSUTCDATETIME(), SYSUTCDATETIME())"
+                                : @"INSERT INTO dbo.tbl_MailConfiguration 
                                     (SmtpServer, SmtpPort, SmtpUsername, SmtpPassword, EnableSSL, 
                                      FromEmail, FromName, AdminNotificationEmail, IsActive, 
                                      CreatedAt, UpdatedAt)
@@ -106,7 +147,20 @@ namespace RestaurantManagementSystem.Controllers
                         else
                         {
                             // Update existing configuration
-                            sql = @"UPDATE dbo.tbl_MailConfiguration 
+                            sql = hasBranchColumn
+                                ? @"UPDATE dbo.tbl_MailConfiguration 
+                                    SET SmtpServer = @SmtpServer,
+                                        SmtpPort = @SmtpPort,
+                                        SmtpUsername = @SmtpUsername,
+                                        SmtpPassword = @SmtpPassword,
+                                        EnableSSL = @EnableSSL,
+                                        FromEmail = @FromEmail,
+                                        FromName = @FromName,
+                                        AdminNotificationEmail = @AdminNotificationEmail,
+                                        IsActive = @IsActive,
+                                        UpdatedAt = SYSUTCDATETIME()
+                                    WHERE BranchId = @BranchId"
+                                : @"UPDATE dbo.tbl_MailConfiguration 
                                     SET SmtpServer = @SmtpServer,
                                         SmtpPort = @SmtpPort,
                                         SmtpUsername = @SmtpUsername,
@@ -121,6 +175,11 @@ namespace RestaurantManagementSystem.Controllers
                         
                         using (var cmd = new SqlCommand(sql, connection))
                         {
+                            if (hasBranchColumn)
+                            {
+                                cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                            }
+
                             cmd.Parameters.AddWithValue("@SmtpServer", model.SmtpServer);
                             cmd.Parameters.AddWithValue("@SmtpPort", model.SmtpPort);
                             cmd.Parameters.AddWithValue("@SmtpUsername", model.SmtpUsername);
@@ -143,7 +202,149 @@ namespace RestaurantManagementSystem.Controllers
             catch (Exception ex)
             {
                 TempData["ErrorMessage"] = $"Error saving mail configuration: {ex.Message}";
+                ViewBag.TargetBranches = await GetTargetBranchesAsync(activeBranchId.Value);
+                ViewBag.CanCopyMailConfiguration = CanCurrentUserCopyMailConfiguration(activeBranchId.Value);
                 return View("Index", model);
+            }
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [RequirePermission("NAV_SETTINGS_MAIL", PermissionAction.Edit)]
+        public async Task<IActionResult> CopyToBranch([FromBody] CopyMailConfigurationRequest request)
+        {
+            var activeBranchId = User.GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return Json(new { success = false, message = "Active branch is required." });
+            }
+
+            if (!CanCurrentUserCopyMailConfiguration(activeBranchId.Value))
+            {
+                return Json(new { success = false, message = "Mail configuration copy is allowed only for Administrator in Main Branch." });
+            }
+
+            if (request == null || request.TargetBranchId <= 0)
+            {
+                return Json(new { success = false, message = "Please select a valid target branch." });
+            }
+
+            if (request.TargetBranchId == activeBranchId.Value)
+            {
+                return Json(new { success = false, message = "Source and target branch cannot be the same." });
+            }
+
+            try
+            {
+                await EnsureMailConfigurationSchemaAsync();
+
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+                    using (var transaction = connection.BeginTransaction())
+                    {
+                        var sourceSql = @"
+SELECT TOP 1 SmtpServer, SmtpPort, SmtpUsername, SmtpPassword, EnableSSL,
+             FromEmail, FromName, AdminNotificationEmail, IsActive
+FROM dbo.tbl_MailConfiguration
+WHERE BranchId = @SourceBranchId";
+
+                        string? smtpServer = null;
+                        int smtpPort = 587;
+                        string? smtpUsername = null;
+                        string? smtpPasswordEncrypted = null;
+                        bool enableSsl = true;
+                        string? fromEmail = null;
+                        string? fromName = null;
+                        string? adminNotificationEmail = null;
+                        bool isActive = false;
+
+                        using (var sourceCmd = new SqlCommand(sourceSql, connection, transaction))
+                        {
+                            sourceCmd.Parameters.AddWithValue("@SourceBranchId", activeBranchId.Value);
+                            using (var reader = await sourceCmd.ExecuteReaderAsync())
+                            {
+                                if (!await reader.ReadAsync())
+                                {
+                                    return Json(new { success = false, message = "No mail configuration found in current branch." });
+                                }
+
+                                smtpServer = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
+                                smtpPort = reader.IsDBNull(1) ? 587 : reader.GetInt32(1);
+                                smtpUsername = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+                                smtpPasswordEncrypted = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
+                                enableSsl = !reader.IsDBNull(4) && reader.GetBoolean(4);
+                                fromEmail = reader.IsDBNull(5) ? string.Empty : reader.GetString(5);
+                                fromName = reader.IsDBNull(6) ? string.Empty : reader.GetString(6);
+                                adminNotificationEmail = reader.IsDBNull(7) ? null : reader.GetString(7);
+                                isActive = !reader.IsDBNull(8) && reader.GetBoolean(8);
+                            }
+                        }
+
+                        var targetBranchCheckSql = @"
+SELECT COUNT(1)
+FROM dbo.Branches
+WHERE BranchId = @TargetBranchId
+  AND ISNULL(IsActive, 1) = 1";
+
+                        using (var targetBranchCmd = new SqlCommand(targetBranchCheckSql, connection, transaction))
+                        {
+                            targetBranchCmd.Parameters.AddWithValue("@TargetBranchId", request.TargetBranchId);
+                            var exists = Convert.ToInt32(await targetBranchCmd.ExecuteScalarAsync()) > 0;
+                            if (!exists)
+                            {
+                                return Json(new { success = false, message = "Target branch not found or inactive." });
+                            }
+                        }
+
+                        var upsertSql = @"
+IF EXISTS (SELECT 1 FROM dbo.tbl_MailConfiguration WHERE BranchId = @TargetBranchId)
+BEGIN
+    UPDATE dbo.tbl_MailConfiguration
+    SET SmtpServer = @SmtpServer,
+        SmtpPort = @SmtpPort,
+        SmtpUsername = @SmtpUsername,
+        SmtpPassword = @SmtpPassword,
+        EnableSSL = @EnableSSL,
+        FromEmail = @FromEmail,
+        FromName = @FromName,
+        AdminNotificationEmail = @AdminNotificationEmail,
+        IsActive = @IsActive,
+        UpdatedAt = SYSUTCDATETIME()
+    WHERE BranchId = @TargetBranchId;
+END
+ELSE
+BEGIN
+    INSERT INTO dbo.tbl_MailConfiguration
+        (BranchId, SmtpServer, SmtpPort, SmtpUsername, SmtpPassword, EnableSSL, FromEmail, FromName, AdminNotificationEmail, IsActive, CreatedAt, UpdatedAt)
+    VALUES
+        (@TargetBranchId, @SmtpServer, @SmtpPort, @SmtpUsername, @SmtpPassword, @EnableSSL, @FromEmail, @FromName, @AdminNotificationEmail, @IsActive, SYSUTCDATETIME(), SYSUTCDATETIME());
+END";
+
+                        using (var upsertCmd = new SqlCommand(upsertSql, connection, transaction))
+                        {
+                            upsertCmd.Parameters.AddWithValue("@TargetBranchId", request.TargetBranchId);
+                            upsertCmd.Parameters.AddWithValue("@SmtpServer", (object?)smtpServer ?? DBNull.Value);
+                            upsertCmd.Parameters.AddWithValue("@SmtpPort", smtpPort);
+                            upsertCmd.Parameters.AddWithValue("@SmtpUsername", (object?)smtpUsername ?? DBNull.Value);
+                            upsertCmd.Parameters.AddWithValue("@SmtpPassword", (object?)smtpPasswordEncrypted ?? DBNull.Value);
+                            upsertCmd.Parameters.AddWithValue("@EnableSSL", enableSsl);
+                            upsertCmd.Parameters.AddWithValue("@FromEmail", (object?)fromEmail ?? DBNull.Value);
+                            upsertCmd.Parameters.AddWithValue("@FromName", (object?)fromName ?? DBNull.Value);
+                            upsertCmd.Parameters.AddWithValue("@AdminNotificationEmail", string.IsNullOrWhiteSpace(adminNotificationEmail) ? (object)DBNull.Value : adminNotificationEmail);
+                            upsertCmd.Parameters.AddWithValue("@IsActive", isActive);
+                            await upsertCmd.ExecuteNonQueryAsync();
+                        }
+
+                        await transaction.CommitAsync();
+                    }
+                }
+
+                return Json(new { success = true, message = "Mail configuration copied successfully." });
+            }
+            catch (Exception ex)
+            {
+                return Json(new { success = false, message = $"Error copying mail configuration: {ex.Message}" });
             }
         }
 
@@ -159,7 +360,14 @@ namespace RestaurantManagementSystem.Controllers
             
             try
             {
-                config = await GetMailConfigurationAsync();
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return Json(new { success = false, message = "Please select an active branch." });
+                }
+
+                await EnsureMailConfigurationSchemaAsync();
+                config = await GetMailConfigurationAsync(activeBranchId.Value);
                 if (config == null)
                 {
                     return Json(new { success = false, message = "Mail configuration not found. Please save configuration first." });
@@ -471,43 +679,195 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        private async Task<MailConfigurationViewModel> GetMailConfigurationAsync()
+        private async Task<MailConfigurationViewModel> GetMailConfigurationAsync(int branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
+
+                var hasBranchColumn = await HasBranchColumnAsync(connection);
                 
-                var sql = @"SELECT TOP 1 
+                var sql = hasBranchColumn
+                    ? @"SELECT TOP 1 
+                            Id, SmtpServer, SmtpPort, SmtpUsername, SmtpPassword, EnableSSL, 
+                            FromEmail, FromName, AdminNotificationEmail, IsActive, 
+                            CreatedAt, UpdatedAt 
+                            FROM dbo.tbl_MailConfiguration
+                            WHERE BranchId = @BranchId"
+                    : @"SELECT TOP 1 
                             Id, SmtpServer, SmtpPort, SmtpUsername, SmtpPassword, EnableSSL, 
                             FromEmail, FromName, AdminNotificationEmail, IsActive, 
                             CreatedAt, UpdatedAt 
                             FROM dbo.tbl_MailConfiguration";
                 
                 using (var cmd = new SqlCommand(sql, connection))
-                using (var reader = await cmd.ExecuteReaderAsync())
                 {
-                    if (await reader.ReadAsync())
+                    if (hasBranchColumn)
                     {
-                        return new MailConfigurationViewModel
+                        cmd.Parameters.AddWithValue("@BranchId", branchId);
+                    }
+
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        if (await reader.ReadAsync())
                         {
-                            Id = reader.GetInt32(0),
-                            SmtpServer = reader.GetString(1),
-                            SmtpPort = reader.GetInt32(2),
-                            SmtpUsername = reader.GetString(3),
-                            SmtpPassword = DecryptPassword(reader.GetString(4)),
-                            EnableSSL = reader.GetBoolean(5),
-                            FromEmail = reader.GetString(6),
-                            FromName = reader.GetString(7),
-                            AdminNotificationEmail = reader.IsDBNull(8) ? null : reader.GetString(8),
-                            IsActive = reader.GetBoolean(9),
-                            CreatedAt = reader.IsDBNull(10) ? null : reader.GetDateTime(10),
-                            UpdatedAt = reader.IsDBNull(11) ? null : reader.GetDateTime(11)
-                        };
+                            return new MailConfigurationViewModel
+                            {
+                                Id = reader.GetInt32(0),
+                                SmtpServer = reader.GetString(1),
+                                SmtpPort = reader.GetInt32(2),
+                                SmtpUsername = reader.GetString(3),
+                                SmtpPassword = DecryptPassword(reader.GetString(4)),
+                                EnableSSL = reader.GetBoolean(5),
+                                FromEmail = reader.GetString(6),
+                                FromName = reader.GetString(7),
+                                AdminNotificationEmail = reader.IsDBNull(8) ? null : reader.GetString(8),
+                                IsActive = reader.GetBoolean(9),
+                                CreatedAt = reader.IsDBNull(10) ? null : reader.GetDateTime(10),
+                                UpdatedAt = reader.IsDBNull(11) ? null : reader.GetDateTime(11)
+                            };
+                        }
                     }
                 }
             }
             
             return null;
+        }
+
+        private async Task EnsureMailConfigurationSchemaAsync()
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+
+                var sql = @"
+IF COL_LENGTH('dbo.tbl_MailConfiguration', 'BranchId') IS NULL
+BEGIN
+    ALTER TABLE dbo.tbl_MailConfiguration ADD BranchId INT NULL;
+
+    DECLARE @MainBranchId INT = (
+        SELECT TOP 1 BranchId
+        FROM dbo.Branches
+        WHERE ISNULL(IsActive, 1) = 1 AND ISNULL(Is_MainBranch, 0) = 1
+        ORDER BY BranchId
+    );
+
+    IF @MainBranchId IS NULL
+    BEGIN
+        SET @MainBranchId = (
+            SELECT TOP 1 BranchId
+            FROM dbo.Branches
+            WHERE ISNULL(IsActive, 1) = 1
+            ORDER BY BranchId
+        );
+    END
+
+    IF @MainBranchId IS NOT NULL
+    BEGIN
+        UPDATE dbo.tbl_MailConfiguration
+        SET BranchId = @MainBranchId
+        WHERE BranchId IS NULL;
+    END
+END
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID('dbo.tbl_MailConfiguration')
+      AND name = 'IX_tbl_MailConfiguration_BranchId'
+)
+BEGIN
+    CREATE UNIQUE INDEX IX_tbl_MailConfiguration_BranchId
+    ON dbo.tbl_MailConfiguration(BranchId)
+    WHERE BranchId IS NOT NULL;
+END";
+
+                using (var cmd = new SqlCommand(sql, connection))
+                {
+                    await cmd.ExecuteNonQueryAsync();
+                }
+            }
+        }
+
+        private static async Task<bool> HasBranchColumnAsync(SqlConnection connection)
+        {
+            var sql = @"
+SELECT COUNT(1)
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'dbo'
+  AND TABLE_NAME = 'tbl_MailConfiguration'
+  AND COLUMN_NAME = 'BranchId'";
+
+            using (var cmd = new SqlCommand(sql, connection))
+            {
+                var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                return count > 0;
+            }
+        }
+
+        private bool CanCurrentUserCopyMailConfiguration(int activeBranchId)
+        {
+            if (User?.Identity?.IsAuthenticated != true || !User.IsInRole("Administrator"))
+            {
+                return false;
+            }
+
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new SqlCommand(@"
+SELECT COUNT(1)
+FROM dbo.Branches
+WHERE BranchId = @BranchId
+  AND ISNULL(IsActive, 1) = 1
+  AND ISNULL(Is_MainBranch, 0) = 1", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId);
+                        return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<List<BranchMaster>> GetTargetBranchesAsync(int activeBranchId)
+        {
+            var branches = new List<BranchMaster>();
+
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+                using (var cmd = new SqlCommand(@"
+SELECT BranchId, BranchCode, BranchName, ISNULL(Is_MainBranch, 0), ISNULL(IsActive, 1)
+FROM dbo.Branches
+WHERE ISNULL(IsActive, 1) = 1
+  AND BranchId <> @ActiveBranchId
+ORDER BY BranchName", connection))
+                {
+                    cmd.Parameters.AddWithValue("@ActiveBranchId", activeBranchId);
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            branches.Add(new BranchMaster
+                            {
+                                BranchId = reader.GetInt32(0),
+                                BranchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                                BranchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                                Is_MainBranch = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                                IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4)
+                            });
+                        }
+                    }
+                }
+            }
+
+            return branches;
         }
 
         private string EncryptPassword(string password)
@@ -656,5 +1016,10 @@ namespace RestaurantManagementSystem.Controllers
     public class TestEmailRequest
     {
         public string TestEmail { get; set; }
+    }
+
+    public class CopyMailConfigurationRequest
+    {
+        public int TargetBranchId { get; set; }
     }
 }

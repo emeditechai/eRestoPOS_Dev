@@ -765,7 +765,8 @@ ORDER BY Id ASC";
                 return Unauthorized();
             }
 
-            var roles = await _userRoleService.GetUserRolesAsync(userId.Value);
+            var activeBranchId = User.GetActiveBranchId();
+            var roles = await _authService.GetUserRolesForBranchAsync(userId.Value, activeBranchId);
             var activeRoleId = User.GetActiveRoleId();
 
             var payload = roles.Select(role => new RoleSelectionOptionViewModel
@@ -774,6 +775,30 @@ ORDER BY Id ASC";
                 Name = role.Name,
                 Description = role.Description,
                 IsActive = activeRoleId.HasValue && activeRoleId.Value == role.Id
+            }).ToList();
+
+            return Json(payload);
+        }
+
+        [Authorize]
+        [HttpGet]
+        public async Task<IActionResult> UserBranches()
+        {
+            var userId = User.GetUserId();
+            if (userId is null)
+            {
+                return Unauthorized();
+            }
+
+            var branches = await _authService.GetUserBranchesAsync(userId.Value);
+            var activeBranchId = User.GetActiveBranchId();
+
+            var payload = branches.Select(branch => new BranchSelectionOptionViewModel
+            {
+                BranchId = branch.BranchId,
+                BranchCode = branch.BranchCode,
+                BranchName = branch.BranchName,
+                IsActive = activeBranchId.HasValue && activeBranchId.Value == branch.BranchId
             }).ToList();
 
             return Json(payload);
@@ -790,6 +815,25 @@ ORDER BY Id ASC";
             }
 
             var result = await _authService.SwitchRoleAsync(User, request.RoleId);
+            if (!result.success)
+            {
+                return BadRequest(new { message = result.message });
+            }
+
+            return Ok(new { message = result.message });
+        }
+
+        [Authorize]
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> SwitchBranch([FromBody] SwitchBranchRequest request)
+        {
+            if (request == null || request.BranchId <= 0)
+            {
+                return BadRequest(new { message = "Invalid branch selection." });
+            }
+
+            var result = await _authService.SwitchBranchAsync(User, request.BranchId);
             if (!result.success)
             {
                 return BadRequest(new { message = result.message });

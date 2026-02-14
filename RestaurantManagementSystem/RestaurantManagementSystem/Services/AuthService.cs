@@ -32,9 +32,18 @@ namespace RestaurantManagementSystem.Services
             _logger = logger;
         }
 
-        private ClaimsPrincipal BuildPrincipal(User user, List<Role> roles, int? preferredRoleId = null, bool roleSelectionConfirmed = true, IEnumerable<Claim> extraClaims = null)
+        private ClaimsPrincipal BuildPrincipal(
+            User user,
+            List<Role> roles,
+            List<BranchMaster> branches,
+            int? preferredRoleId = null,
+            int? preferredBranchId = null,
+            bool roleSelectionConfirmed = true,
+            bool branchSelectionConfirmed = true,
+            IEnumerable<Claim> extraClaims = null)
         {
             roles ??= new List<Role>();
+            branches ??= new List<BranchMaster>();
 
             var fullName = $"{user.FirstName ?? string.Empty} {user.LastName ?? string.Empty}".Trim();
             var claims = new List<Claim>
@@ -67,6 +76,21 @@ namespace RestaurantManagementSystem.Services
                 claims.Add(new Claim("ActiveRoleId", activeRole.Id.ToString()));
                 claims.Add(new Claim("ActiveRoleName", activeRole.Name));
             }
+            else if (!string.IsNullOrWhiteSpace(user.Username)
+                     && user.Username.Trim().Equals("Admin", StringComparison.OrdinalIgnoreCase))
+            {
+                claims.Add(new Claim(ClaimTypes.Role, "Administrator"));
+                claims.Add(new Claim("ActiveRoleName", "Administrator"));
+            }
+
+            var activeBranch = ResolveActiveBranch(branches, preferredBranchId);
+            if (activeBranch != null)
+            {
+                claims.Add(new Claim("ActiveBranchId", activeBranch.BranchId.ToString()));
+                claims.Add(new Claim("ActiveBranchCode", activeBranch.BranchCode ?? string.Empty));
+                claims.Add(new Claim("ActiveBranchName", activeBranch.BranchName ?? string.Empty));
+                claims.Add(new Claim("ActiveBranchIsMain", activeBranch.Is_MainBranch ? "true" : "false"));
+            }
 
             if (roles.Count > 1)
             {
@@ -76,6 +100,16 @@ namespace RestaurantManagementSystem.Services
             else
             {
                 claims.Add(new Claim("RoleSelectionConfirmed", "true"));
+            }
+
+            if (branches.Count > 1)
+            {
+                claims.Add(new Claim("HasMultipleBranches", "true"));
+                claims.Add(new Claim("BranchSelectionConfirmed", branchSelectionConfirmed ? "true" : "false"));
+            }
+            else
+            {
+                claims.Add(new Claim("BranchSelectionConfirmed", "true"));
             }
 
             if (extraClaims != null)
@@ -110,6 +144,26 @@ namespace RestaurantManagementSystem.Services
             }
 
             return roles[0];
+        }
+
+        private static BranchMaster? ResolveActiveBranch(List<BranchMaster> branches, int? preferredBranchId)
+        {
+            if (branches == null || branches.Count == 0)
+            {
+                return null;
+            }
+
+            if (preferredBranchId.HasValue)
+            {
+                var matched = branches.FirstOrDefault(b => b.BranchId == preferredBranchId.Value);
+                if (matched != null)
+                {
+                    return matched;
+                }
+            }
+
+            var defaultBranch = branches.FirstOrDefault(b => b.Is_MainBranch);
+            return defaultBranch ?? branches[0];
         }
         
         public async Task<(bool Success, string Message, ClaimsPrincipal Principal)> AuthenticateUserAsync(string username, string password)
@@ -162,15 +216,26 @@ namespace RestaurantManagementSystem.Services
                 
                 // Reset failed login attempts
                 await ResetFailedLoginAttemptsAsync(user.Id);
-                
-                // Get user roles
-                user.Roles = await GetUserRolesAsync(user.Id);
+                var branches = await GetUserBranchesAsync(user.Id);
+
+                if (branches == null || branches.Count == 0)
+                {
+                    return (false, "No active branch is available. Please contact an administrator.", null);
+                }
+
+                var preferredBranch = branches.FirstOrDefault();
+
+                // Get user roles for preferred branch
+                user.Roles = await GetUserRolesForBranchAsync(user.Id, preferredBranch?.BranchId);
                 
                 var roles = user.Roles ?? new List<Role>();
                 user.Roles = roles;
+                user.Branches = branches;
                 var preferredRoleId = roles.FirstOrDefault()?.Id;
+                var preferredBranchId = branches.FirstOrDefault()?.BranchId;
                 var roleSelectionConfirmed = roles.Count <= 1;
-                var principal = BuildPrincipal(user, roles, preferredRoleId, roleSelectionConfirmed);
+                var branchSelectionConfirmed = branches.Count <= 1;
+                var principal = BuildPrincipal(user, roles, branches, preferredRoleId, preferredBranchId, roleSelectionConfirmed, branchSelectionConfirmed);
                 _logger?.LogInformation("Built principal for user {Username} with {RoleCount} role(s)", username, roles.Count);
                 
                 // Update last login time
@@ -650,36 +715,274 @@ namespace RestaurantManagementSystem.Services
 
             return null;
         }
+
+        private async Task EnsureUserBranchesTableExistsAsync()
+        {
+            var connectionString = _configuration.GetConnectionString("DefaultConnection");
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync();
+
+            const string sql = @"
+IF OBJECT_ID(N'dbo.UserBranches', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.UserBranches
+    (
+        Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_UserBranches PRIMARY KEY,
+        UserId INT NOT NULL,
+        BranchId INT NOT NULL,
+        IsDefault BIT NOT NULL CONSTRAINT DF_UserBranches_IsDefault DEFAULT (0),
+        IsActive BIT NOT NULL CONSTRAINT DF_UserBranches_IsActive DEFAULT (1),
+        CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_UserBranches_CreatedAt DEFAULT SYSUTCDATETIME(),
+        UpdatedAt DATETIME2(3) NULL,
+        CONSTRAINT UQ_UserBranches_UserId_BranchId UNIQUE (UserId, BranchId)
+    );
+
+    IF OBJECT_ID(N'dbo.Users', N'U') IS NOT NULL
+        ALTER TABLE dbo.UserBranches ADD CONSTRAINT FK_UserBranches_Users FOREIGN KEY (UserId) REFERENCES dbo.Users(Id);
+
+    IF OBJECT_ID(N'dbo.Branches', N'U') IS NOT NULL
+        ALTER TABLE dbo.UserBranches ADD CONSTRAINT FK_UserBranches_Branches FOREIGN KEY (BranchId) REFERENCES dbo.Branches(BranchId);
+
+    CREATE INDEX IX_UserBranches_UserId ON dbo.UserBranches(UserId);
+    CREATE INDEX IX_UserBranches_BranchId ON dbo.UserBranches(BranchId);
+END
+";
+
+            await using var command = new SqlCommand(sql, connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<List<BranchMaster>> GetUserBranchesAsync(int userId)
+        {
+            var branches = new List<BranchMaster>();
+
+            try
+            {
+                await EnsureUserBranchesTableExistsAsync();
+
+                var connectionString = _configuration.GetConnectionString("DefaultConnection");
+                await using var connection = new SqlConnection(connectionString);
+                await connection.OpenAsync();
+
+                var isAdminUser = await IsAdminUsernameAsync(connection, userId);
+
+                if (isAdminUser)
+                {
+                    const string adminSql = @"
+SELECT b.BranchId, b.BranchCode, b.BranchName, ISNULL(b.Is_MainBranch, 0) AS IsMain, b.IsActive, b.CreatedAt, b.UpdatedAt
+FROM dbo.Branches b
+WHERE ISNULL(b.IsActive, 1) = 1
+ORDER BY CASE WHEN ISNULL(b.Is_MainBranch, 0) = 1 THEN 0 ELSE 1 END, b.BranchCode, b.BranchName;";
+
+                    await using var adminCommand = new SqlCommand(adminSql, connection);
+                    await using var adminReader = await adminCommand.ExecuteReaderAsync();
+                    while (await adminReader.ReadAsync())
+                    {
+                        branches.Add(new BranchMaster
+                        {
+                            BranchId = adminReader.GetInt32(0),
+                            BranchCode = adminReader.IsDBNull(1) ? string.Empty : adminReader.GetString(1),
+                            BranchName = adminReader.IsDBNull(2) ? string.Empty : adminReader.GetString(2),
+                            Is_MainBranch = !adminReader.IsDBNull(3) && adminReader.GetBoolean(3),
+                            IsActive = !adminReader.IsDBNull(4) && adminReader.GetBoolean(4),
+                            CreatedAt = adminReader.IsDBNull(5) ? DateTime.Now : adminReader.GetDateTime(5),
+                            UpdatedAt = adminReader.IsDBNull(6) ? null : adminReader.GetDateTime(6)
+                        });
+                    }
+
+                    return branches;
+                }
+
+                                const string sql = @"
+;WITH MainBranch AS
+(
+        SELECT TOP 1 b.BranchId, b.BranchCode, b.BranchName, CAST(1 AS BIT) AS IsDefault, b.IsActive, b.CreatedAt, b.UpdatedAt
+        FROM dbo.Branches b
+        WHERE ISNULL(b.IsActive, 1) = 1
+            AND ISNULL(b.Is_MainBranch, 0) = 1
+),
+MappedBranches AS
+(
+        SELECT b.BranchId, b.BranchCode, b.BranchName, ISNULL(ub.IsDefault, 0) AS IsDefault, b.IsActive, b.CreatedAt, b.UpdatedAt
+        FROM dbo.Branches b
+        INNER JOIN dbo.UserBranches ub ON ub.BranchId = b.BranchId
+        WHERE ub.UserId = @UserId
+            AND ISNULL(ub.IsActive, 1) = 1
+            AND ISNULL(b.IsActive, 1) = 1
+)
+SELECT BranchId, BranchCode, BranchName, IsDefault, IsActive, CreatedAt, UpdatedAt
+FROM
+(
+        SELECT mb.BranchId, mb.BranchCode, mb.BranchName, mb.IsDefault, mb.IsActive, mb.CreatedAt, mb.UpdatedAt
+        FROM MainBranch mb
+
+        UNION ALL
+
+        SELECT m.BranchId, m.BranchCode, m.BranchName,
+                     CASE WHEN EXISTS (SELECT 1 FROM MainBranch mb WHERE mb.BranchId = m.BranchId) THEN CAST(1 AS BIT) ELSE m.IsDefault END,
+                     m.IsActive, m.CreatedAt, m.UpdatedAt
+        FROM MappedBranches m
+)
+AS SourceRows
+GROUP BY BranchId, BranchCode, BranchName, IsDefault, IsActive, CreatedAt, UpdatedAt
+ORDER BY CASE WHEN ISNULL(IsDefault, 0) = 1 THEN 0 ELSE 1 END, BranchCode;";
+
+                await using var command = new SqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@UserId", userId);
+
+                await using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    branches.Add(new BranchMaster
+                    {
+                        BranchId = reader.GetInt32(0),
+                        BranchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                        BranchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                        Is_MainBranch = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                        IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4),
+                        CreatedAt = reader.IsDBNull(5) ? DateTime.Now : reader.GetDateTime(5),
+                        UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6)
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error retrieving branches for user {UserId}", userId);
+            }
+
+            return branches;
+        }
         
-        private async Task<List<Role>> GetUserRolesAsync(int userId)
+        private async Task EnsureUserBranchRolesTableExistsAsync()
+        {
+            var connectionString = _configuration.GetConnectionString("DefaultConnection");
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync();
+
+            const string sql = @"
+IF OBJECT_ID(N'dbo.UserBranchRoles', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.UserBranchRoles
+    (
+        Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_UserBranchRoles PRIMARY KEY,
+        UserId INT NOT NULL,
+        BranchId INT NOT NULL,
+        RoleId INT NOT NULL,
+        IsActive BIT NOT NULL CONSTRAINT DF_UserBranchRoles_IsActive DEFAULT(1),
+        CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_UserBranchRoles_CreatedAt DEFAULT SYSUTCDATETIME(),
+        UpdatedAt DATETIME2(3) NULL,
+        CONSTRAINT UQ_UserBranchRoles_User_Branch_Role UNIQUE(UserId, BranchId, RoleId)
+    );
+
+    IF OBJECT_ID(N'dbo.Users', N'U') IS NOT NULL
+        ALTER TABLE dbo.UserBranchRoles ADD CONSTRAINT FK_UserBranchRoles_Users FOREIGN KEY(UserId) REFERENCES dbo.Users(Id);
+
+    IF OBJECT_ID(N'dbo.Branches', N'U') IS NOT NULL
+        ALTER TABLE dbo.UserBranchRoles ADD CONSTRAINT FK_UserBranchRoles_Branches FOREIGN KEY(BranchId) REFERENCES dbo.Branches(BranchId);
+
+    IF OBJECT_ID(N'dbo.Roles', N'U') IS NOT NULL
+        ALTER TABLE dbo.UserBranchRoles ADD CONSTRAINT FK_UserBranchRoles_Roles FOREIGN KEY(RoleId) REFERENCES dbo.Roles(Id);
+
+    CREATE INDEX IX_UserBranchRoles_User_Branch ON dbo.UserBranchRoles(UserId, BranchId);
+    CREATE INDEX IX_UserBranchRoles_RoleId ON dbo.UserBranchRoles(RoleId);
+END
+";
+
+            await using var command = new SqlCommand(sql, connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<List<Role>> GetUserRolesForBranchAsync(int userId, int? branchId)
         {
             var roles = new List<Role>();
             var connectionString = _configuration.GetConnectionString("DefaultConnection");
             
             try
             {
+                await EnsureUserBranchRolesTableExistsAsync();
+
                 using (var connection = new SqlConnection(connectionString))
                 {
                     await connection.OpenAsync();
-                    
-                    using (var command = new SqlCommand(@"
-                        SELECT r.Id, r.Name, r.Description
-                        FROM Roles r
-                        INNER JOIN UserRoles ur ON r.Id = ur.RoleId
-                        WHERE ur.UserId = @UserId", connection))
+
+                    var isAdminUser = await IsAdminUsernameAsync(connection, userId);
+                    if (isAdminUser)
                     {
-                        command.Parameters.AddWithValue("@UserId", userId);
-                        
-                        using (var reader = await command.ExecuteReaderAsync())
+                        using (var adminRoleCommand = new SqlCommand(@"
+                            SELECT TOP 1 r.Id, r.Name, r.Description
+                            FROM dbo.Roles r
+                            WHERE r.Name = 'Administrator'", connection))
                         {
-                            while (await reader.ReadAsync())
+                            using (var adminReader = await adminRoleCommand.ExecuteReaderAsync())
                             {
-                                roles.Add(new Role
+                                while (await adminReader.ReadAsync())
                                 {
-                                    Id = Convert.ToInt32(reader["Id"]),
-                                    Name = reader["Name"].ToString(),
-                                    Description = reader["Description"]?.ToString()
-                                });
+                                    roles.Add(new Role
+                                    {
+                                        Id = Convert.ToInt32(adminReader["Id"]),
+                                        Name = adminReader["Name"].ToString(),
+                                        Description = adminReader["Description"]?.ToString()
+                                    });
+                                }
+                            }
+                        }
+
+                        if (roles.Count > 0)
+                        {
+                            return roles;
+                        }
+                    }
+
+                    if (branchId.HasValue)
+                    {
+                        using (var command = new SqlCommand(@"
+                            SELECT DISTINCT r.Id, r.Name, r.Description
+                            FROM dbo.Roles r
+                            INNER JOIN dbo.UserBranchRoles ubr ON ubr.RoleId = r.Id
+                            WHERE ubr.UserId = @UserId
+                              AND ubr.BranchId = @BranchId
+                              AND ISNULL(ubr.IsActive, 1) = 1", connection))
+                        {
+                            command.Parameters.AddWithValue("@UserId", userId);
+                            command.Parameters.AddWithValue("@BranchId", branchId.Value);
+
+                            using (var reader = await command.ExecuteReaderAsync())
+                            {
+                                while (await reader.ReadAsync())
+                                {
+                                    roles.Add(new Role
+                                    {
+                                        Id = Convert.ToInt32(reader["Id"]),
+                                        Name = reader["Name"].ToString(),
+                                        Description = reader["Description"]?.ToString()
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    // Backward-compat fallback: if no branch-specific roles found, use legacy UserRoles mapping.
+                    if (roles.Count == 0)
+                    {
+                        using (var command = new SqlCommand(@"
+                            SELECT DISTINCT r.Id, r.Name, r.Description
+                            FROM dbo.Roles r
+                            INNER JOIN dbo.UserRoles ur ON r.Id = ur.RoleId
+                            WHERE ur.UserId = @UserId", connection))
+                        {
+                            command.Parameters.AddWithValue("@UserId", userId);
+
+                            using (var reader = await command.ExecuteReaderAsync())
+                            {
+                                while (await reader.ReadAsync())
+                                {
+                                    roles.Add(new Role
+                                    {
+                                        Id = Convert.ToInt32(reader["Id"]),
+                                        Name = reader["Name"].ToString(),
+                                        Description = reader["Description"]?.ToString()
+                                    });
+                                }
                             }
                         }
                     }
@@ -687,10 +990,22 @@ namespace RestaurantManagementSystem.Services
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Error retrieving user roles");
+                _logger?.LogError(ex, "Error retrieving user roles for branch {BranchId}", branchId);
             }
             
             return roles;
+        }
+
+        private static async Task<bool> IsAdminUsernameAsync(SqlConnection connection, int userId)
+        {
+            using var command = new SqlCommand(@"
+SELECT TOP 1 Username
+FROM dbo.Users
+WHERE Id = @UserId", connection);
+            command.Parameters.AddWithValue("@UserId", userId);
+            var username = (await command.ExecuteScalarAsync())?.ToString()?.Trim();
+            return !string.IsNullOrWhiteSpace(username)
+                   && username.Equals("Admin", StringComparison.OrdinalIgnoreCase);
         }
         
         public async Task<bool> IsUserInRoleAsync(int userId, string roleName)
@@ -790,6 +1105,43 @@ namespace RestaurantManagementSystem.Services
                             {
                                 command.Parameters.AddWithValue("@UserId", userId);
                                 command.Parameters.AddWithValue("@RoleId", roleId);
+                                await command.ExecuteNonQueryAsync();
+                            }
+
+                            // If branch model exists, auto-assign default branch so login can continue in branch-wise mode.
+                            using (var command = new SqlCommand(@"
+IF OBJECT_ID(N'dbo.Branches', N'U') IS NOT NULL
+BEGIN
+    IF OBJECT_ID(N'dbo.UserBranches', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.UserBranches
+        (
+            Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_UserBranches PRIMARY KEY,
+            UserId INT NOT NULL,
+            BranchId INT NOT NULL,
+            IsDefault BIT NOT NULL CONSTRAINT DF_UserBranches_IsDefault DEFAULT(0),
+            IsActive BIT NOT NULL CONSTRAINT DF_UserBranches_IsActive DEFAULT(1),
+            CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_UserBranches_CreatedAt DEFAULT SYSUTCDATETIME(),
+            UpdatedAt DATETIME2(3) NULL,
+            CONSTRAINT UQ_UserBranches_UserId_BranchId UNIQUE(UserId, BranchId)
+        );
+    END
+
+    DECLARE @DefaultBranchId INT;
+    SELECT TOP 1 @DefaultBranchId = BranchId
+    FROM dbo.Branches
+    WHERE ISNULL(IsActive, 1) = 1
+    ORDER BY CASE WHEN ISNULL(Is_MainBranch, 0) = 1 THEN 0 ELSE 1 END, BranchId;
+
+    IF @DefaultBranchId IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM dbo.UserBranches WHERE UserId = @UserId AND BranchId = @DefaultBranchId)
+    BEGIN
+        INSERT INTO dbo.UserBranches (UserId, BranchId, IsDefault, IsActive, CreatedAt, UpdatedAt)
+        VALUES (@UserId, @DefaultBranchId, 1, 1, SYSUTCDATETIME(), NULL);
+    END
+END", connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@UserId", userId);
                                 await command.ExecuteNonQueryAsync();
                             }
                             
@@ -914,10 +1266,17 @@ namespace RestaurantManagementSystem.Services
                 return (false, "Unable to determine signed-in user.");
             }
 
-            var roles = await GetUserRolesAsync(userId.Value);
+            var activeBranchId = currentUser.GetActiveBranchId();
+            var roles = await GetUserRolesForBranchAsync(userId.Value, activeBranchId);
             if (roles == null || roles.All(r => r.Id != roleId))
             {
                 return (false, "Selected role is not assigned to this user.");
+            }
+
+            var branches = await GetUserBranchesAsync(userId.Value);
+            if (branches == null || branches.Count == 0)
+            {
+                return (false, "No branch is assigned to this user.");
             }
 
             var user = await GetUserByIdAsync(userId.Value);
@@ -927,6 +1286,10 @@ namespace RestaurantManagementSystem.Services
             }
 
             user.Roles = roles;
+            user.Branches = branches;
+
+            var activeBranchClaim = currentUser.FindFirst("ActiveBranchId")?.Value;
+            var preferredBranchId = int.TryParse(activeBranchClaim, out var branchIdValue) ? branchIdValue : (int?)null;
 
             var sessionClaims = new List<Claim>();
             var sessionToken = currentUser.FindFirst("SessionToken");
@@ -940,7 +1303,7 @@ namespace RestaurantManagementSystem.Services
                 sessionClaims.Add(sessionId);
             }
 
-            var principal = BuildPrincipal(user, roles, roleId, roleSelectionConfirmed: true, extraClaims: sessionClaims);
+            var principal = BuildPrincipal(user, roles, branches, roleId, preferredBranchId, roleSelectionConfirmed: true, branchSelectionConfirmed: true, extraClaims: sessionClaims);
 
             var context = _httpContextAccessor.HttpContext;
             if (context == null)
@@ -961,6 +1324,80 @@ namespace RestaurantManagementSystem.Services
                 properties);
 
             return (true, "Role switched successfully.");
+        }
+
+        public async Task<(bool success, string message)> SwitchBranchAsync(ClaimsPrincipal currentUser, int branchId)
+        {
+            if (currentUser?.Identity?.IsAuthenticated != true)
+            {
+                return (false, "User is not authenticated.");
+            }
+
+            var userId = currentUser.GetUserId();
+            if (userId is null)
+            {
+                return (false, "Unable to determine signed-in user.");
+            }
+
+            var branches = await GetUserBranchesAsync(userId.Value);
+            if (branches == null || branches.All(b => b.BranchId != branchId))
+            {
+                return (false, "Selected branch is not assigned to this user.");
+            }
+
+            var chosenBranch = branches.FirstOrDefault(b => b.BranchId == branchId);
+            if (chosenBranch == null)
+            {
+                return (false, "Selected branch is unavailable.");
+            }
+
+            var user = await GetUserByIdAsync(userId.Value);
+            if (user == null)
+            {
+                return (false, "User could not be loaded.");
+            }
+
+            var roles = await GetUserRolesForBranchAsync(userId.Value, branchId);
+            user.Roles = roles;
+            user.Branches = branches;
+
+            var activeRoleClaim = currentUser.FindFirst("ActiveRoleId")?.Value;
+            var preferredRoleId = int.TryParse(activeRoleClaim, out var roleIdValue) ? roleIdValue : roles.FirstOrDefault()?.Id;
+
+            var sessionClaims = new List<Claim>();
+            var sessionToken = currentUser.FindFirst("SessionToken");
+            if (sessionToken != null)
+            {
+                sessionClaims.Add(sessionToken);
+            }
+            var sessionId = currentUser.FindFirst("SessionId");
+            if (sessionId != null)
+            {
+                sessionClaims.Add(sessionId);
+            }
+
+            var roleSelectionConfirmed = roles.Count <= 1;
+            var principal = BuildPrincipal(user, roles, branches, preferredRoleId, branchId, roleSelectionConfirmed: roleSelectionConfirmed, branchSelectionConfirmed: true, extraClaims: sessionClaims);
+
+            var context = _httpContextAccessor.HttpContext;
+            if (context == null)
+            {
+                return (false, "No active HTTP context available.");
+            }
+
+            var authResult = await context.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            var properties = authResult?.Properties ?? new AuthenticationProperties
+            {
+                IsPersistent = false,
+                ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12)
+            };
+
+            await context.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                principal,
+                properties);
+
+            return (true, "Branch switched successfully.");
         }
         
         public async Task<(bool success, string message)> ChangePasswordAsync(int userId, string currentPassword, string newPassword)
@@ -1043,7 +1480,7 @@ namespace RestaurantManagementSystem.Services
                     // Get roles for each user
                     foreach (var user in users)
                     {
-                        user.Roles = await GetUserRolesAsync(user.Id);
+                        user.Roles = await GetUserRolesForBranchAsync(user.Id, null);
                     }
                 }
                 
@@ -1087,7 +1524,7 @@ namespace RestaurantManagementSystem.Services
                                 };
                                 
                                 // Get user roles
-                                user.Roles = await GetUserRolesAsync(user.Id);
+                                user.Roles = await GetUserRolesForBranchAsync(user.Id, null);
                                 
                                 return user;
                             }

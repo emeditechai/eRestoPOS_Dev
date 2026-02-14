@@ -6,6 +6,7 @@ using RestaurantManagementSystem.Data;
 using Microsoft.Data.SqlClient;
 using System;
 using System.Linq;
+using RestaurantManagementSystem.Utilities;
 
 namespace RestaurantManagementSystem.Controllers
 {
@@ -77,17 +78,25 @@ namespace RestaurantManagementSystem.Controllers
     // Ingredients List
     public IActionResult IngredientsList()
     {
-        var ingredients = _dbContext.Ingredients.ToList();
+        var activeBranchId = User.GetActiveBranchId();
+        if (!activeBranchId.HasValue)
+        {
+            TempData["ResultMessage"] = "Please select an active branch first.";
+            return View(new List<Ingredients>());
+        }
+
+        EnsureIngredientsBranchColumnExists();
+        var ingredients = _dbContext.Ingredients.Where(i => i.BranchId == activeBranchId.Value).ToList();
         
         // If there are no ingredients, seed some sample data
         if (!ingredients.Any())
         {
             _dbContext.Ingredients.AddRange(
-                new Ingredients { IngredientsName = "Tomato", DisplayName = "Tomato", Code = "TMT" },
-                new Ingredients { IngredientsName = "Cheese", DisplayName = "Cheese", Code = "CHS" }
+                new Ingredients { IngredientsName = "Tomato", DisplayName = "Tomato", Code = "TMT", BranchId = activeBranchId.Value },
+                new Ingredients { IngredientsName = "Cheese", DisplayName = "Cheese", Code = "CHS", BranchId = activeBranchId.Value }
             );
             _dbContext.SaveChanges();
-            ingredients = _dbContext.Ingredients.ToList();
+            ingredients = _dbContext.Ingredients.Where(i => i.BranchId == activeBranchId.Value).ToList();
         }
         
         return View(ingredients);
@@ -96,11 +105,19 @@ namespace RestaurantManagementSystem.Controllers
     // Add/Edit/View Form
     public IActionResult IngredientsForm(int? id, bool isView = false)
     {
+        var activeBranchId = User.GetActiveBranchId();
+        if (!activeBranchId.HasValue)
+        {
+            TempData["ResultMessage"] = "Please select an active branch first.";
+            return RedirectToAction(nameof(IngredientsList));
+        }
+
+        EnsureIngredientsBranchColumnExists();
         Ingredients model = new Ingredients { IngredientsName = "" };
         
         if (id.HasValue)
         {
-            model = _dbContext.Ingredients.FirstOrDefault(i => i.Id == id.Value) ?? model;
+            model = _dbContext.Ingredients.FirstOrDefault(i => i.Id == id.Value && i.BranchId == activeBranchId.Value) ?? model;
         }
         
         ViewBag.IsView = isView;
@@ -110,6 +127,16 @@ namespace RestaurantManagementSystem.Controllers
     [HttpPostAttribute]
     public IActionResult IngredientsForm(Ingredients model)
     {
+        var activeBranchId = User.GetActiveBranchId();
+        if (!activeBranchId.HasValue)
+        {
+            TempData["ResultMessage"] = "Please select an active branch first.";
+            return RedirectToAction(nameof(IngredientsList));
+        }
+
+        EnsureIngredientsBranchColumnExists();
+        model.BranchId = activeBranchId.Value;
+
         if (ModelState.IsValid)
         {
             if (model.Id == 0)
@@ -122,12 +149,13 @@ namespace RestaurantManagementSystem.Controllers
             else
             {
                 // Update existing ingredient
-                var existingIngredient = _dbContext.Ingredients.FirstOrDefault(i => i.Id == model.Id);
+                var existingIngredient = _dbContext.Ingredients.FirstOrDefault(i => i.Id == model.Id && i.BranchId == activeBranchId.Value);
                 if (existingIngredient != null)
                 {
                     existingIngredient.IngredientsName = model.IngredientsName;
                     existingIngredient.DisplayName = model.DisplayName;
                     existingIngredient.Code = model.Code;
+                    existingIngredient.BranchId = activeBranchId.Value;
                     _dbContext.SaveChanges();
                     TempData["ResultMessage"] = "Ingredient updated successfully.";
                 }
@@ -146,8 +174,15 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ResultMessage"] = "Please select an active branch first.";
+                    return View(new List<CounterMaster>());
+                }
+
                 EnsureCountersTableExists();
-                var counters = ReadCounters();
+                var counters = ReadCounters(activeBranchId.Value);
                 return View(counters);
             }
             catch (Exception ex)
@@ -162,12 +197,19 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ResultMessage"] = "Please select an active branch first.";
+                    return RedirectToAction(nameof(CounterList));
+                }
+
                 EnsureCountersTableExists();
                 var model = new CounterMaster();
 
                 if (id.HasValue && id.Value > 0)
                 {
-                    model = ReadCounterById(id.Value) ?? model;
+                    model = ReadCounterById(id.Value, activeBranchId.Value) ?? model;
                 }
 
                 ViewBag.IsView = isView;
@@ -186,6 +228,13 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ResultMessage"] = "Please select an active branch first.";
+                    return RedirectToAction(nameof(CounterList));
+                }
+
                 EnsureCountersTableExists();
 
                 model.CounterCode = (model.CounterCode ?? string.Empty).Trim();
@@ -204,7 +253,7 @@ namespace RestaurantManagementSystem.Controllers
 
                 if (!string.IsNullOrWhiteSpace(model.CounterCode))
                 {
-                    var duplicate = CounterCodeExists(model.CounterCode, model.Id);
+                    var duplicate = CounterCodeExists(model.CounterCode, model.Id, activeBranchId.Value);
                     if (duplicate)
                     {
                         ModelState.AddModelError(nameof(CounterMaster.CounterCode), "Counter Code already exists.");
@@ -219,12 +268,12 @@ namespace RestaurantManagementSystem.Controllers
 
                 if (model.Id > 0)
                 {
-                    var updated = UpdateCounter(model);
+                    var updated = UpdateCounter(model, activeBranchId.Value);
                     TempData["ResultMessage"] = updated ? "Counter updated successfully." : "Counter update failed.";
                 }
                 else
                 {
-                    var inserted = InsertCounter(model);
+                    var inserted = InsertCounter(model, activeBranchId.Value);
                     TempData["ResultMessage"] = inserted ? "Counter added successfully." : "Counter add failed.";
                 }
 
@@ -244,8 +293,15 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ResultMessage"] = "Please select an active branch first.";
+                    return RedirectToAction(nameof(CounterList));
+                }
+
                 EnsureCountersTableExists();
-                var ok = SetCounterActive(id, isActive);
+                var ok = SetCounterActive(id, isActive, activeBranchId.Value);
                 TempData["ResultMessage"] = ok
                     ? (isActive ? "Counter activated successfully." : "Counter deactivated successfully.")
                     : "Counter status update failed.";
@@ -270,6 +326,7 @@ BEGIN
     CREATE TABLE dbo.Counters
     (
         Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Counters PRIMARY KEY,
+        BranchId INT NULL,
         CounterCode NVARCHAR(50) NOT NULL,
         CounterName NVARCHAR(120) NOT NULL,
         IsActive BIT NOT NULL CONSTRAINT DF_Counters_IsActive DEFAULT (1),
@@ -277,18 +334,33 @@ BEGIN
         UpdatedAt DATETIME2(3) NULL
     );
 
-    CREATE UNIQUE INDEX UX_Counters_CounterCode ON dbo.Counters (CounterCode);
+    CREATE INDEX IX_Counters_Branch_CounterCode ON dbo.Counters (BranchId, CounterCode);
 END
 ELSE
 BEGIN
-    IF NOT EXISTS (
+    IF COL_LENGTH('dbo.Counters', 'BranchId') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Counters ADD BranchId INT NULL;
+    END
+
+    IF EXISTS (
         SELECT 1
         FROM sys.indexes
         WHERE name = N'UX_Counters_CounterCode'
           AND object_id = OBJECT_ID(N'dbo.Counters')
     )
     BEGIN
-        CREATE UNIQUE INDEX UX_Counters_CounterCode ON dbo.Counters (CounterCode);
+        DROP INDEX UX_Counters_CounterCode ON dbo.Counters;
+    END
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE name = N'IX_Counters_Branch_CounterCode'
+          AND object_id = OBJECT_ID(N'dbo.Counters')
+    )
+    BEGIN
+        CREATE INDEX IX_Counters_Branch_CounterCode ON dbo.Counters (BranchId, CounterCode);
     END
 END
 ", connection))
@@ -298,64 +370,71 @@ END
             }
         }
 
-        private List<CounterMaster> ReadCounters()
+        private List<CounterMaster> ReadCounters(int branchId)
         {
             var list = new List<CounterMaster>();
             using (var connection = new SqlConnection(_connectionString))
             {
                 connection.Open();
                 using (var cmd = new SqlCommand(@"
-SELECT Id, CounterCode, CounterName, IsActive, CreatedAt, UpdatedAt
+SELECT Id, BranchId, CounterCode, CounterName, IsActive, CreatedAt, UpdatedAt
 FROM dbo.Counters
+WHERE BranchId = @BranchId
 ORDER BY CounterCode", connection))
-                using (var reader = cmd.ExecuteReader())
                 {
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
+                    using (var reader = cmd.ExecuteReader())
+                    {
                     while (reader.Read())
                     {
                         list.Add(new CounterMaster
                         {
                             Id = reader.GetInt32(0),
-                            CounterCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                            CounterName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                            IsActive = !reader.IsDBNull(3) && reader.GetBoolean(3),
-                            CreatedAt = reader.IsDBNull(4) ? DateTime.UtcNow : reader.GetDateTime(4),
-                            UpdatedAt = reader.IsDBNull(5) ? null : reader.GetDateTime(5)
+                            BranchId = reader.IsDBNull(1) ? null : reader.GetInt32(1),
+                            CounterCode = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                            CounterName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                            IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4),
+                            CreatedAt = reader.IsDBNull(5) ? DateTime.UtcNow : reader.GetDateTime(5),
+                            UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6)
                         });
+                    }
                     }
                 }
             }
             return list;
         }
 
-        private CounterMaster? ReadCounterById(int id)
+        private CounterMaster? ReadCounterById(int id, int branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 connection.Open();
                 using (var cmd = new SqlCommand(@"
-SELECT TOP 1 Id, CounterCode, CounterName, IsActive, CreatedAt, UpdatedAt
+SELECT TOP 1 Id, BranchId, CounterCode, CounterName, IsActive, CreatedAt, UpdatedAt
 FROM dbo.Counters
-WHERE Id = @Id", connection))
+WHERE Id = @Id AND BranchId = @BranchId", connection))
                 {
                     cmd.Parameters.AddWithValue("@Id", id);
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
                     using (var reader = cmd.ExecuteReader())
                     {
                         if (!reader.Read()) return null;
                         return new CounterMaster
                         {
                             Id = reader.GetInt32(0),
-                            CounterCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                            CounterName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                            IsActive = !reader.IsDBNull(3) && reader.GetBoolean(3),
-                            CreatedAt = reader.IsDBNull(4) ? DateTime.UtcNow : reader.GetDateTime(4),
-                            UpdatedAt = reader.IsDBNull(5) ? null : reader.GetDateTime(5)
+                            BranchId = reader.IsDBNull(1) ? null : reader.GetInt32(1),
+                            CounterCode = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                            CounterName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                            IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4),
+                            CreatedAt = reader.IsDBNull(5) ? DateTime.UtcNow : reader.GetDateTime(5),
+                            UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6)
                         };
                     }
                 }
             }
         }
 
-        private bool CounterCodeExists(string code, int excludeId)
+        private bool CounterCodeExists(string code, int excludeId, int branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
@@ -364,25 +443,28 @@ WHERE Id = @Id", connection))
 SELECT COUNT(1)
 FROM dbo.Counters
 WHERE UPPER(CounterCode) = UPPER(@Code)
+  AND BranchId = @BranchId
   AND Id <> @ExcludeId", connection))
                 {
                     cmd.Parameters.AddWithValue("@Code", code);
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
                     cmd.Parameters.AddWithValue("@ExcludeId", excludeId);
                     return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
                 }
             }
         }
 
-        private bool InsertCounter(CounterMaster model)
+        private bool InsertCounter(CounterMaster model, int branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 connection.Open();
                 using (var cmd = new SqlCommand(@"
-INSERT INTO dbo.Counters (CounterCode, CounterName, IsActive, CreatedAt, UpdatedAt)
-VALUES (@Code, @Name, @IsActive, SYSUTCDATETIME(), NULL)
+INSERT INTO dbo.Counters (BranchId, CounterCode, CounterName, IsActive, CreatedAt, UpdatedAt)
+VALUES (@BranchId, @Code, @Name, @IsActive, SYSUTCDATETIME(), NULL)
 ", connection))
                 {
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
                     cmd.Parameters.AddWithValue("@Code", model.CounterCode);
                     cmd.Parameters.AddWithValue("@Name", model.CounterName);
                     cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
@@ -391,7 +473,7 @@ VALUES (@Code, @Name, @IsActive, SYSUTCDATETIME(), NULL)
             }
         }
 
-        private bool UpdateCounter(CounterMaster model)
+        private bool UpdateCounter(CounterMaster model, int branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
@@ -402,10 +484,11 @@ SET CounterCode = @Code,
     CounterName = @Name,
     IsActive = @IsActive,
     UpdatedAt = SYSUTCDATETIME()
-WHERE Id = @Id
+WHERE Id = @Id AND BranchId = @BranchId
 ", connection))
                 {
                     cmd.Parameters.AddWithValue("@Id", model.Id);
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
                     cmd.Parameters.AddWithValue("@Code", model.CounterCode);
                     cmd.Parameters.AddWithValue("@Name", model.CounterName);
                     cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
@@ -414,7 +497,7 @@ WHERE Id = @Id
             }
         }
 
-        private bool SetCounterActive(int id, bool isActive)
+        private bool SetCounterActive(int id, bool isActive, int branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
@@ -423,10 +506,403 @@ WHERE Id = @Id
 UPDATE dbo.Counters
 SET IsActive = @IsActive,
     UpdatedAt = SYSUTCDATETIME()
-WHERE Id = @Id
+WHERE Id = @Id AND BranchId = @BranchId
 ", connection))
                 {
                     cmd.Parameters.AddWithValue("@Id", id);
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
+                    cmd.Parameters.AddWithValue("@IsActive", isActive);
+                    return cmd.ExecuteNonQuery() > 0;
+                }
+            }
+        }
+
+        private void EnsureIngredientsBranchColumnExists()
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+IF COL_LENGTH('dbo.Ingredients', 'BranchId') IS NULL
+BEGIN
+    ALTER TABLE dbo.Ingredients ADD BranchId INT NULL;
+END
+", connection))
+                {
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        private bool IsMainBranchActiveSession()
+        {
+            var activeBranchId = User.GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return false;
+            }
+
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+SELECT COUNT(1)
+FROM dbo.Branches
+WHERE BranchId = @BranchId
+  AND ISNULL(IsActive, 1) = 1
+  AND ISNULL(Is_MainBranch, 0) = 1", connection))
+                {
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                }
+            }
+        }
+
+        private IActionResult MainBranchAccessDenied()
+        {
+            TempData["ResultMessage"] = "Branch Master is accessible only when logged into a Main Branch.";
+            return RedirectToAction("Index", "Home");
+        }
+
+        // Branch Master List
+        public IActionResult BranchList()
+        {
+            try
+            {
+                if (!IsMainBranchActiveSession())
+                {
+                    return MainBranchAccessDenied();
+                }
+
+                EnsureBranchesTableExists();
+                var branches = ReadBranches();
+                return View(branches);
+            }
+            catch (Exception ex)
+            {
+                TempData["ResultMessage"] = $"Failed to load branches: {ex.Message}";
+                return View(new List<BranchMaster>());
+            }
+        }
+
+        // Branch Master Add/Edit/View Form
+        public IActionResult BranchForm(int? branchId, bool isView = false)
+        {
+            try
+            {
+                if (!IsMainBranchActiveSession())
+                {
+                    return MainBranchAccessDenied();
+                }
+
+                EnsureBranchesTableExists();
+                var model = new BranchMaster
+                {
+                    IsActive = true
+                };
+
+                if (branchId.HasValue && branchId.Value > 0)
+                {
+                    model = ReadBranchById(branchId.Value) ?? model;
+                }
+
+                ViewBag.IsView = isView;
+                return View(model);
+            }
+            catch (Exception ex)
+            {
+                TempData["ResultMessage"] = $"Failed to load branch: {ex.Message}";
+                return RedirectToAction(nameof(BranchList));
+            }
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult BranchForm(BranchMaster model, bool isView = false)
+        {
+            try
+            {
+                if (!IsMainBranchActiveSession())
+                {
+                    return MainBranchAccessDenied();
+                }
+
+                EnsureBranchesTableExists();
+
+                model.BranchCode = NormalizeBranchCode(model.BranchCode);
+                model.BranchName = (model.BranchName ?? string.Empty).Trim();
+
+                if (string.IsNullOrWhiteSpace(model.BranchCode))
+                {
+                    ModelState.AddModelError(nameof(BranchMaster.BranchCode), "Branch Code is required.");
+                }
+
+                if (!string.IsNullOrWhiteSpace(model.BranchCode) && model.BranchCode.Length > 4)
+                {
+                    ModelState.AddModelError(nameof(BranchMaster.BranchCode), "Branch Code must be maximum 4 characters.");
+                }
+
+                if (!string.IsNullOrWhiteSpace(model.BranchCode) && !IsBranchCodeAlphanumeric(model.BranchCode))
+                {
+                    ModelState.AddModelError(nameof(BranchMaster.BranchCode), "Branch Code must be alphanumeric only.");
+                }
+
+                if (string.IsNullOrWhiteSpace(model.BranchName))
+                {
+                    ModelState.AddModelError(nameof(BranchMaster.BranchName), "Branch Name is required.");
+                }
+
+                if (!string.IsNullOrWhiteSpace(model.BranchCode) && BranchCodeExists(model.BranchCode, model.BranchId))
+                {
+                    ModelState.AddModelError(nameof(BranchMaster.BranchCode), "Branch Code already exists.");
+                }
+
+                if (model.Is_MainBranch && MainBranchExists(model.BranchId))
+                {
+                    ModelState.AddModelError(nameof(BranchMaster.Is_MainBranch), "Another main branch already exists.");
+                }
+
+                if (!ModelState.IsValid)
+                {
+                    ViewBag.IsView = isView;
+                    return View(model);
+                }
+
+                if (model.BranchId > 0)
+                {
+                    var updated = UpdateBranch(model);
+                    TempData["ResultMessage"] = updated ? "Branch updated successfully." : "Branch update failed.";
+                }
+                else
+                {
+                    var inserted = InsertBranch(model);
+                    TempData["ResultMessage"] = inserted ? "Branch added successfully." : "Branch add failed.";
+                }
+
+                return RedirectToAction(nameof(BranchList));
+            }
+            catch (Exception ex)
+            {
+                TempData["ResultMessage"] = $"Failed to save branch: {ex.Message}";
+                ViewBag.IsView = isView;
+                return View(model);
+            }
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult SetBranchStatus(int branchId, bool isActive)
+        {
+            try
+            {
+                if (!IsMainBranchActiveSession())
+                {
+                    return MainBranchAccessDenied();
+                }
+
+                EnsureBranchesTableExists();
+                var ok = SetBranchActive(branchId, isActive);
+                TempData["ResultMessage"] = ok
+                    ? (isActive ? "Branch activated successfully." : "Branch deactivated successfully.")
+                    : "Branch status update failed.";
+            }
+            catch (Exception ex)
+            {
+                TempData["ResultMessage"] = $"Branch status update failed: {ex.Message}";
+            }
+
+            return RedirectToAction(nameof(BranchList));
+        }
+
+        private void EnsureBranchesTableExists()
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+IF OBJECT_ID(N'dbo.Branches', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Branches
+    (
+        BranchId INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Branches PRIMARY KEY,
+        BranchCode NVARCHAR(20) NOT NULL,
+        BranchName NVARCHAR(150) NOT NULL,
+        Is_MainBranch BIT NULL,
+        IsActive BIT NOT NULL CONSTRAINT DF_Branches_IsActive DEFAULT (1),
+        CreatedAt DATETIME NOT NULL CONSTRAINT DF_Branches_CreatedAt DEFAULT (GETDATE()),
+        UpdatedAt DATETIME NULL,
+        CONSTRAINT UQ_Branches_BranchCode UNIQUE (BranchCode)
+    );
+END
+", connection))
+                {
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        private List<BranchMaster> ReadBranches()
+        {
+            var list = new List<BranchMaster>();
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+SELECT BranchId, BranchCode, BranchName, Is_MainBranch, IsActive, CreatedAt, UpdatedAt
+FROM dbo.Branches
+ORDER BY BranchCode", connection))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        list.Add(new BranchMaster
+                        {
+                            BranchId = reader.GetInt32(0),
+                            BranchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                            BranchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                            Is_MainBranch = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                            IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4),
+                            CreatedAt = reader.IsDBNull(5) ? DateTime.Now : reader.GetDateTime(5),
+                            UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6)
+                        });
+                    }
+                }
+            }
+
+            return list;
+        }
+
+        private BranchMaster? ReadBranchById(int branchId)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+SELECT TOP 1 BranchId, BranchCode, BranchName, Is_MainBranch, IsActive, CreatedAt, UpdatedAt
+FROM dbo.Branches
+WHERE BranchId = @BranchId", connection))
+                {
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (!reader.Read()) return null;
+                        return new BranchMaster
+                        {
+                            BranchId = reader.GetInt32(0),
+                            BranchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                            BranchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                            Is_MainBranch = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                            IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4),
+                            CreatedAt = reader.IsDBNull(5) ? DateTime.Now : reader.GetDateTime(5),
+                            UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6)
+                        };
+                    }
+                }
+            }
+        }
+
+        private bool BranchCodeExists(string code, int excludeBranchId)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+SELECT COUNT(1)
+FROM dbo.Branches
+WHERE UPPER(LTRIM(RTRIM(BranchCode))) = @Code
+  AND BranchId <> @ExcludeBranchId", connection))
+                {
+                    cmd.Parameters.AddWithValue("@Code", NormalizeBranchCode(code));
+                    cmd.Parameters.AddWithValue("@ExcludeBranchId", excludeBranchId);
+                    return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                }
+            }
+        }
+
+        private bool MainBranchExists(int excludeBranchId)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+SELECT COUNT(1)
+FROM dbo.Branches
+WHERE ISNULL(Is_MainBranch, 0) = 1
+  AND BranchId <> @ExcludeBranchId", connection))
+                {
+                    cmd.Parameters.AddWithValue("@ExcludeBranchId", excludeBranchId);
+                    return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                }
+            }
+        }
+
+        private bool InsertBranch(BranchMaster model)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+INSERT INTO dbo.Branches (BranchCode, BranchName, Is_MainBranch, IsActive, CreatedAt, UpdatedAt)
+VALUES (@BranchCode, @BranchName, @IsMainBranch, @IsActive, GETDATE(), NULL)
+", connection))
+                {
+                    cmd.Parameters.AddWithValue("@BranchCode", NormalizeBranchCode(model.BranchCode));
+                    cmd.Parameters.AddWithValue("@BranchName", model.BranchName);
+                    cmd.Parameters.AddWithValue("@IsMainBranch", model.Is_MainBranch);
+                    cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
+                    return cmd.ExecuteNonQuery() > 0;
+                }
+            }
+        }
+
+        private bool UpdateBranch(BranchMaster model)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+UPDATE dbo.Branches
+SET BranchCode = @BranchCode,
+    BranchName = @BranchName,
+    Is_MainBranch = @IsMainBranch,
+    IsActive = @IsActive,
+    UpdatedAt = GETDATE()
+WHERE BranchId = @BranchId
+", connection))
+                {
+                    cmd.Parameters.AddWithValue("@BranchId", model.BranchId);
+                    cmd.Parameters.AddWithValue("@BranchCode", NormalizeBranchCode(model.BranchCode));
+                    cmd.Parameters.AddWithValue("@BranchName", model.BranchName);
+                    cmd.Parameters.AddWithValue("@IsMainBranch", model.Is_MainBranch);
+                    cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
+                    return cmd.ExecuteNonQuery() > 0;
+                }
+            }
+        }
+
+        private static string NormalizeBranchCode(string? branchCode)
+        {
+            return (branchCode ?? string.Empty).Trim().ToUpperInvariant();
+        }
+
+        private static bool IsBranchCodeAlphanumeric(string branchCode)
+        {
+            return branchCode.All(char.IsLetterOrDigit);
+        }
+
+        private bool SetBranchActive(int branchId, bool isActive)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+UPDATE dbo.Branches
+SET IsActive = @IsActive,
+    UpdatedAt = GETDATE()
+WHERE BranchId = @BranchId
+", connection))
+                {
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
                     cmd.Parameters.AddWithValue("@IsActive", isActive);
                     return cmd.ExecuteNonQuery() > 0;
                 }

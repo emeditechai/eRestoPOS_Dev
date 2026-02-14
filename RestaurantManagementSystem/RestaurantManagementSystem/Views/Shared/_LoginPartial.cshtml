@@ -4,6 +4,8 @@
 @{
     var activeRoleName = User?.FindFirst("ActiveRoleName")?.Value ?? "Not Selected";
     var hasMultipleRoles = User?.FindFirst("HasMultipleRoles")?.Value == "true";
+    var activeBranchName = User?.FindFirst("ActiveBranchName")?.Value ?? "Not Selected";
+    var hasMultipleBranches = User?.FindFirst("HasMultipleBranches")?.Value == "true";
     var preferredName = User?.FindFirst(ClaimTypes.GivenName)?.Value;
     var lastName = User?.FindFirst(ClaimTypes.Surname)?.Value;
     var userName = User?.Identity?.Name ?? "User";
@@ -62,6 +64,20 @@
                     <span class="fw-semibold">@activeRoleName</span>
                 </span>
             </li>
+            <li>
+                <span class="dropdown-item-text py-1">
+                    <small class="text-muted text-uppercase">Active Branch</small><br />
+                    <span class="fw-semibold" data-active-branch-label>@activeBranchName</span>
+                </span>
+            </li>
+            @if (hasMultipleBranches)
+            {
+                <li>
+                    <a class="dropdown-item py-1" href="#" data-branch-switch-trigger>
+                        <i class="fas fa-code-branch compact-icon text-primary"></i> Switch Branch
+                    </a>
+                </li>
+            }
             @if (hasMultipleRoles)
             {
                 <li>
