@@ -346,7 +346,7 @@ END", connection))
         }
         
         // Create New Order
-        [RequirePermission("NAV_ORDERS_CREATE", PermissionAction.Add)]
+        [RequirePermission("NAV_ORDERS_CREATE", PermissionAction.View)]
         public IActionResult Create(int? tableId = null)
         {
             var model = new CreateOrderViewModel();
@@ -2688,7 +2688,7 @@ END", connection))
 
         // POS Order (single-screen) - Takeout/Delivery only (not in navigation yet)
         [HttpGet]
-        [RequirePermission("NAV_ORDERS_CREATE", PermissionAction.Add)]
+        [RequirePermission("NAV_ORDERS_POS", PermissionAction.View)]
         public IActionResult POSOrder(int? orderId = null)
         {
             ViewData["Title"] = "POS Order";
@@ -2777,7 +2777,7 @@ END", connection))
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        [RequirePermission("NAV_ORDERS_CREATE", PermissionAction.Add)]
+        [RequirePermission("NAV_ORDERS_POS", PermissionAction.Add)]
         public IActionResult SetPOSCounter(int counterId)
         {
             if (counterId <= 0) return BadRequest(new { success = false, message = "Invalid counter." });
@@ -3007,7 +3007,7 @@ END", connection))
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        [RequirePermission("NAV_ORDERS_CREATE", PermissionAction.Add)]
+        [RequirePermission("NAV_ORDERS_POS", PermissionAction.Add)]
         public async Task<IActionResult> CreatePOSOrder(RestaurantManagementSystem.Models.PosOrderCreateViewModel model)
         {
             ViewData["Title"] = "POS Order";
@@ -3234,7 +3234,7 @@ END", connection))
         // AJAX create to avoid full page reload (returns JSON)
         [HttpPost]
         [ValidateAntiForgeryToken]
-        [RequirePermission("NAV_ORDERS_CREATE", PermissionAction.Add)]
+        [RequirePermission("NAV_ORDERS_POS", PermissionAction.Add)]
         public async Task<IActionResult> CreatePOSOrderAjax(RestaurantManagementSystem.Models.PosOrderCreateViewModel model)
         {
             if (model == null)

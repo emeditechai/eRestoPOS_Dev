@@ -365,6 +365,32 @@ namespace RestaurantManagementSystem.Services
 
             try
             {
+                // Load menu metadata for default permission inference (Create/ POS Order etc.)
+                var menuMeta = new Dictionary<int, NavigationMenu>();
+                if (menuSet.Count > 0)
+                {
+                    // Build a safe IN clause using parameters
+                    var idParams = menuSet.Select((id, idx) => new { id, name = "@m" + idx }).ToList();
+                    var sqlMenus = $@"SELECT Id, Code, ParentCode, DisplayName, Description, Area, ControllerName, ActionName,
+                                           RouteValues, CustomUrl, IconCss, DisplayOrder, IsActive, IsVisible,
+                                           ThemeColor, ShortcutHint, OpenInNewTab, CreatedAt, UpdatedAt
+                                    FROM dbo.NavigationMenus
+                                    WHERE Id IN ({string.Join(",", idParams.Select(p => p.name))})";
+
+                    await using var menuCmd = new SqlCommand(sqlMenus, connection, (SqlTransaction)transaction);
+                    foreach (var p in idParams)
+                    {
+                        menuCmd.Parameters.AddWithValue(p.name, p.id);
+                    }
+
+                    await using var menuReader = await menuCmd.ExecuteReaderAsync();
+                    while (await menuReader.ReadAsync())
+                    {
+                        var menu = MapMenu(menuReader);
+                        menuMeta[menu.Id] = menu;
+                    }
+                }
+
                 var existing = new HashSet<int>();
                 await using (var selectCmd = new SqlCommand("SELECT MenuId FROM dbo.RoleMenuPermissions WHERE RoleId = @RoleId", connection, (SqlTransaction)transaction))
                 {
@@ -409,13 +435,46 @@ namespace RestaurantManagementSystem.Services
                 {
                     foreach (var menuId in toAdd)
                     {
+                        var defaultCanAdd = InferDefaultCanAdd(menuMeta.TryGetValue(menuId, out var m) ? m : null);
                         const string insertSql = @"INSERT INTO dbo.RoleMenuPermissions (RoleId, MenuId, CanView, CanAdd, CanEdit, CanDelete, CanApprove, CanPrint, CanExport, CreatedAt, CreatedBy, UpdatedAt, UpdatedBy)
-                                                   VALUES (@RoleId, @MenuId, 1, 0, 0, 0, 0, 0, 0, SYSUTCDATETIME(), @UpdatedBy, SYSUTCDATETIME(), @UpdatedBy)";
+                                                   VALUES (@RoleId, @MenuId, 1, @CanAdd, 0, 0, 0, 0, 0, SYSUTCDATETIME(), @UpdatedBy, SYSUTCDATETIME(), @UpdatedBy)";
                         await using var insertCmd = new SqlCommand(insertSql, connection, (SqlTransaction)transaction);
                         insertCmd.Parameters.AddWithValue("@RoleId", roleId);
                         insertCmd.Parameters.AddWithValue("@MenuId", menuId);
+                        insertCmd.Parameters.AddWithValue("@CanAdd", defaultCanAdd ? 1 : 0);
                         insertCmd.Parameters.AddWithValue("@UpdatedBy", (object?)updatedBy ?? DBNull.Value);
                         await insertCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                // Apply default action flags for selected menus, but do not override any customized matrix settings.
+                // Only escalates when all action flags are currently 0.
+                var defaultAddMenuIds = menuSet
+                    .Where(id => InferDefaultCanAdd(menuMeta.TryGetValue(id, out var m) ? m : null))
+                    .ToList();
+
+                if (defaultAddMenuIds.Count > 0)
+                {
+                    foreach (var chunk in Chunk(defaultAddMenuIds, 50))
+                    {
+                        var ids = string.Join(",", chunk);
+                        var sql = $@"UPDATE dbo.RoleMenuPermissions
+                                     SET CanAdd = 1,
+                                         UpdatedAt = SYSUTCDATETIME(),
+                                         UpdatedBy = @UpdatedBy
+                                     WHERE RoleId = @RoleId
+                                       AND MenuId IN ({ids})
+                                       AND ISNULL(CanAdd, 0) = 0
+                                       AND ISNULL(CanEdit, 0) = 0
+                                       AND ISNULL(CanDelete, 0) = 0
+                                       AND ISNULL(CanApprove, 0) = 0
+                                       AND ISNULL(CanPrint, 0) = 0
+                                       AND ISNULL(CanExport, 0) = 0";
+
+                        await using var cmd = new SqlCommand(sql, connection, (SqlTransaction)transaction);
+                        cmd.Parameters.AddWithValue("@RoleId", roleId);
+                        cmd.Parameters.AddWithValue("@UpdatedBy", (object?)updatedBy ?? DBNull.Value);
+                        await cmd.ExecuteNonQueryAsync();
                     }
                 }
 
@@ -426,6 +485,28 @@ namespace RestaurantManagementSystem.Services
                 await transaction.RollbackAsync();
                 _logger?.LogError(ex, "Error saving role-menu assignments for role {RoleId}", roleId);
                 throw;
+            }
+
+            static bool InferDefaultCanAdd(NavigationMenu? menu)
+            {
+                if (menu == null)
+                {
+                    return false;
+                }
+
+                var action = (menu.ActionName ?? string.Empty).Trim();
+                var name = (menu.DisplayName ?? string.Empty).Trim();
+
+                // Default rule: menu entries that represent "create" flows should grant CanAdd.
+                // This matches the common UX expectation that if a role can see a "Create" menu,
+                // they can perform the create operation.
+                var canAdd = action.Equals("Create", StringComparison.OrdinalIgnoreCase)
+                             || action.StartsWith("Create", StringComparison.OrdinalIgnoreCase)
+                             || action.Equals("POSOrder", StringComparison.OrdinalIgnoreCase)
+                             || name.StartsWith("Create", StringComparison.OrdinalIgnoreCase)
+                             || name.Equals("POS Order", StringComparison.OrdinalIgnoreCase);
+
+                return canAdd;
             }
         }
         #endregion
