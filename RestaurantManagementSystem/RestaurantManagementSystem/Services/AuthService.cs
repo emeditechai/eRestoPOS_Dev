@@ -764,15 +764,66 @@ END
                 await using var connection = new SqlConnection(connectionString);
                 await connection.OpenAsync();
 
+                async Task<bool> TableExistsAsync(string objectName)
+                {
+                    await using var tableCmd = new SqlCommand("SELECT CASE WHEN OBJECT_ID(@ObjectName, 'U') IS NULL THEN 0 ELSE 1 END", connection);
+                    tableCmd.Parameters.AddWithValue("@ObjectName", objectName);
+                    var result = await tableCmd.ExecuteScalarAsync();
+                    return Convert.ToInt32(result) == 1;
+                }
+
+                async Task<bool> ColumnExistsAsync(string objectName, string columnName)
+                {
+                    await using var columnCmd = new SqlCommand("SELECT CASE WHEN COL_LENGTH(@ObjectName, @ColumnName) IS NULL THEN 0 ELSE 1 END", connection);
+                    columnCmd.Parameters.AddWithValue("@ObjectName", objectName);
+                    columnCmd.Parameters.AddWithValue("@ColumnName", columnName);
+                    var result = await columnCmd.ExecuteScalarAsync();
+                    return Convert.ToInt32(result) == 1;
+                }
+
+                var hasBranchesTable = await TableExistsAsync("dbo.Branches");
+                if (!hasBranchesTable)
+                {
+                    return branches;
+                }
+
+                var hasUserBranchesTable = await TableExistsAsync("dbo.UserBranches");
+                var hasUserBranchRolesTable = await TableExistsAsync("dbo.UserBranchRoles");
+
+                var hasBranchCode = await ColumnExistsAsync("dbo.Branches", "BranchCode");
+                var hasBranchName = await ColumnExistsAsync("dbo.Branches", "BranchName");
+                var hasBranchIsMain = await ColumnExistsAsync("dbo.Branches", "Is_MainBranch");
+                var hasBranchIsActive = await ColumnExistsAsync("dbo.Branches", "IsActive");
+                var hasBranchCreatedAt = await ColumnExistsAsync("dbo.Branches", "CreatedAt");
+                var hasBranchUpdatedAt = await ColumnExistsAsync("dbo.Branches", "UpdatedAt");
+
+                var hasUbIsDefault = hasUserBranchesTable && await ColumnExistsAsync("dbo.UserBranches", "IsDefault");
+                var hasUbIsActive = hasUserBranchesTable && await ColumnExistsAsync("dbo.UserBranches", "IsActive");
+                var hasUbrIsActive = hasUserBranchRolesTable && await ColumnExistsAsync("dbo.UserBranchRoles", "IsActive");
+
+                var branchCodeExpr = hasBranchCode ? "b.BranchCode" : "CAST('' AS NVARCHAR(20))";
+                var branchNameExpr = hasBranchName ? "b.BranchName" : "CAST('' AS NVARCHAR(150))";
+                var branchIsMainExpr = hasBranchIsMain ? "ISNULL(b.Is_MainBranch, 0)" : "CAST(0 AS BIT)";
+                var branchIsActiveExpr = hasBranchIsActive ? "ISNULL(b.IsActive, 1)" : "CAST(1 AS BIT)";
+                var branchCreatedAtExpr = hasBranchCreatedAt ? "b.CreatedAt" : "SYSUTCDATETIME()";
+                var branchUpdatedAtExpr = hasBranchUpdatedAt ? "b.UpdatedAt" : "CAST(NULL AS DATETIME2(3))";
+                var branchActiveFilter = hasBranchIsActive ? " AND ISNULL(b.IsActive, 1) = 1" : string.Empty;
+
                 var isAdminUser = await IsAdminUsernameAsync(connection, userId);
 
                 if (isAdminUser)
                 {
-                    const string adminSql = @"
-SELECT b.BranchId, b.BranchCode, b.BranchName, ISNULL(b.Is_MainBranch, 0) AS IsMain, b.IsActive, b.CreatedAt, b.UpdatedAt
+                    var adminSql = $@"
+SELECT b.BranchId,
+       {branchCodeExpr} AS BranchCode,
+       {branchNameExpr} AS BranchName,
+       CAST({branchIsMainExpr} AS bit) AS IsMain,
+       CAST({branchIsActiveExpr} AS bit) AS IsActive,
+       {branchCreatedAtExpr} AS CreatedAt,
+       {branchUpdatedAtExpr} AS UpdatedAt
 FROM dbo.Branches b
-WHERE ISNULL(b.IsActive, 1) = 1
-ORDER BY CASE WHEN ISNULL(b.Is_MainBranch, 0) = 1 THEN 0 ELSE 1 END, b.BranchCode, b.BranchName;";
+WHERE 1 = 1{branchActiveFilter}
+ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExpr}, {branchNameExpr};";
 
                     await using var adminCommand = new SqlCommand(adminSql, connection);
                     await using var adminReader = await adminCommand.ExecuteReaderAsync();
@@ -793,47 +844,106 @@ ORDER BY CASE WHEN ISNULL(b.Is_MainBranch, 0) = 1 THEN 0 ELSE 1 END, b.BranchCod
                     return branches;
                 }
 
-                                const string sql = @"
-                ;WITH MappedBranches AS
-                (
-                    SELECT b.BranchId, b.BranchCode, b.BranchName, ISNULL(ub.IsDefault, 0) AS IsDefault, b.IsActive, b.CreatedAt, b.UpdatedAt
-                    FROM dbo.Branches b
-                    INNER JOIN dbo.UserBranches ub ON ub.BranchId = b.BranchId
-                    WHERE ub.UserId = @UserId
-                        AND ISNULL(ub.IsActive, 1) = 1
-                        AND ISNULL(b.IsActive, 1) = 1
-                ),
-                FallbackMainBranch AS
-                (
-                    SELECT TOP 1 b.BranchId, b.BranchCode, b.BranchName, CAST(1 AS BIT) AS IsDefault, b.IsActive, b.CreatedAt, b.UpdatedAt
-                    FROM dbo.Branches b
-                    WHERE ISNULL(b.IsActive, 1) = 1
-                        AND ISNULL(b.Is_MainBranch, 0) = 1
-                        AND NOT EXISTS (SELECT 1 FROM MappedBranches)
-                )
-                SELECT BranchId, BranchCode, BranchName, IsDefault, IsActive, CreatedAt, UpdatedAt
-                FROM MappedBranches
-                UNION ALL
-                SELECT BranchId, BranchCode, BranchName, IsDefault, IsActive, CreatedAt, UpdatedAt
-                FROM FallbackMainBranch
-                ORDER BY CASE WHEN ISNULL(IsDefault, 0) = 1 THEN 0 ELSE 1 END, BranchCode, BranchName;";
-
-                await using var command = new SqlCommand(sql, connection);
-                command.Parameters.AddWithValue("@UserId", userId);
-
-                await using var reader = await command.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
+                if (hasUserBranchesTable)
                 {
-                    branches.Add(new BranchMaster
+                    var userBranchDefaultExpr = hasUbIsDefault ? "ISNULL(ub.IsDefault, 0)" : "CAST(0 AS BIT)";
+                    var userBranchActiveFilter = hasUbIsActive ? " AND ISNULL(ub.IsActive, 1) = 1" : string.Empty;
+
+                    var userBranchSql = $@"
+SELECT b.BranchId,
+       {branchCodeExpr} AS BranchCode,
+       {branchNameExpr} AS BranchName,
+       CAST({userBranchDefaultExpr} AS bit) AS IsDefault,
+       CAST({branchIsActiveExpr} AS bit) AS IsActive,
+       {branchCreatedAtExpr} AS CreatedAt,
+       {branchUpdatedAtExpr} AS UpdatedAt
+FROM dbo.Branches b
+INNER JOIN dbo.UserBranches ub ON ub.BranchId = b.BranchId
+WHERE ub.UserId = @UserId{userBranchActiveFilter}{branchActiveFilter}
+ORDER BY CASE WHEN {userBranchDefaultExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExpr}, {branchNameExpr};";
+
+                    await using var userBranchCommand = new SqlCommand(userBranchSql, connection);
+                    userBranchCommand.Parameters.AddWithValue("@UserId", userId);
+                    await using var userBranchReader = await userBranchCommand.ExecuteReaderAsync();
+                    while (await userBranchReader.ReadAsync())
                     {
-                        BranchId = reader.GetInt32(0),
-                        BranchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                        BranchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                        Is_MainBranch = !reader.IsDBNull(3) && reader.GetBoolean(3),
-                        IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4),
-                        CreatedAt = reader.IsDBNull(5) ? DateTime.Now : reader.GetDateTime(5),
-                        UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6)
-                    });
+                        branches.Add(new BranchMaster
+                        {
+                            BranchId = userBranchReader.GetInt32(0),
+                            BranchCode = userBranchReader.IsDBNull(1) ? string.Empty : userBranchReader.GetString(1),
+                            BranchName = userBranchReader.IsDBNull(2) ? string.Empty : userBranchReader.GetString(2),
+                            Is_MainBranch = !userBranchReader.IsDBNull(3) && userBranchReader.GetBoolean(3),
+                            IsActive = !userBranchReader.IsDBNull(4) && userBranchReader.GetBoolean(4),
+                            CreatedAt = userBranchReader.IsDBNull(5) ? DateTime.Now : userBranchReader.GetDateTime(5),
+                            UpdatedAt = userBranchReader.IsDBNull(6) ? null : userBranchReader.GetDateTime(6)
+                        });
+                    }
+                }
+
+                if (branches.Count == 0 && hasUserBranchRolesTable)
+                {
+                    var userBranchRoleActiveFilter = hasUbrIsActive ? " AND ISNULL(ubr.IsActive, 1) = 1" : string.Empty;
+                    var userBranchRoleSql = $@"
+SELECT DISTINCT b.BranchId,
+       {branchCodeExpr} AS BranchCode,
+       {branchNameExpr} AS BranchName,
+       CAST({branchIsMainExpr} AS bit) AS IsDefault,
+       CAST({branchIsActiveExpr} AS bit) AS IsActive,
+       {branchCreatedAtExpr} AS CreatedAt,
+       {branchUpdatedAtExpr} AS UpdatedAt
+FROM dbo.Branches b
+INNER JOIN dbo.UserBranchRoles ubr ON ubr.BranchId = b.BranchId
+WHERE ubr.UserId = @UserId{userBranchRoleActiveFilter}{branchActiveFilter}
+ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExpr}, {branchNameExpr};";
+
+                    await using var userBranchRoleCommand = new SqlCommand(userBranchRoleSql, connection);
+                    userBranchRoleCommand.Parameters.AddWithValue("@UserId", userId);
+                    await using var userBranchRoleReader = await userBranchRoleCommand.ExecuteReaderAsync();
+                    while (await userBranchRoleReader.ReadAsync())
+                    {
+                        branches.Add(new BranchMaster
+                        {
+                            BranchId = userBranchRoleReader.GetInt32(0),
+                            BranchCode = userBranchRoleReader.IsDBNull(1) ? string.Empty : userBranchRoleReader.GetString(1),
+                            BranchName = userBranchRoleReader.IsDBNull(2) ? string.Empty : userBranchRoleReader.GetString(2),
+                            Is_MainBranch = !userBranchRoleReader.IsDBNull(3) && userBranchRoleReader.GetBoolean(3),
+                            IsActive = !userBranchRoleReader.IsDBNull(4) && userBranchRoleReader.GetBoolean(4),
+                            CreatedAt = userBranchRoleReader.IsDBNull(5) ? DateTime.Now : userBranchRoleReader.GetDateTime(5),
+                            UpdatedAt = userBranchRoleReader.IsDBNull(6) ? null : userBranchRoleReader.GetDateTime(6)
+                        });
+                    }
+                }
+
+                if (branches.Count == 0)
+                {
+                    var mainBranchFilter = hasBranchIsMain ? " AND ISNULL(b.Is_MainBranch, 0) = 1" : string.Empty;
+                    var fallbackSql = $@"
+SELECT TOP 1 b.BranchId,
+       {branchCodeExpr} AS BranchCode,
+       {branchNameExpr} AS BranchName,
+       CAST(1 AS bit) AS IsDefault,
+       CAST({branchIsActiveExpr} AS bit) AS IsActive,
+       {branchCreatedAtExpr} AS CreatedAt,
+       {branchUpdatedAtExpr} AS UpdatedAt
+FROM dbo.Branches b
+WHERE 1 = 1{branchActiveFilter}{mainBranchFilter}
+ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, b.BranchId;";
+
+                    await using var fallbackCommand = new SqlCommand(fallbackSql, connection);
+                    await using var fallbackReader = await fallbackCommand.ExecuteReaderAsync();
+                    while (await fallbackReader.ReadAsync())
+                    {
+                        branches.Add(new BranchMaster
+                        {
+                            BranchId = fallbackReader.GetInt32(0),
+                            BranchCode = fallbackReader.IsDBNull(1) ? string.Empty : fallbackReader.GetString(1),
+                            BranchName = fallbackReader.IsDBNull(2) ? string.Empty : fallbackReader.GetString(2),
+                            Is_MainBranch = !fallbackReader.IsDBNull(3) && fallbackReader.GetBoolean(3),
+                            IsActive = !fallbackReader.IsDBNull(4) && fallbackReader.GetBoolean(4),
+                            CreatedAt = fallbackReader.IsDBNull(5) ? DateTime.Now : fallbackReader.GetDateTime(5),
+                            UpdatedAt = fallbackReader.IsDBNull(6) ? null : fallbackReader.GetDateTime(6)
+                        });
+                    }
                 }
             }
             catch (Exception ex)
