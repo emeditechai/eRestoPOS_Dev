@@ -8,6 +8,7 @@
     var requiresBranchSelection = User?.FindFirst("BranchSelectionConfirmed")?.Value == "false";
     var hasMultipleBranches = User?.FindFirst("HasMultipleBranches")?.Value == "true";
     var activeBranchId = User?.FindFirst("ActiveBranchId")?.Value;
+    var hasPendingSelection = requiresRoleSelection || requiresBranchSelection;
     var antiforgeryToken = (User?.Identity?.IsAuthenticated ?? false) ? Antiforgery.GetAndStoreTokens(Context).RequestToken : null;
 }
 <!DOCTYPE html>
@@ -241,7 +242,15 @@
     </header>
     <div class="container d-flex flex-column flex-grow-1">
         <main role="main" class="pb-3 flex-grow-1">
-            @RenderBody()
+            @if (hasPendingSelection)
+            {
+                IgnoreBody();
+                <div class="d-none" aria-hidden="true"></div>
+            }
+            else
+            {
+                @RenderBody()
+            }
         </main>
     </div>
 
