@@ -1,10 +1,14 @@
 @model List<RestaurantManagementSystem.Models.EmailTemplate>
+@using RestaurantManagementSystem.Models
 @{
     ViewData["Title"] = "Email Templates";
     Layout = "~/Views/Shared/_Layout.cshtml";
+    var targetBranches = ViewBag.TargetBranches as List<BranchMaster> ?? new List<BranchMaster>();
+    bool canCopyEmailTemplates = ViewBag.CanCopyEmailTemplates != null && (bool)ViewBag.CanCopyEmailTemplates;
 }
 
 <div class="container-fluid py-4">
+    @Html.AntiForgeryToken()
     <div class="row mb-4">
         <div class="col-md-6">
             <h2><i class="fas fa-envelope-open-text me-2"></i>Email Templates</h2>
@@ -22,6 +26,38 @@
         <div class="alert alert-success alert-dismissible fade show" role="alert">
             <i class="fas fa-check-circle me-2"></i>@TempData["SuccessMessage"]
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    @if (canCopyEmailTemplates)
+    {
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light">
+                <h6 class="mb-0"><i class="fas fa-code-branch me-2"></i>Copy Templates To Branch</h6>
+            </div>
+            <div class="card-body">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-8">
+                        <label class="form-label fw-semibold">Target Branch</label>
+                        <select class="form-select" id="templateCopyTargetBranch">
+                            <option value="">Select target branch</option>
+                            @foreach (var branch in targetBranches)
+                            {
+                                <option value="@branch.BranchId">@branch.BranchName (@branch.BranchCode)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4 d-grid">
+                        <button type="button" class="btn btn-outline-primary" id="copyTemplatesBtn">
+                            <i class="fas fa-copy me-1"></i>Copy Templates
+                        </button>
+                    </div>
+                </div>
+                <small class="text-muted d-block mt-2">
+                    Available only for Administrator while logged into Main Branch.
+                </small>
+                <div id="templateCopyResult" class="mt-2"></div>
+            </div>
         </div>
     }
 
@@ -193,6 +229,48 @@
                 document.body.appendChild(form);
                 form.submit();
             }
+        }
+
+        const copyTemplatesBtn = document.getElementById('copyTemplatesBtn');
+        if (copyTemplatesBtn) {
+            copyTemplatesBtn.addEventListener('click', async function () {
+                const targetBranchId = document.getElementById('templateCopyTargetBranch').value;
+                const resultDiv = document.getElementById('templateCopyResult');
+
+                if (!targetBranchId) {
+                    resultDiv.innerHTML = '<div class="alert alert-danger py-2 mb-0">Please select a target branch.</div>';
+                    return;
+                }
+
+                if (!confirm('Copy all templates from current branch to selected branch? Existing templates with same name and type will be updated.')) {
+                    return;
+                }
+
+                copyTemplatesBtn.disabled = true;
+                resultDiv.innerHTML = '<div class="alert alert-info py-2 mb-0">Copying templates...</div>';
+
+                try {
+                    const response = await fetch('@Url.Action("CopyToBranch", "EmailTemplates")', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': document.querySelector('input[name="__RequestVerificationToken"]').value
+                        },
+                        body: JSON.stringify({ targetBranchId: parseInt(targetBranchId) })
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        resultDiv.innerHTML = '<div class="alert alert-success py-2 mb-0">' + result.message + '</div>';
+                    } else {
+                        resultDiv.innerHTML = '<div class="alert alert-danger py-2 mb-0">' + result.message + '</div>';
+                    }
+                } catch (error) {
+                    resultDiv.innerHTML = '<div class="alert alert-danger py-2 mb-0">Error copying templates.</div>';
+                } finally {
+                    copyTemplatesBtn.disabled = false;
+                }
+            });
         }
     </script>
 }

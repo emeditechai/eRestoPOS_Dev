@@ -7,6 +7,7 @@ using RestaurantManagementSystem.Models.Authorization;
 using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace RestaurantManagementSystem.Controllers
@@ -39,6 +40,8 @@ namespace RestaurantManagementSystem.Controllers
                 }
 
                 var templates = await GetAllTemplatesAsync(activeBranchId);
+                ViewBag.TargetBranches = await GetTargetBranchesAsync(activeBranchId.Value);
+                ViewBag.CanCopyEmailTemplates = CanCurrentUserCopyEmailTemplates(activeBranchId.Value);
                 return View(templates);
             }
             catch (Exception ex)
@@ -46,6 +49,199 @@ namespace RestaurantManagementSystem.Controllers
                 _logger.LogError(ex, "Error loading email templates");
                 TempData["ErrorMessage"] = $"Error loading templates: {ex.Message}";
                 return View(new List<EmailTemplate>());
+            }
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [RequirePermission("NAV_SETTINGS_EMAIL_TEMPLATES", PermissionAction.Edit)]
+        public async Task<IActionResult> CopyToBranch([FromBody] CopyEmailTemplatesRequest request)
+        {
+            var activeBranchId = User.GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return Json(new { success = false, message = "Active branch is required." });
+            }
+
+            if (!CanCurrentUserCopyEmailTemplates(activeBranchId.Value))
+            {
+                return Json(new { success = false, message = "Template copy is allowed only for Administrator in Main Branch." });
+            }
+
+            if (request == null || request.TargetBranchId <= 0)
+            {
+                return Json(new { success = false, message = "Please select a valid target branch." });
+            }
+
+            if (request.TargetBranchId == activeBranchId.Value)
+            {
+                return Json(new { success = false, message = "Source and target branch cannot be the same." });
+            }
+
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+
+                    var hasTemplateBranch = await HasColumnAsync(connection, "tbl_EmailTemplates", "BranchId");
+                    if (!hasTemplateBranch)
+                    {
+                        return Json(new { success = false, message = "Template BranchId column is missing. Please run branch-wise template schema update." });
+                    }
+
+                    using (var transaction = connection.BeginTransaction())
+                    {
+                        var targetBranchCheckSql = @"
+SELECT COUNT(1)
+FROM dbo.Branches
+WHERE BranchId = @TargetBranchId
+  AND ISNULL(IsActive, 1) = 1";
+
+                        using (var targetBranchCmd = new SqlCommand(targetBranchCheckSql, connection, transaction))
+                        {
+                            targetBranchCmd.Parameters.AddWithValue("@TargetBranchId", request.TargetBranchId);
+                            var exists = Convert.ToInt32(await targetBranchCmd.ExecuteScalarAsync()) > 0;
+                            if (!exists)
+                            {
+                                return Json(new { success = false, message = "Target branch not found or inactive." });
+                            }
+                        }
+
+                        var sourceTemplates = new List<EmailTemplate>();
+                        var sourceSql = @"
+SELECT EmailTemplateID, TemplateName, TemplateType, Subject, BodyHtml, IsActive, IsDefault
+FROM dbo.tbl_EmailTemplates
+WHERE BranchId = @SourceBranchId";
+
+                        using (var sourceCmd = new SqlCommand(sourceSql, connection, transaction))
+                        {
+                            sourceCmd.Parameters.AddWithValue("@SourceBranchId", activeBranchId.Value);
+                            using (var reader = await sourceCmd.ExecuteReaderAsync())
+                            {
+                                while (await reader.ReadAsync())
+                                {
+                                    sourceTemplates.Add(new EmailTemplate
+                                    {
+                                        EmailTemplateID = reader.GetInt32(0),
+                                        TemplateName = reader.GetString(1),
+                                        TemplateType = reader.GetString(2),
+                                        Subject = reader.GetString(3),
+                                        BodyHtml = reader.GetString(4),
+                                        IsActive = reader.GetBoolean(5),
+                                        IsDefault = reader.GetBoolean(6)
+                                    });
+                                }
+                            }
+                        }
+
+                        if (sourceTemplates.Count == 0)
+                        {
+                            return Json(new { success = false, message = "No templates found in source branch." });
+                        }
+
+                        var nonDefaultSql = @"
+UPDATE dbo.tbl_EmailTemplates
+SET IsDefault = 0,
+    UpdatedBy = @UpdatedBy,
+    UpdatedAt = GETDATE()
+WHERE BranchId = @TargetBranchId";
+
+                        using (var nonDefaultCmd = new SqlCommand(nonDefaultSql, connection, transaction))
+                        {
+                            nonDefaultCmd.Parameters.AddWithValue("@TargetBranchId", request.TargetBranchId);
+                            nonDefaultCmd.Parameters.AddWithValue("@UpdatedBy", (object?)GetCurrentUserId() ?? DBNull.Value);
+                            await nonDefaultCmd.ExecuteNonQueryAsync();
+                        }
+
+                        var upsertSql = @"
+IF EXISTS (
+    SELECT 1
+    FROM dbo.tbl_EmailTemplates
+    WHERE BranchId = @TargetBranchId
+      AND TemplateName = @TemplateName
+      AND TemplateType = @TemplateType
+)
+BEGIN
+    UPDATE dbo.tbl_EmailTemplates
+    SET Subject = @Subject,
+        BodyHtml = @BodyHtml,
+        IsActive = @IsActive,
+        IsDefault = @IsDefault,
+        UpdatedBy = @UpdatedBy,
+        UpdatedAt = GETDATE()
+    WHERE BranchId = @TargetBranchId
+      AND TemplateName = @TemplateName
+      AND TemplateType = @TemplateType;
+END
+ELSE
+BEGIN
+    INSERT INTO dbo.tbl_EmailTemplates
+    (
+        TemplateName, TemplateType, Subject, BodyHtml,
+        IsActive, IsDefault, CreatedBy, CreatedAt, BranchId
+    )
+    VALUES
+    (
+        @TemplateName, @TemplateType, @Subject, @BodyHtml,
+        @IsActive, @IsDefault, @CreatedBy, GETDATE(), @TargetBranchId
+    );
+END";
+
+                        foreach (var template in sourceTemplates)
+                        {
+                            using (var upsertCmd = new SqlCommand(upsertSql, connection, transaction))
+                            {
+                                upsertCmd.Parameters.AddWithValue("@TargetBranchId", request.TargetBranchId);
+                                upsertCmd.Parameters.AddWithValue("@TemplateName", template.TemplateName);
+                                upsertCmd.Parameters.AddWithValue("@TemplateType", template.TemplateType);
+                                upsertCmd.Parameters.AddWithValue("@Subject", template.Subject);
+                                upsertCmd.Parameters.AddWithValue("@BodyHtml", template.BodyHtml);
+                                upsertCmd.Parameters.AddWithValue("@IsActive", template.IsActive);
+                                upsertCmd.Parameters.AddWithValue("@IsDefault", template.IsDefault);
+                                upsertCmd.Parameters.AddWithValue("@CreatedBy", (object?)GetCurrentUserId() ?? DBNull.Value);
+                                upsertCmd.Parameters.AddWithValue("@UpdatedBy", (object?)GetCurrentUserId() ?? DBNull.Value);
+                                await upsertCmd.ExecuteNonQueryAsync();
+                            }
+                        }
+
+                        var targetDefaults = sourceTemplates
+                            .Where(t => t.IsDefault)
+                            .GroupBy(t => t.TemplateType)
+                            .Select(g => new { TemplateType = g.Key, TemplateName = g.First().TemplateName })
+                            .ToList();
+
+                        var normalizeDefaultSql = @"
+UPDATE t
+SET t.IsDefault = CASE WHEN t.TemplateName = @DefaultTemplateName THEN 1 ELSE 0 END,
+    t.UpdatedBy = @UpdatedBy,
+    t.UpdatedAt = GETDATE()
+FROM dbo.tbl_EmailTemplates t
+WHERE t.BranchId = @TargetBranchId
+  AND t.TemplateType = @TemplateType";
+
+                        foreach (var item in targetDefaults)
+                        {
+                            using (var normalizeCmd = new SqlCommand(normalizeDefaultSql, connection, transaction))
+                            {
+                                normalizeCmd.Parameters.AddWithValue("@TargetBranchId", request.TargetBranchId);
+                                normalizeCmd.Parameters.AddWithValue("@TemplateType", item.TemplateType);
+                                normalizeCmd.Parameters.AddWithValue("@DefaultTemplateName", item.TemplateName);
+                                normalizeCmd.Parameters.AddWithValue("@UpdatedBy", (object?)GetCurrentUserId() ?? DBNull.Value);
+                                await normalizeCmd.ExecuteNonQueryAsync();
+                            }
+                        }
+
+                        await transaction.CommitAsync();
+                    }
+                }
+
+                return Json(new { success = true, message = "Templates copied successfully to target branch." });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error copying templates to target branch");
+                return Json(new { success = false, message = $"Error copying templates: {ex.Message}" });
             }
         }
 
@@ -488,6 +684,76 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
+        private bool CanCurrentUserCopyEmailTemplates(int activeBranchId)
+        {
+            if (User?.Identity?.IsAuthenticated != true || !User.IsInRole("Administrator"))
+            {
+                return false;
+            }
+
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new SqlCommand(@"
+SELECT COUNT(1)
+FROM dbo.Branches
+WHERE BranchId = @BranchId
+  AND ISNULL(IsActive, 1) = 1
+  AND ISNULL(Is_MainBranch, 0) = 1", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId);
+                        return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<List<BranchMaster>> GetTargetBranchesAsync(int activeBranchId)
+        {
+            var branches = new List<BranchMaster>();
+
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+                using (var cmd = new SqlCommand(@"
+SELECT BranchId, BranchCode, BranchName, ISNULL(Is_MainBranch, 0), ISNULL(IsActive, 1)
+FROM dbo.Branches
+WHERE ISNULL(IsActive, 1) = 1
+  AND BranchId <> @ActiveBranchId
+ORDER BY BranchName", connection))
+                {
+                    cmd.Parameters.AddWithValue("@ActiveBranchId", activeBranchId);
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            branches.Add(new BranchMaster
+                            {
+                                BranchId = reader.GetInt32(0),
+                                BranchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                                BranchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                                Is_MainBranch = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                                IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4)
+                            });
+                        }
+                    }
+                }
+            }
+
+            return branches;
+        }
+
         #endregion
+    }
+
+    public class CopyEmailTemplatesRequest
+    {
+        public int TargetBranchId { get; set; }
     }
 }

@@ -228,18 +228,13 @@ namespace RestaurantManagementSystem.Controllers
             catch { /* non-fatal */ }
             ViewBag.FromBar = isBarContext;
 
-            // Read BillFormat from RestaurantSettings to control which print buttons are shown
+            // Read BillFormat from branch-aware RestaurantSettings to control which print buttons are shown
             try
             {
-                using (var conn = new SqlConnection(_connectionString))
-                {
-                    conn.Open();
-                    using (var cmd = new SqlCommand("SELECT TOP 1 BillFormat FROM dbo.RestaurantSettings", conn))
-                    {
-                        var val = cmd.ExecuteScalar();
-                        ViewBag.BillFormat = (val != null && val != DBNull.Value) ? val.ToString() : "A4";
-                    }
-                }
+                var orderSettings = LoadRestaurantSettingsForOrder(id);
+                ViewBag.BillFormat = !string.IsNullOrWhiteSpace(orderSettings?.BillFormat)
+                    ? orderSettings.BillFormat
+                    : "A4";
             }
             catch
             {
@@ -2609,23 +2604,57 @@ END", connection))
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return Json(new
+                    {
+                        success = false,
+                        message = "No active branch selected."
+                    });
+                }
+
                 using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
                     
                     using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        DECLARE @HasOrdersBranch bit = CASE WHEN EXISTS (
+                            SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'BranchId'
+                        ) THEN 1 ELSE 0 END;
+
                         UPDATE Payments 
                         SET Status = 1, 
                             UpdatedAt = GETDATE(),
                             ProcessedBy = @ProcessedBy,
                             ProcessedByName = @ProcessedByName
-                        WHERE Id = @PaymentId AND Status = 0;
+                        WHERE Id = @PaymentId AND Status = 0
+                            AND (
+                                @HasOrdersBranch = 0
+                                OR EXISTS (
+                                    SELECT 1
+                                    FROM Orders o WITH (NOLOCK)
+                                    WHERE o.Id = Payments.OrderId
+                                      AND o.BranchId = @BranchId
+                                )
+                            );
                         
                         SELECT @@ROWCOUNT AS RowsAffected, OrderId, 
                                (SELECT OrderNumber FROM Orders WHERE Id = OrderId) AS OrderNumber
-                        FROM Payments WHERE Id = @PaymentId;", connection))
+                        FROM Payments
+                        WHERE Id = @PaymentId
+                            AND (
+                                @HasOrdersBranch = 0
+                                OR EXISTS (
+                                    SELECT 1
+                                    FROM Orders o WITH (NOLOCK)
+                                    WHERE o.Id = Payments.OrderId
+                                      AND o.BranchId = @BranchId
+                                )
+                            );", connection))
                     {
                         command.Parameters.AddWithValue("@PaymentId", id);
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         command.Parameters.AddWithValue("@ProcessedBy", GetCurrentUserId());
                         command.Parameters.AddWithValue("@ProcessedByName", GetCurrentUserName());
                         
@@ -2822,11 +2851,25 @@ END", connection))
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return Json(new
+                    {
+                        success = false,
+                        message = "No active branch selected."
+                    });
+                }
+
                 using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
                     
                     using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        DECLARE @HasOrdersBranch bit = CASE WHEN EXISTS (
+                            SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'BranchId'
+                        ) THEN 1 ELSE 0 END;
+
                         UPDATE Payments 
                         SET Status = 2, 
                             UpdatedAt = GETDATE(),
@@ -2836,13 +2879,33 @@ END", connection))
                                 CASE WHEN Notes IS NOT NULL THEN Notes + ' | Rejected: ' + @Reason 
                                 ELSE 'Rejected: ' + @Reason END 
                                 ELSE Notes END
-                        WHERE Id = @PaymentId AND Status = 0;
+                        WHERE Id = @PaymentId AND Status = 0
+                            AND (
+                                @HasOrdersBranch = 0
+                                OR EXISTS (
+                                    SELECT 1
+                                    FROM Orders o WITH (NOLOCK)
+                                    WHERE o.Id = Payments.OrderId
+                                      AND o.BranchId = @BranchId
+                                )
+                            );
                         
                         SELECT @@ROWCOUNT AS RowsAffected, OrderId, 
                                (SELECT OrderNumber FROM Orders WHERE Id = OrderId) AS OrderNumber
-                        FROM Payments WHERE Id = @PaymentId;", connection))
+                        FROM Payments
+                        WHERE Id = @PaymentId
+                            AND (
+                                @HasOrdersBranch = 0
+                                OR EXISTS (
+                                    SELECT 1
+                                    FROM Orders o WITH (NOLOCK)
+                                    WHERE o.Id = Payments.OrderId
+                                      AND o.BranchId = @BranchId
+                                )
+                            );", connection))
                     {
                         command.Parameters.AddWithValue("@PaymentId", id);
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         command.Parameters.AddWithValue("@ProcessedBy", GetCurrentUserId());
                         command.Parameters.AddWithValue("@ProcessedByName", GetCurrentUserName());
                         command.Parameters.AddWithValue("@Reason", string.IsNullOrEmpty(reason) ? (object)DBNull.Value : reason);
@@ -3201,7 +3264,8 @@ END", connection))
         // Payment Dashboard
         public IActionResult Dashboard(DateTime? fromDate = null, DateTime? toDate = null, string orderType = null)
         {
-            if (!GetActiveBranchId().HasValue)
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
             {
                 TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
                 return RedirectToAction("Index", "Home");
@@ -3238,6 +3302,9 @@ END", connection))
                     DECLARE @HasOrderKitchenType bit = CASE WHEN EXISTS (
                         SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType'
                     ) THEN 1 ELSE 0 END;
+                    DECLARE @HasOrdersBranch bit = CASE WHEN EXISTS (
+                        SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'BranchId'
+                    ) THEN 1 ELSE 0 END;
                     
                     ;WITH OrderClassification AS (
                         SELECT 
@@ -3249,6 +3316,7 @@ END", connection))
                                     CASE WHEN EXISTS (SELECT 1 FROM KitchenTickets kt WITH (NOLOCK) WHERE kt.OrderId = o.Id AND kt.KitchenStation = 'BAR') THEN 2 ELSE 1 END
                             END AS Classification
                         FROM Orders o WITH (NOLOCK)
+                        WHERE (@HasOrdersBranch = 0 OR o.BranchId = @ActiveBranchId)
                     )
                     SELECT 
                         ISNULL(SUM(p.Amount), 0) AS TotalPayments,
@@ -3258,9 +3326,11 @@ END", connection))
                     WHERE p.Status = 1
                         AND p.CreatedAt >= @Today
                         AND p.CreatedAt < @TodayEnd
+                        AND (@HasOrdersBranch = 0 OR oc.Id IS NOT NULL)
                         AND (@FilterMode = 0 OR ISNULL(oc.Classification, 1) = @FilterMode)", connection))
                 {
                     command.Parameters.AddWithValue("@FilterMode", filterMode);
+                    command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
                     command.Parameters.AddWithValue("@Today", today);
                     command.Parameters.AddWithValue("@TodayEnd", todayEnd);
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
@@ -3278,6 +3348,9 @@ END", connection))
                     DECLARE @HasOrderKitchenType bit = CASE WHEN EXISTS (
                         SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType'
                     ) THEN 1 ELSE 0 END;
+                    DECLARE @HasOrdersBranch bit = CASE WHEN EXISTS (
+                        SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'BranchId'
+                    ) THEN 1 ELSE 0 END;
                     
                     ;WITH OrderClassification AS (
                         SELECT 
@@ -3289,6 +3362,7 @@ END", connection))
                                     CASE WHEN EXISTS (SELECT 1 FROM KitchenTickets kt WITH (NOLOCK) WHERE kt.OrderId = o.Id AND kt.KitchenStation = 'BAR') THEN 2 ELSE 1 END
                             END AS Classification
                         FROM Orders o WITH (NOLOCK)
+                        WHERE (@HasOrdersBranch = 0 OR o.BranchId = @ActiveBranchId)
                     )
                     SELECT ISNULL(SUM(ISNULL(p.CGSTAmount,0) + ISNULL(p.SGSTAmount,0)), 0) AS TotalGST
                     FROM Payments p WITH (NOLOCK)
@@ -3296,9 +3370,11 @@ END", connection))
                     WHERE p.Status = 1
                         AND p.CreatedAt >= @Today
                         AND p.CreatedAt < @TodayEnd
+                        AND (@HasOrdersBranch = 0 OR oc.Id IS NOT NULL)
                         AND (@FilterMode = 0 OR ISNULL(oc.Classification, 1) = @FilterMode)", connection))
                 {
                     command.Parameters.AddWithValue("@FilterMode", filterMode);
+                    command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
                     command.Parameters.AddWithValue("@Today", today);
                     command.Parameters.AddWithValue("@TodayEnd", todayEnd);
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
@@ -3315,6 +3391,9 @@ END", connection))
                     DECLARE @HasOrderKitchenType bit = CASE WHEN EXISTS (
                         SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType'
                     ) THEN 1 ELSE 0 END;
+                    DECLARE @HasOrdersBranch bit = CASE WHEN EXISTS (
+                        SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'BranchId'
+                    ) THEN 1 ELSE 0 END;
                     
                     ;WITH OrderClassification AS (
                         SELECT 
@@ -3326,6 +3405,7 @@ END", connection))
                                     CASE WHEN EXISTS (SELECT 1 FROM KitchenTickets kt WITH (NOLOCK) WHERE kt.OrderId = o.Id AND kt.KitchenStation = 'BAR') THEN 2 ELSE 1 END
                             END AS Classification
                         FROM Orders o WITH (NOLOCK)
+                        WHERE (@HasOrdersBranch = 0 OR o.BranchId = @ActiveBranchId)
                     )
                     SELECT 
                         pm.Id AS PaymentMethodId,
@@ -3341,11 +3421,13 @@ END", connection))
                         AND p.CreatedAt < @TodayEnd
                     LEFT JOIN OrderClassification oc ON p.OrderId = oc.Id
                     WHERE pm.IsActive = 1
+                        AND (@HasOrdersBranch = 0 OR p.Id IS NULL OR oc.Id IS NOT NULL)
                         AND (@FilterMode = 0 OR p.Id IS NULL OR ISNULL(oc.Classification, 1) = @FilterMode)
                     GROUP BY pm.Id, pm.Name, pm.DisplayName
                     ORDER BY TotalAmount DESC", connection))
                 {
                     command.Parameters.AddWithValue("@FilterMode", filterMode);
+                    command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
                     command.Parameters.AddWithValue("@Today", today);
                     command.Parameters.AddWithValue("@TodayEnd", todayEnd);
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
@@ -3373,6 +3455,9 @@ END", connection))
                     DECLARE @HasOrderKitchenType bit = CASE WHEN EXISTS (
                         SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType'
                     ) THEN 1 ELSE 0 END;
+                    DECLARE @HasOrdersBranch bit = CASE WHEN EXISTS (
+                        SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'BranchId'
+                    ) THEN 1 ELSE 0 END;
                     
                     ;WITH OrderClassification AS (
                         SELECT 
@@ -3384,6 +3469,7 @@ END", connection))
                                     CASE WHEN EXISTS (SELECT 1 FROM KitchenTickets kt WITH (NOLOCK) WHERE kt.OrderId = o.Id AND kt.KitchenStation = 'BAR') THEN 2 ELSE 1 END
                             END AS Classification
                         FROM Orders o WITH (NOLOCK)
+                        WHERE (@HasOrdersBranch = 0 OR o.BranchId = @ActiveBranchId)
                     ),
                     PaymentTotals AS (
                         SELECT 
@@ -3420,12 +3506,14 @@ END", connection))
                     LEFT JOIN OrderClassification oc ON o.Id = oc.Id
                     LEFT JOIN TableTurnovers tto WITH (NOLOCK) ON o.TableTurnoverId = tto.Id
                     LEFT JOIN Tables tt WITH (NOLOCK) ON tto.TableId = tt.Id
-                    WHERE (@FilterMode = 0 OR ISNULL(oc.Classification, 1) = @FilterMode)
+                    WHERE (@HasOrdersBranch = 0 OR o.BranchId = @ActiveBranchId)
+                        AND (@FilterMode = 0 OR ISNULL(oc.Classification, 1) = @FilterMode)
                     ORDER BY pt.LastPaymentDate DESC", connection))
                 {
                     command.Parameters.AddWithValue("@FromDate", fromDateTime);
                     command.Parameters.AddWithValue("@ToDate", toDateTime);
                     command.Parameters.AddWithValue("@FilterMode", filterMode);
+                    command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
 
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
@@ -3455,6 +3543,9 @@ END", connection))
                             DECLARE @HasOrderKitchenType bit = CASE WHEN EXISTS (
                                 SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType'
                             ) THEN 1 ELSE 0 END;
+                            DECLARE @HasOrdersBranch bit = CASE WHEN EXISTS (
+                                SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'BranchId'
+                            ) THEN 1 ELSE 0 END;
                             
                             ;WITH OrderClassification AS (
                                 SELECT 
@@ -3466,6 +3557,7 @@ END", connection))
                                             CASE WHEN EXISTS (SELECT 1 FROM KitchenTickets kt WITH (NOLOCK) WHERE kt.OrderId = o.Id AND kt.KitchenStation = 'BAR') THEN 2 ELSE 1 END
                                     END AS Classification
                                 FROM Orders o WITH (NOLOCK)
+                                WHERE (@HasOrdersBranch = 0 OR o.BranchId = @ActiveBranchId)
                             )
                             SELECT 
                                 p.Id AS PaymentId,
@@ -3491,6 +3583,7 @@ END", connection))
                             LEFT JOIN Tables tt WITH (NOLOCK) ON tto.TableId = tt.Id
                             LEFT JOIN PaymentMethods pm WITH (NOLOCK) ON p.PaymentMethodId = pm.Id
                             WHERE p.Status = 0
+                                                            AND (@HasOrdersBranch = 0 OR o.BranchId = @ActiveBranchId)
                               AND p.CreatedAt >= @FromDate
                               AND p.CreatedAt < @ToDate
                               AND (@FilterMode = 0 OR ISNULL(oc.Classification, 1) = @FilterMode)
@@ -3499,6 +3592,7 @@ END", connection))
                             pendingCmd.Parameters.AddWithValue("@FromDate", fromDateTime);
                             pendingCmd.Parameters.AddWithValue("@ToDate", toDateTime);
                             pendingCmd.Parameters.AddWithValue("@FilterMode", filterMode);
+                                                        pendingCmd.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
 
                             using (var rdr = pendingCmd.ExecuteReader())
                             {
@@ -5497,6 +5591,7 @@ END", connection))
                                     Email = reader["Email"]?.ToString(),
                                     Website = reader["Website"]?.ToString(),
                                     CurrencySymbol = reader["CurrencySymbol"]?.ToString(),
+                                    BillFormat = reader["BillFormat"]?.ToString(),
                                     DefaultGSTPercentage = reader["DefaultGSTPercentage"] != DBNull.Value
                                         ? Convert.ToDecimal(reader["DefaultGSTPercentage"])
                                         : 0
@@ -6054,7 +6149,8 @@ END", connection))
                 }
 
                 // Get mail configuration
-                var mailConfig = await GetMailConfigurationAsync();
+                var orderBranchId = GetOrderBranchId(request.OrderId);
+                var mailConfig = await GetMailConfigurationAsync(orderBranchId);
                 if (mailConfig == null)
                 {
                     return Json(new { success = false, message = "Email configuration not found. Please configure email settings." });
@@ -6067,32 +6163,19 @@ END", connection))
                     return Json(new { success = false, message = "Order not found" });
                 }
 
-                // Get restaurant settings
-                RestaurantSettings settings = null;
-                using (var connection = new SqlConnection(_connectionString))
+                // Get restaurant settings (branch-aware by order)
+                var settings = LoadRestaurantSettingsForOrder(request.OrderId) ?? new RestaurantSettings
                 {
-                    await connection.OpenAsync();
-                    using (var command = new SqlCommand("SELECT * FROM dbo.RestaurantSettings", connection))
-                    {
-                        using (var reader = await command.ExecuteReaderAsync())
-                        {
-                            if (await reader.ReadAsync())
-                            {
-                                settings = new RestaurantSettings
-                                {
-                                    RestaurantName = reader["RestaurantName"] as string ?? "Restaurant",
-                                    StreetAddress = reader["StreetAddress"] as string ?? "",
-                                    City = reader["City"] as string ?? "",
-                                    State = reader["State"] as string ?? "",
-                                    PhoneNumber = reader["PhoneNumber"] as string ?? "",
-                                    Email = reader["Email"] as string ?? "",
-                                    GSTCode = reader["GSTCode"] as string ?? "",
-                                    FssaiNo = reader["FssaiNo"] as string ?? ""
-                                };
-                            }
-                        }
-                    }
-                }
+                    RestaurantName = "Restaurant",
+                    StreetAddress = "",
+                    City = "",
+                    State = "",
+                    PhoneNumber = "",
+                    Email = "",
+                    GSTCode = "",
+                    FssaiNo = "",
+                    CurrencySymbol = "₹"
+                };
 
                 // Create email subject and body
                 var subject = $"Bill for Order #{model.OrderNumber} - {settings?.RestaurantName ?? "Restaurant"}";
@@ -6148,7 +6231,7 @@ END", connection))
                 try
                 {
                     var model = GetPaymentViewModel(request.OrderId);
-                    var mailConfig = await GetMailConfigurationAsync();
+                    var mailConfig = await GetMailConfigurationAsync(GetOrderBranchId(request.OrderId));
                     
                     await LogEmailAsync(
                         toEmail: request.CustomerEmail,
@@ -6176,6 +6259,9 @@ END", connection))
         private string GenerateBillEmailBody(PaymentViewModel model, RestaurantSettings settings)
         {
             var sb = new StringBuilder();
+            var currencySymbol = !string.IsNullOrWhiteSpace(settings?.CurrencySymbol)
+                ? settings.CurrencySymbol
+                : "₹";
             sb.AppendLine("<html><body style='font-family: Arial, sans-serif;'>");
             sb.AppendLine($"<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd;'>");
             sb.AppendLine($"<h2 style='text-align: center; color: #333;'>{settings?.RestaurantName ?? "Restaurant"}</h2>");
@@ -6218,8 +6304,8 @@ END", connection))
                     sb.AppendLine("<tr>");
                     sb.AppendLine($"<td style='padding: 8px; border-bottom: 1px solid #eee;'>{item.Name ?? item.MenuItemName}</td>");
                     sb.AppendLine($"<td style='padding: 8px; text-align: center; border-bottom: 1px solid #eee;'>{item.Quantity}</td>");
-                    sb.AppendLine($"<td style='padding: 8px; text-align: right; border-bottom: 1px solid #eee;'>₹{item.UnitPrice:F2}</td>");
-                    sb.AppendLine($"<td style='padding: 8px; text-align: right; border-bottom: 1px solid #eee;'>₹{item.Subtotal:F2}</td>");
+                    sb.AppendLine($"<td style='padding: 8px; text-align: right; border-bottom: 1px solid #eee;'>{currencySymbol}{item.UnitPrice:F2}</td>");
+                    sb.AppendLine($"<td style='padding: 8px; text-align: right; border-bottom: 1px solid #eee;'>{currencySymbol}{item.Subtotal:F2}</td>");
                     sb.AppendLine("</tr>");
                 }
             }
@@ -6227,16 +6313,16 @@ END", connection))
             sb.AppendLine("</table>");
             sb.AppendLine("<hr style='border: 1px solid #ddd;' />");
             sb.AppendLine("<table style='width: 100%; margin-top: 20px;'>");
-            sb.AppendLine($"<tr><td style='padding: 5px;'><strong>Subtotal:</strong></td><td style='text-align: right; padding: 5px;'>₹{model.Subtotal:F2}</td></tr>");
-            sb.AppendLine($"<tr><td style='padding: 5px;'>GST ({model.GSTPercentage:F2}%):</td><td style='text-align: right; padding: 5px;'>₹{model.TaxAmount:F2}</td></tr>");
+            sb.AppendLine($"<tr><td style='padding: 5px;'><strong>Subtotal:</strong></td><td style='text-align: right; padding: 5px;'>{currencySymbol}{model.Subtotal:F2}</td></tr>");
+            sb.AppendLine($"<tr><td style='padding: 5px;'>GST ({model.GSTPercentage:F2}%):</td><td style='text-align: right; padding: 5px;'>{currencySymbol}{model.TaxAmount:F2}</td></tr>");
             
             if (model.DiscountAmount > 0)
-                sb.AppendLine($"<tr><td style='padding: 5px; color: red;'>Discount:</td><td style='text-align: right; padding: 5px; color: red;'>-₹{model.DiscountAmount:F2}</td></tr>");
+                sb.AppendLine($"<tr><td style='padding: 5px; color: red;'>Discount:</td><td style='text-align: right; padding: 5px; color: red;'>-{currencySymbol}{model.DiscountAmount:F2}</td></tr>");
             
             if (model.TipAmount > 0)
-                sb.AppendLine($"<tr><td style='padding: 5px;'>Tip:</td><td style='text-align: right; padding: 5px;'>₹{model.TipAmount:F2}</td></tr>");
+                sb.AppendLine($"<tr><td style='padding: 5px;'>Tip:</td><td style='text-align: right; padding: 5px;'>{currencySymbol}{model.TipAmount:F2}</td></tr>");
             
-            sb.AppendLine($"<tr style='font-size: 18px; font-weight: bold; background-color: #f5f5f5;'><td style='padding: 10px;'>TOTAL:</td><td style='text-align: right; padding: 10px;'>₹{model.TotalAmount:F2}</td></tr>");
+            sb.AppendLine($"<tr style='font-size: 18px; font-weight: bold; background-color: #f5f5f5;'><td style='padding: 10px;'>TOTAL:</td><td style='text-align: right; padding: 10px;'>{currencySymbol}{model.TotalAmount:F2}</td></tr>");
             sb.AppendLine("</table>");
             
             if (!string.IsNullOrEmpty(settings?.GSTCode))
@@ -6303,39 +6389,87 @@ END", connection))
             }
         }
 
-        private async Task<MailConfigurationViewModel> GetMailConfigurationAsync()
+        private int? GetOrderBranchId(int orderId)
+        {
+            try
+            {
+                if (!HasColumn("Orders", "BranchId"))
+                {
+                    return GetActiveBranchId();
+                }
+
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new SqlCommand("SELECT TOP 1 BranchId FROM dbo.Orders WHERE Id = @OrderId", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@OrderId", orderId);
+                        var value = cmd.ExecuteScalar();
+                        if (value != null && value != DBNull.Value)
+                        {
+                            return Convert.ToInt32(value);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return GetActiveBranchId();
+        }
+
+        private async Task<MailConfigurationViewModel> GetMailConfigurationAsync(int? branchId = null)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
-                var query = @"
-                    SELECT Id, SmtpServer, SmtpPort, SmtpUsername, SmtpPassword, EnableSSL, 
+                var hasMailBranch = HasColumn("tbl_MailConfiguration", "BranchId");
+                if (hasMailBranch && !branchId.HasValue)
+                {
+                    return null;
+                }
+
+                var branchFilter = hasMailBranch && branchId.HasValue
+                    ? " AND BranchId = @BranchId"
+                    : string.Empty;
+
+                var query = $@"
+                    SELECT TOP 1 Id, SmtpServer, SmtpPort, SmtpUsername, SmtpPassword, EnableSSL, 
                            FromEmail, FromName, AdminNotificationEmail, IsActive 
                     FROM tbl_MailConfiguration
-                    WHERE IsActive = 1";
+                    WHERE IsActive = 1{branchFilter}
+                    ORDER BY Id DESC";
 
                 using (var command = new SqlCommand(query, connection))
-                using (var reader = await command.ExecuteReaderAsync())
                 {
-                    if (await reader.ReadAsync())
+                    if (hasMailBranch && branchId.HasValue)
                     {
-                        var encryptedPassword = reader.GetString(4);
-                        var decryptedPassword = DecryptPassword(encryptedPassword);
-                        
-                        return new MailConfigurationViewModel
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
+
+                    using (var reader = await command.ExecuteReaderAsync())
+                    {
+                        if (await reader.ReadAsync())
                         {
-                            Id = reader.GetInt32(0),
-                            SmtpServer = reader.GetString(1),
-                            SmtpPort = reader.GetInt32(2),
-                            SmtpUsername = reader.GetString(3),
-                            SmtpPassword = decryptedPassword,
-                            EnableSSL = reader.GetBoolean(5),
-                            FromEmail = reader.GetString(6),
-                            FromName = reader.GetString(7),
-                            AdminNotificationEmail = reader.IsDBNull(8) ? null : reader.GetString(8),
-                            IsActive = reader.GetBoolean(9)
-                        };
+                            var encryptedPassword = reader.GetString(4);
+                            var decryptedPassword = DecryptPassword(encryptedPassword);
+                            
+                            return new MailConfigurationViewModel
+                            {
+                                Id = reader.GetInt32(0),
+                                SmtpServer = reader.GetString(1),
+                                SmtpPort = reader.GetInt32(2),
+                                SmtpUsername = reader.GetString(3),
+                                SmtpPassword = decryptedPassword,
+                                EnableSSL = reader.GetBoolean(5),
+                                FromEmail = reader.GetString(6),
+                                FromName = reader.GetString(7),
+                                AdminNotificationEmail = reader.IsDBNull(8) ? null : reader.GetString(8),
+                                IsActive = reader.GetBoolean(9)
+                            };
+                        }
                     }
                 }
             }
@@ -6453,16 +6587,32 @@ END", connection))
                 bool alreadySent = false;
                 
                 using (var cmd = new SqlCommand(@"
-                    SELECT 
-                        ISNULL(rs.isReqAutoSentbillEmail, 0), 
+                    SELECT
+                        ISNULL(
+                            CASE
+                                WHEN COL_LENGTH('dbo.RestaurantSettings','BranchId') IS NOT NULL
+                                  AND COL_LENGTH('dbo.Orders','BranchId') IS NOT NULL
+                                THEN (
+                                    SELECT TOP 1 ISNULL(rs.isReqAutoSentbillEmail, 0)
+                                    FROM dbo.RestaurantSettings rs
+                                    WHERE rs.BranchId = o.BranchId
+                                    ORDER BY rs.Id DESC
+                                )
+                                ELSE (
+                                    SELECT TOP 1 ISNULL(rs.isReqAutoSentbillEmail, 0)
+                                    FROM dbo.RestaurantSettings rs
+                                    ORDER BY rs.Id DESC
+                                )
+                            END,
+                            0
+                        ) AS IsAutoSendEnabled,
                         o.Customeremailid,
                         CASE WHEN EXISTS (
-                            SELECT 1 FROM tbl_EmailLog 
-                            WHERE Subject LIKE '%' + o.OrderNumber + '%' 
-                            AND Status = 'Success'
+                            SELECT 1 FROM tbl_EmailLog
+                            WHERE Subject LIKE '%' + o.OrderNumber + '%'
+                              AND Status = 'Success'
                         ) THEN 1 ELSE 0 END AS AlreadySent
-                    FROM RestaurantSettings rs
-                    CROSS JOIN Orders o
+                    FROM dbo.Orders o
                     WHERE o.Id = @OrderId", connection))
                 {
                     cmd.Parameters.AddWithValue("@OrderId", orderId);

@@ -146,6 +146,11 @@ namespace RestaurantManagementSystem.Services
                 await connection.OpenAsync();
 
                 var hasMailBranch = await HasColumnAsync(connection, "tbl_MailConfiguration", "BranchId");
+                if (hasMailBranch && !activeBranchId.HasValue)
+                {
+                    return null;
+                }
+
                 var branchFilter = hasMailBranch && activeBranchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
 
                 var query = $@"
