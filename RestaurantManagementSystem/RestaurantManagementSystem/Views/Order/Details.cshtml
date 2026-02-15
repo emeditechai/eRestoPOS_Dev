@@ -229,7 +229,14 @@
       </div>
       <div class="card shadow-sm mb-3">
         <div class="card-header d-flex justify-content-between align-items-center py-2">
-          <div class="small"><strong class="order-number-text">Order #:</strong> <span class="order-number-text">@Model.OrderNumber</span> <span class="badge bg-secondary ms-2">@Model.StatusDisplay</span></div>
+          <div class="small">
+            <strong class="order-number-text">Order #:</strong> <span class="order-number-text">@Model.OrderNumber</span>
+            @if (!string.IsNullOrWhiteSpace(Model.GlobalBillNo))
+            {
+              <span class="ms-3"><strong>Bill No:</strong> @Model.GlobalBillNo</span>
+            }
+            <span class="badge bg-secondary ms-2">@Model.StatusDisplay</span>
+          </div>
           <span class="small text-muted">Edit items, then Save</span>
         </div>
         <div class="card-body p-0">

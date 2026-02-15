@@ -1354,6 +1354,7 @@ END", connection))
                 {
                     success = true,
                     orderNumber = model.OrderNumber,
+                    globalBillNo = model.GlobalBillNo,
                     customerName = !string.IsNullOrEmpty(model.CustomerName) ? model.CustomerName : "Walk-in",
                     customerPhone = model.CustomerPhone,
                     tableName = model.TableName,
@@ -1488,9 +1489,10 @@ END", connection))
                     var result = typeCmd.ExecuteScalar();
                     if (result != null) orderType = Convert.ToInt32(result);
                 }
-                
-                // Insert with order type-based pricing
-                using (var command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                using (var transaction = connection.BeginTransaction())
+                {
+                    // Insert with order type-based pricing
+                    using (var command = new Microsoft.Data.SqlClient.SqlCommand(@"
                     IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.MenuItems') AND name = 'RoomServicePrice')
                     BEGIN
                         INSERT INTO OrderItems (OrderId, MenuItemId, Quantity, UnitPrice, Subtotal, Status, CreatedAt) 
@@ -1526,18 +1528,22 @@ END", connection))
                             END,
                             0, GETDATE() 
                         FROM MenuItems WHERE Id = @MenuItemId " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : string.Empty) + @"
-                    END", connection))
-                {
-                    command.Parameters.AddWithValue("@OrderId", orderId);
-                    command.Parameters.AddWithValue("@MenuItemId", menuItemId);
-                    command.Parameters.AddWithValue("@Quantity", quantity);
-                    command.Parameters.AddWithValue("@OrderType", orderType);
-                    if (hasMenuBranchColumn)
+                    END", connection, transaction))
                     {
-                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        command.Parameters.AddWithValue("@OrderId", orderId);
+                        command.Parameters.AddWithValue("@MenuItemId", menuItemId);
+                        command.Parameters.AddWithValue("@Quantity", quantity);
+                        command.Parameters.AddWithValue("@OrderType", orderType);
+                        if (hasMenuBranchColumn)
+                        {
+                            command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        }
+
+                        command.ExecuteNonQuery();
                     }
 
-                    command.ExecuteNonQuery();
+                    EnsureOrderNumberAssigned(orderId, connection, transaction);
+                    transaction.Commit();
                 }
             }
             TempData["SuccessMessage"] = "Menu item added to order.";
@@ -1881,6 +1887,8 @@ END", connection))
 
                                         if (orderItemId > 0)
                                         {
+                                            EnsureOrderNumberAssigned(model.OrderId, connection, transaction);
+
                                             // Set/Update Orders.OrderKitchenType based on the added menu item's group (Bar/Foods), if the column exists
                                             using (var setTypeCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                                                 DECLARE @kitchenType varchar(20) = NULL;
@@ -5030,6 +5038,7 @@ END", connection))
                 bool hasHBookingIdColumn = ColumnExistsInTable("Orders", "HBookingID");
                 bool hasHBookingNoColumn = ColumnExistsInTable("Orders", "HBookingNo");
                 bool hasOrdersBranchColumn = ColumnExistsInTable("Orders", "BranchId");
+                bool hasGlobalBillNoColumn = ColumnExistsInTable("Orders", "GlobalBillNo");
                 
                 // Build the SQL query based on column existence
                 string selectSql = hasUpdatedAtColumn 
@@ -5092,6 +5101,7 @@ END", connection))
                     selectSql += (hasHBookingIdColumn ? "\n                        o.HBookingID AS HBookingID," : "\n                        CAST(NULL AS INT) AS HBookingID,");
                     // HBookingNo may be stored as numeric in some DBs; cast to NVARCHAR to keep reader mapping safe
                     selectSql += (hasHBookingNoColumn ? "\n                        CAST(o.HBookingNo AS NVARCHAR(50)) AS HBookingNo," : "\n                        CAST(NULL AS NVARCHAR(50)) AS HBookingNo,");
+                    selectSql += (hasGlobalBillNoColumn ? "\n                        CAST(o.GlobalBillNo AS NVARCHAR(50)) AS GlobalBillNo," : "\n                        CAST(NULL AS NVARCHAR(50)) AS GlobalBillNo,");
 
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(selectSql + @"
                         CASE 
@@ -5145,6 +5155,7 @@ END", connection))
                             {
                                 Id = reader.GetInt32(0),
                                 OrderNumber = reader.GetString(1),
+                                GlobalBillNo = null,
                                 TableTurnoverId = reader.IsDBNull(2) ? null : (int?)reader.GetInt32(2),
                                 OrderType = orderType,
                                 OrderTypeDisplay = orderTypeDisplay,
@@ -5213,6 +5224,15 @@ END", connection))
                                 var ordHBookingNo = reader.GetOrdinal("HBookingNo");
                                 if (ordHBookingNo >= 0 && !reader.IsDBNull(ordHBookingNo))
                                     order.HBookingNo = Convert.ToString(reader.GetValue(ordHBookingNo));
+                            }
+                            catch { }
+                            try
+                            {
+                                var ordGlobalBillNo = reader.GetOrdinal("GlobalBillNo");
+                                if (ordGlobalBillNo >= 0 && !reader.IsDBNull(ordGlobalBillNo))
+                                {
+                                    order.GlobalBillNo = Convert.ToString(reader.GetValue(ordGlobalBillNo));
+                                }
                             }
                             catch { }
 
@@ -5991,7 +6011,9 @@ END", connection))
 
             using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                 DECLARE @OrderNumber nvarchar(20);
+                DECLARE @GlobalBillNo nvarchar(50);
                 SELECT @OrderNumber = o.OrderNumber
+                     , @GlobalBillNo = CASE WHEN COL_LENGTH('dbo.Orders','GlobalBillNo') IS NOT NULL THEN o.GlobalBillNo ELSE NULL END
                 FROM dbo.Orders o WITH (UPDLOCK, HOLDLOCK)
                 WHERE o.Id = @OrderId;
 
@@ -6051,6 +6073,28 @@ END", connection))
 
                     UPDATE dbo.Orders
                     SET OrderNumber = @OrderNumber,
+                        UpdatedAt = GETDATE()
+                    WHERE Id = @OrderId;
+                END
+
+                IF (COL_LENGTH('dbo.Orders','GlobalBillNo') IS NOT NULL
+                    AND (@GlobalBillNo IS NULL OR LTRIM(RTRIM(@GlobalBillNo)) = '')
+                    AND @OrderNumber IS NOT NULL AND LTRIM(RTRIM(@OrderNumber)) <> '')
+                BEGIN
+                    DECLARE @NowDate date = CAST(GETDATE() AS date);
+                    DECLARE @FyStartYear int = CASE WHEN MONTH(@NowDate) >= 4 THEN YEAR(@NowDate) ELSE YEAR(@NowDate) - 1 END;
+                    DECLARE @FyEndYear int = @FyStartYear + 1;
+                    DECLARE @FyCode varchar(4) = RIGHT(CAST(@FyStartYear AS varchar(4)), 2) + RIGHT(CAST(@FyEndYear AS varchar(4)), 2);
+                    DECLARE @NextSeq int;
+
+                    SELECT @NextSeq = ISNULL(MAX(TRY_CAST(RIGHT(GlobalBillNo, 6) AS int)), 0) + 1
+                    FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+                    WHERE GlobalBillNo LIKE 'INV-' + @FyCode + '-%';
+
+                    SET @GlobalBillNo = 'INV-' + @FyCode + '-' + RIGHT('000000' + CAST(@NextSeq AS varchar(6)), 6);
+
+                    UPDATE dbo.Orders
+                    SET GlobalBillNo = @GlobalBillNo,
                         UpdatedAt = GETDATE()
                     WHERE Id = @OrderId;
                 END

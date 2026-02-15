@@ -104,6 +104,7 @@ namespace RestaurantManagementSystem.Models
     {
         public int Id { get; set; }
         public string OrderNumber { get; set; }
+        public string? GlobalBillNo { get; set; }
         public int? TableTurnoverId { get; set; }
         public string TableName { get; set; }
         public string GuestName { get; set; }
