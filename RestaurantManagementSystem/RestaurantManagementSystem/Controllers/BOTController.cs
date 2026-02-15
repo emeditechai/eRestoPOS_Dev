@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.ViewModels;
+using RestaurantManagementSystem.Utilities;
 using System.Data;
 using System.Linq;
 using System.Security.Claims;
@@ -26,11 +27,43 @@ namespace RestaurantManagementSystem.Controllers
             _logger = logger;
         }
 
+        private int? GetActiveBranchId()
+        {
+            return User.GetActiveBranchId();
+        }
+
+        private bool HasColumn(string tableName, string columnName)
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                connection.Open();
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = @TableName AND COLUMN_NAME = @ColumnName", connection);
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         /// <summary>
         /// BOT Dashboard - Shows BAR tickets organized by status (similar to Kitchen Dashboard)
         /// </summary>
         public IActionResult Dashboard()
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             var viewModel = new BOTDashboardViewModel();
             
             using (var connection = new SqlConnection(_connectionString))
@@ -38,12 +71,12 @@ namespace RestaurantManagementSystem.Controllers
                 connection.Open();
                 
                 // Get tickets by status - filtered by KitchenStation='BAR'
-                viewModel.NewTickets = GetBOTTicketsByStatus(connection, 0);
-                viewModel.InProgressTickets = GetBOTTicketsByStatus(connection, 1);
-                viewModel.ReadyTickets = GetBOTTicketsByStatus(connection, 2);
+                viewModel.NewTickets = GetBOTTicketsByStatus(connection, 0, activeBranchId.Value);
+                viewModel.InProgressTickets = GetBOTTicketsByStatus(connection, 1, activeBranchId.Value);
+                viewModel.ReadyTickets = GetBOTTicketsByStatus(connection, 2, activeBranchId.Value);
                 
                 // Delivered tickets (today only)
-                var deliveredAll = GetBOTTicketsByStatus(connection, 3);
+                var deliveredAll = GetBOTTicketsByStatus(connection, 3, activeBranchId.Value);
                 var today = DateTime.Today;
                 viewModel.DeliveredTickets = deliveredAll
                     .Where(t => t.CompletedAt.HasValue && (
@@ -55,7 +88,7 @@ namespace RestaurantManagementSystem.Controllers
                     .ToList();
                 
                 // Get dashboard statistics
-                viewModel.Stats = GetBOTDashboardStats(connection);
+                viewModel.Stats = GetBOTDashboardStats(connection, activeBranchId.Value);
             }
             
             return View(viewModel);
@@ -66,6 +99,13 @@ namespace RestaurantManagementSystem.Controllers
         /// </summary>
         public IActionResult Tickets(BOTTicketsFilterViewModel filter)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             var viewModel = new BOTTicketsViewModel
             {
                 Filter = filter ?? new BOTTicketsFilterViewModel()
@@ -76,10 +116,10 @@ namespace RestaurantManagementSystem.Controllers
                 connection.Open();
 
                 // Load tickets for BAR with filters
-                viewModel.Tickets = GetFilteredBOTTickets(connection, viewModel.Filter);
+                viewModel.Tickets = GetFilteredBOTTickets(connection, viewModel.Filter, activeBranchId.Value);
 
                 // Compute stats for BAR (New/InProgress/Ready) within date filter scope
-                viewModel.Stats = GetBOTTicketsStats(connection, viewModel.Filter);
+                viewModel.Stats = GetBOTTicketsStats(connection, viewModel.Filter, activeBranchId.Value);
             }
 
             return View(viewModel);
@@ -92,10 +132,17 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction(nameof(Tickets));
+                }
+
                 using var connection = new SqlConnection(_connectionString);
                 connection.Open();
 
-                var tickets = GetFilteredBOTTickets(connection, filter ?? new BOTTicketsFilterViewModel());
+                var tickets = GetFilteredBOTTickets(connection, filter ?? new BOTTicketsFilterViewModel(), activeBranchId.Value);
 
                 var csv = "TicketNumber,OrderNumber,TableName,StationName,Status,CreatedAt,WaitMinutes\n";
                 foreach (var t in tickets)
@@ -122,11 +169,18 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction(nameof(Tickets));
+                }
+
                 var vm = new BOTTicketsViewModel { Filter = filter ?? new BOTTicketsFilterViewModel() };
                 using var connection = new SqlConnection(_connectionString);
                 connection.Open();
-                vm.Tickets = GetFilteredBOTTickets(connection, vm.Filter);
-                vm.Stats = GetBOTTicketsStats(connection, vm.Filter);
+                vm.Tickets = GetFilteredBOTTickets(connection, vm.Filter, activeBranchId.Value);
+                vm.Stats = GetBOTTicketsStats(connection, vm.Filter, activeBranchId.Value);
                 return View("Tickets", vm); // Reuse the same view for print (user can use browser print)
             }
             catch (Exception ex)
@@ -137,9 +191,10 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        private List<KitchenTicket> GetFilteredBOTTickets(SqlConnection connection, BOTTicketsFilterViewModel filter)
+        private List<KitchenTicket> GetFilteredBOTTickets(SqlConnection connection, BOTTicketsFilterViewModel filter, int branchId)
         {
             var tickets = new List<KitchenTicket>();
+            var hasOrdersBranchColumn = HasColumn("Orders", "BranchId");
             var sql = @"
                 SELECT 
                     kt.Id,
@@ -160,6 +215,7 @@ namespace RestaurantManagementSystem.Controllers
                 LEFT JOIN Tables t ON tt.TableId = t.Id
                 WHERE kt.KitchenStation = 'BAR' 
                   AND kt.TicketNumber LIKE 'BOT-%'
+                                    " + (hasOrdersBranchColumn ? "AND o.BranchId = @BranchId" : string.Empty) + @"
                   AND (@Status IS NULL OR kt.Status = @Status)
                   AND (@DateFrom IS NULL OR kt.CreatedAt >= @DateFrom)
                   AND (@DateTo IS NULL OR kt.CreatedAt < @DateTo)
@@ -174,6 +230,10 @@ namespace RestaurantManagementSystem.Controllers
                 var dateToExclusive = filter?.DateTo?.Date.AddDays(1);
                 cmd.Parameters.AddWithValue("@DateFrom", (object?)dateFrom ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@DateTo", (object?)dateToExclusive ?? DBNull.Value);
+                if (hasOrdersBranchColumn)
+                {
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
+                }
 
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
@@ -199,17 +259,20 @@ namespace RestaurantManagementSystem.Controllers
             return tickets;
         }
 
-        private Models.BOTDashboardStats GetBOTTicketsStats(SqlConnection connection, BOTTicketsFilterViewModel filter)
+        private Models.BOTDashboardStats GetBOTTicketsStats(SqlConnection connection, BOTTicketsFilterViewModel filter, int branchId)
         {
             var stats = new Models.BOTDashboardStats();
+            var hasOrdersBranchColumn = HasColumn("Orders", "BranchId");
             var sql = @"
                 SELECT 
                     SUM(CASE WHEN kt.Status = 0 THEN 1 ELSE 0 END) AS NewCount,
                     SUM(CASE WHEN kt.Status = 1 THEN 1 ELSE 0 END) AS InProgressCount,
                     SUM(CASE WHEN kt.Status = 2 THEN 1 ELSE 0 END) AS ReadyCount
                 FROM KitchenTickets kt
+                INNER JOIN Orders o ON kt.OrderId = o.Id
                 WHERE kt.KitchenStation = 'BAR'
                   AND kt.TicketNumber LIKE 'BOT-%'
+                  " + (hasOrdersBranchColumn ? "AND o.BranchId = @BranchId" : string.Empty) + @"
                   AND (@DateFrom IS NULL OR kt.CreatedAt >= @DateFrom)
                   AND (@DateTo IS NULL OR kt.CreatedAt < @DateTo)";
 
@@ -219,6 +282,10 @@ namespace RestaurantManagementSystem.Controllers
                 var dateToExclusive = filter?.DateTo?.Date.AddDays(1);
                 cmd.Parameters.AddWithValue("@DateFrom", (object?)dateFrom ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@DateTo", (object?)dateToExclusive ?? DBNull.Value);
+                if (hasOrdersBranchColumn)
+                {
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
+                }
 
                 using var reader = cmd.ExecuteReader();
                 if (reader.Read())
@@ -270,9 +337,10 @@ namespace RestaurantManagementSystem.Controllers
         /// <summary>
         /// Get BOT tickets by status from KitchenTickets table
         /// </summary>
-        private List<KitchenTicket> GetBOTTicketsByStatus(SqlConnection connection, int status)
+        private List<KitchenTicket> GetBOTTicketsByStatus(SqlConnection connection, int status, int branchId)
         {
             var tickets = new List<KitchenTicket>();
+            var hasOrdersBranchColumn = HasColumn("Orders", "BranchId");
             
             var sql = @"
                 SELECT 
@@ -295,11 +363,16 @@ namespace RestaurantManagementSystem.Controllers
                 WHERE kt.KitchenStation = 'BAR' 
                   AND kt.Status = @Status
                   AND kt.TicketNumber LIKE 'BOT-%'
+                                    " + (hasOrdersBranchColumn ? "AND o.BranchId = @BranchId" : string.Empty) + @"
                 ORDER BY kt.CreatedAt ASC";
             
             using (var command = new SqlCommand(sql, connection))
             {
                 command.Parameters.AddWithValue("@Status", status);
+                if (hasOrdersBranchColumn)
+                {
+                    command.Parameters.AddWithValue("@BranchId", branchId);
+                }
                 
                 using (var reader = command.ExecuteReader())
                 {
@@ -330,9 +403,10 @@ namespace RestaurantManagementSystem.Controllers
         /// <summary>
         /// Get BOT dashboard statistics from KitchenTickets table
         /// </summary>
-        private Models.BOTDashboardStats GetBOTDashboardStats(SqlConnection connection)
+        private Models.BOTDashboardStats GetBOTDashboardStats(SqlConnection connection, int branchId)
         {
             var stats = new Models.BOTDashboardStats();
+            var hasOrdersBranchColumn = HasColumn("Orders", "BranchId");
             
             var sql = @"
                 SELECT 
@@ -340,13 +414,20 @@ namespace RestaurantManagementSystem.Controllers
                     SUM(CASE WHEN kt.Status = 1 THEN 1 ELSE 0 END) AS InProgressCount,
                     SUM(CASE WHEN kt.Status = 2 THEN 1 ELSE 0 END) AS ReadyCount,
                     0 AS AvgPrepTimeMinutes
-                FROM KitchenTickets kt
+                                FROM KitchenTickets kt
+                                INNER JOIN Orders o ON kt.OrderId = o.Id
                 WHERE kt.KitchenStation = 'BAR'
                   AND kt.TicketNumber LIKE 'BOT-%'
+                                    " + (hasOrdersBranchColumn ? "AND o.BranchId = @BranchId" : string.Empty) + @"
                   AND kt.Status < 3";
             
             using (var command = new SqlCommand(sql, connection))
             {
+                if (hasOrdersBranchColumn)
+                {
+                    command.Parameters.AddWithValue("@BranchId", branchId);
+                }
+
                 using (var reader = command.ExecuteReader())
                 {
                     if (reader.Read())
@@ -364,13 +445,20 @@ namespace RestaurantManagementSystem.Controllers
                 SELECT kt.Status, COUNT(kti.Id) as ItemCount
                 FROM KitchenTickets kt
                 INNER JOIN KitchenTicketItems kti ON kt.Id = kti.KitchenTicketId
+                                INNER JOIN Orders o ON kt.OrderId = o.Id
                 WHERE kt.KitchenStation = 'BAR'
                   AND kt.TicketNumber LIKE 'BOT-%'
+                                    " + (hasOrdersBranchColumn ? "AND o.BranchId = @BranchId" : string.Empty) + @"
                   AND kt.Status IN (0, 1, 2)
                 GROUP BY kt.Status";
             
             using (var itemCmd = new SqlCommand(itemCountSql, connection))
             {
+                if (hasOrdersBranchColumn)
+                {
+                    itemCmd.Parameters.AddWithValue("@BranchId", branchId);
+                }
+
                 using (var itemReader = itemCmd.ExecuteReader())
                 {
                     while (itemReader.Read())
@@ -856,6 +944,13 @@ namespace RestaurantManagementSystem.Controllers
         /// </summary>
         public IActionResult BarOrderCreate(int? tableId = null)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             var model = new CreateOrderViewModel();
             
             if (tableId.HasValue)
@@ -868,14 +963,20 @@ namespace RestaurantManagementSystem.Controllers
             using (SqlConnection connection = new SqlConnection(_connectionString))
             {
                 connection.Open();
+                bool hasTableBranchColumn = HasColumn("Tables", "BranchId");
                 
                 // Get available tables
                 using (SqlCommand command = new SqlCommand(@"
                     SELECT Id, TableName, Capacity, Status
                     FROM Tables
-                    WHERE Status = 0
+                    WHERE Status = 0 " + (hasTableBranchColumn ? "AND BranchId = @BranchId" : string.Empty) + @"
                     ORDER BY TableName", connection))
                 {
+                    if (hasTableBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
+
                     using (SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -897,9 +998,14 @@ namespace RestaurantManagementSystem.Controllers
                     SELECT tt.Id, t.Id, t.TableName, tt.GuestName, tt.PartySize, tt.Status
                     FROM TableTurnovers tt
                     INNER JOIN Tables t ON tt.TableId = t.Id
-                    WHERE tt.Status < 5 -- Not departed
+                    WHERE tt.Status < 5 " + (hasTableBranchColumn ? "AND t.BranchId = @BranchId" : string.Empty) + @" -- Not departed
                     ORDER BY t.TableName", connection))
                 {
+                    if (hasTableBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
+
                     using (SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -925,6 +1031,13 @@ namespace RestaurantManagementSystem.Controllers
         [ValidateAntiForgeryToken]
         public IActionResult BarOrderCreate(CreateOrderViewModel model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             if (ModelState.IsValid)
             {
                 try
@@ -981,6 +1094,19 @@ namespace RestaurantManagementSystem.Controllers
                                         
                                         if (orderId > 0)
                                         {
+                                            if (HasColumn("Orders", "BranchId"))
+                                            {
+                                                using (var branchCmd = new SqlCommand(@"
+                                                    UPDATE dbo.Orders
+                                                    SET BranchId = @BranchId
+                                                    WHERE Id = @OrderId", connection, transaction))
+                                                {
+                                                    branchCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                                                    branchCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                                    branchCmd.ExecuteNonQuery();
+                                                }
+                                            }
+
                                             // Set OrderKitchenType to "Bar" for orders created from Bar navigation
                                             try
                                             {
@@ -1087,13 +1213,19 @@ namespace RestaurantManagementSystem.Controllers
             using (SqlConnection connection = new SqlConnection(_connectionString))
             {
                 connection.Open();
+                bool hasTableBranchColumn = HasColumn("Tables", "BranchId");
                 
                 using (SqlCommand command = new SqlCommand(@"
                     SELECT Id, TableName, Capacity, Status
                     FROM Tables
-                    WHERE Status = 0
+                    WHERE Status = 0 " + (hasTableBranchColumn ? "AND BranchId = @BranchId" : string.Empty) + @"
                     ORDER BY TableName", connection))
                 {
+                    if (hasTableBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
+
                     using (SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -1114,9 +1246,14 @@ namespace RestaurantManagementSystem.Controllers
                     SELECT tt.Id, t.Id, t.TableName, tt.GuestName, tt.PartySize, tt.Status
                     FROM TableTurnovers tt
                     INNER JOIN Tables t ON tt.TableId = t.Id
-                    WHERE tt.Status < 5
+                    WHERE tt.Status < 5 " + (hasTableBranchColumn ? "AND t.BranchId = @BranchId" : string.Empty) + @"
                     ORDER BY t.TableName", connection))
                 {
+                    if (hasTableBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
+
                     using (SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -1214,6 +1351,12 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                if (!GetActiveBranchId().HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction("Index", "Home");
+                }
+
                 var model = GetBarOrderDashboard(fromDate, toDate);
                 return View(model);
             }
@@ -1230,6 +1373,18 @@ namespace RestaurantManagementSystem.Controllers
         /// </summary>
         private OrderDashboardViewModel GetBarOrderDashboard(DateTime? fromDate = null, DateTime? toDate = null)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return new OrderDashboardViewModel
+                {
+                    ActiveOrders = new List<OrderSummary>(),
+                    CompletedOrders = new List<OrderSummary>(),
+                    CancelledOrders = new List<OrderSummary>()
+                };
+            }
+
+            var hasOrdersBranchColumn = HasColumn("Orders", "BranchId");
             var canViewAllRecords = CurrentUserCanViewAllBarOrderData();
             var currentUserId = GetCurrentUserId();
             var model = new OrderDashboardViewModel
@@ -1273,6 +1428,11 @@ namespace RestaurantManagementSystem.Controllers
                     WHERE OrderKitchenType = 'Bar'
                       AND NULLIF(LTRIM(RTRIM(OrderNumber)), '') IS NOT NULL";
 
+                if (hasOrdersBranchColumn)
+                {
+                    summarySql += " AND BranchId = @BranchId";
+                }
+
                 if (!canViewAllRecords)
                 {
                     summarySql += " AND UserId = @UserId";
@@ -1283,6 +1443,10 @@ namespace RestaurantManagementSystem.Controllers
                     if (!canViewAllRecords)
                     {
                         command.Parameters.AddWithValue("@UserId", currentUserId);
+                    }
+                    if (hasOrdersBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     }
                     using (var reader = command.ExecuteReader())
                     {
@@ -1325,6 +1489,11 @@ namespace RestaurantManagementSystem.Controllers
                                         WHERE o.Status < 3 AND o.OrderKitchenType = 'Bar'
                                             AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL";
 
+                if (hasOrdersBranchColumn)
+                {
+                    activeOrderSql += " AND o.BranchId = @BranchId";
+                }
+
                 if (!canViewAllRecords)
                 {
                     activeOrderSql += " AND o.UserId = @UserId";
@@ -1337,6 +1506,10 @@ namespace RestaurantManagementSystem.Controllers
                     if (!canViewAllRecords)
                     {
                         command.Parameters.AddWithValue("@UserId", currentUserId);
+                    }
+                    if (hasOrdersBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     }
                     using (var reader = command.ExecuteReader())
                     {
@@ -1414,6 +1587,11 @@ namespace RestaurantManagementSystem.Controllers
                                             AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL
                 ";
 
+                if (hasOrdersBranchColumn)
+                {
+                    completedSql += " AND o.BranchId = @BranchId";
+                }
+
                 if (!canViewAllRecords)
                 {
                     completedSql += " AND o.UserId = @UserId";
@@ -1434,6 +1612,10 @@ namespace RestaurantManagementSystem.Controllers
                     if (!canViewAllRecords)
                     {
                         command.Parameters.AddWithValue("@UserId", currentUserId);
+                    }
+                    if (hasOrdersBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     }
                     if (fromDate.HasValue && toDate.HasValue)
                     {
@@ -1506,6 +1688,11 @@ namespace RestaurantManagementSystem.Controllers
                     AND CAST(ISNULL(o.UpdatedAt, o.CreatedAt) AS DATE) = CAST(GETDATE() AS DATE)
                 ";
 
+                if (hasOrdersBranchColumn)
+                {
+                    cancelledSql += " AND o.BranchId = @BranchId";
+                }
+
                 if (!canViewAllRecords)
                 {
                     cancelledSql += " AND o.UserId = @UserId";
@@ -1518,6 +1705,10 @@ namespace RestaurantManagementSystem.Controllers
                     if (!canViewAllRecords)
                     {
                         command.Parameters.AddWithValue("@UserId", currentUserId);
+                    }
+                    if (hasOrdersBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     }
                     using (var reader = command.ExecuteReader())
                     {

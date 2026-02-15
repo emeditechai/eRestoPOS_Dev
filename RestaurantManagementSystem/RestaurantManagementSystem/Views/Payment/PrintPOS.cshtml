@@ -39,6 +39,7 @@
         <div style="font-size:18px; font-weight:700;">@settings.RestaurantName</div>
         @if (!string.IsNullOrWhiteSpace(settings.StreetAddress)) { <div class="tiny">@settings.StreetAddress</div> }
         @if (!string.IsNullOrWhiteSpace(settings.City)) { <div class="tiny">@settings.City @settings.State - @settings.Pincode</div> }
+        @if (!string.IsNullOrWhiteSpace(ViewBag.PrintBranchName as string)) { <div class="tiny">Branch: @ViewBag.PrintBranchName</div> }
         @if (!string.IsNullOrWhiteSpace(settings.PhoneNumber)) { <div class="tiny">Phone: @settings.PhoneNumber</div> }
         @if (!string.IsNullOrWhiteSpace(settings.GSTCode)) { <div class="tiny">GSTIN: @settings.GSTCode</div> }
     </div>

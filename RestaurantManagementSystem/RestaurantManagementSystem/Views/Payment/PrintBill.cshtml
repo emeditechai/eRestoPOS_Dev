@@ -25,6 +25,10 @@
         {
             <p class="mb-0"><strong>GST Code:</strong> <span class="gst-code">@ViewBag.RestaurantSettings.GSTCode</span></p>
         }
+        @if (!string.IsNullOrWhiteSpace(ViewBag.PrintBranchName as string))
+        {
+            <p class="mb-0"><strong>Branch:</strong> @ViewBag.PrintBranchName</p>
+        }
         <h4 class="mt-3 bill-title">Bill cum Receipt</h4>
     </div>
 

@@ -794,38 +794,29 @@ ORDER BY CASE WHEN ISNULL(b.Is_MainBranch, 0) = 1 THEN 0 ELSE 1 END, b.BranchCod
                 }
 
                                 const string sql = @"
-;WITH MainBranch AS
-(
-        SELECT TOP 1 b.BranchId, b.BranchCode, b.BranchName, CAST(1 AS BIT) AS IsDefault, b.IsActive, b.CreatedAt, b.UpdatedAt
-        FROM dbo.Branches b
-        WHERE ISNULL(b.IsActive, 1) = 1
-            AND ISNULL(b.Is_MainBranch, 0) = 1
-),
-MappedBranches AS
-(
-        SELECT b.BranchId, b.BranchCode, b.BranchName, ISNULL(ub.IsDefault, 0) AS IsDefault, b.IsActive, b.CreatedAt, b.UpdatedAt
-        FROM dbo.Branches b
-        INNER JOIN dbo.UserBranches ub ON ub.BranchId = b.BranchId
-        WHERE ub.UserId = @UserId
-            AND ISNULL(ub.IsActive, 1) = 1
-            AND ISNULL(b.IsActive, 1) = 1
-)
-SELECT BranchId, BranchCode, BranchName, IsDefault, IsActive, CreatedAt, UpdatedAt
-FROM
-(
-        SELECT mb.BranchId, mb.BranchCode, mb.BranchName, mb.IsDefault, mb.IsActive, mb.CreatedAt, mb.UpdatedAt
-        FROM MainBranch mb
-
-        UNION ALL
-
-        SELECT m.BranchId, m.BranchCode, m.BranchName,
-                     CASE WHEN EXISTS (SELECT 1 FROM MainBranch mb WHERE mb.BranchId = m.BranchId) THEN CAST(1 AS BIT) ELSE m.IsDefault END,
-                     m.IsActive, m.CreatedAt, m.UpdatedAt
-        FROM MappedBranches m
-)
-AS SourceRows
-GROUP BY BranchId, BranchCode, BranchName, IsDefault, IsActive, CreatedAt, UpdatedAt
-ORDER BY CASE WHEN ISNULL(IsDefault, 0) = 1 THEN 0 ELSE 1 END, BranchCode;";
+                ;WITH MappedBranches AS
+                (
+                    SELECT b.BranchId, b.BranchCode, b.BranchName, ISNULL(ub.IsDefault, 0) AS IsDefault, b.IsActive, b.CreatedAt, b.UpdatedAt
+                    FROM dbo.Branches b
+                    INNER JOIN dbo.UserBranches ub ON ub.BranchId = b.BranchId
+                    WHERE ub.UserId = @UserId
+                        AND ISNULL(ub.IsActive, 1) = 1
+                        AND ISNULL(b.IsActive, 1) = 1
+                ),
+                FallbackMainBranch AS
+                (
+                    SELECT TOP 1 b.BranchId, b.BranchCode, b.BranchName, CAST(1 AS BIT) AS IsDefault, b.IsActive, b.CreatedAt, b.UpdatedAt
+                    FROM dbo.Branches b
+                    WHERE ISNULL(b.IsActive, 1) = 1
+                        AND ISNULL(b.Is_MainBranch, 0) = 1
+                        AND NOT EXISTS (SELECT 1 FROM MappedBranches)
+                )
+                SELECT BranchId, BranchCode, BranchName, IsDefault, IsActive, CreatedAt, UpdatedAt
+                FROM MappedBranches
+                UNION ALL
+                SELECT BranchId, BranchCode, BranchName, IsDefault, IsActive, CreatedAt, UpdatedAt
+                FROM FallbackMainBranch
+                ORDER BY CASE WHEN ISNULL(IsDefault, 0) = 1 THEN 0 ELSE 1 END, BranchCode, BranchName;";
 
                 await using var command = new SqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@UserId", userId);

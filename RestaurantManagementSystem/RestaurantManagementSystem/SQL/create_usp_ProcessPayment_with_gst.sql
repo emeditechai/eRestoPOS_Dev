@@ -52,6 +52,7 @@ BEGIN
         -- Insert payment with GST information
         INSERT INTO Payments (
             OrderId,
+            BranchId,
             PaymentMethodId,
             Amount,
             TipAmount,
@@ -77,6 +78,7 @@ BEGIN
         )
         VALUES (
             @OrderId,
+            (SELECT TOP 1 BranchId FROM Orders WHERE Id = @OrderId),
             @PaymentMethodId,
             @Amount,
             @TipAmount,

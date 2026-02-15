@@ -33,6 +33,11 @@ BEGIN
     BEGIN
         ALTER TABLE dbo.Payments ADD DiscAmount DECIMAL(18,2) NOT NULL DEFAULT(0);
     END
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'BranchId' AND Object_ID = OBJECT_ID(N'dbo.Payments'))
+    BEGIN
+        ALTER TABLE dbo.Payments ADD BranchId INT NULL;
+    END
 END
 
 -- Create Payments table if it doesn't exist
@@ -41,6 +46,7 @@ BEGIN
     CREATE TABLE [dbo].[Payments](
         [Id] [int] IDENTITY(1,1) PRIMARY KEY,
         [OrderId] [int] NOT NULL,
+        [BranchId] [int] NULL,
         [PaymentMethodId] [int] NOT NULL,
         [Amount] [decimal](18,2) NOT NULL,
         [DiscAmount] [decimal](18,2) NOT NULL DEFAULT(0),
@@ -252,6 +258,7 @@ BEGIN
         -- Insert payment with GST information
         INSERT INTO Payments (
             OrderId,
+            BranchId,
             PaymentMethodId,
             Amount,
             TipAmount,
@@ -277,6 +284,7 @@ BEGIN
         )
         VALUES (
             @OrderId,
+            (SELECT TOP 1 BranchId FROM Orders WHERE Id = @OrderId),
             @PaymentMethodId,
             @Amount,
             @TipAmount,

@@ -101,6 +101,7 @@ BEGIN
     CREATE TABLE [dbo].[Orders] (
         [Id] INT IDENTITY(1,1) PRIMARY KEY,
         [OrderNumber] NVARCHAR(20) NOT NULL,
+        [BranchId] INT NULL,
         [TableTurnoverId] INT NULL, -- NULL for takeout/delivery orders
         [OrderType] INT NOT NULL, -- 0=Dine-In, 1=Takeout, 2=Delivery, 3=Online
         [Status] INT NOT NULL DEFAULT 0, -- 0=Open, 1=In Progress, 2=Ready, 3=Completed, 4=Cancelled
@@ -119,6 +120,16 @@ BEGIN
         CONSTRAINT [FK_Orders_TableTurnovers] FOREIGN KEY ([TableTurnoverId]) REFERENCES [TableTurnovers]([Id]),
         CONSTRAINT [FK_Orders_Users] FOREIGN KEY ([UserId]) REFERENCES [Users]([Id])
     );
+END
+GO
+
+-- Ensure existing databases get BranchId on Orders if it's missing
+IF EXISTS (SELECT * FROM sys.tables WHERE name = 'Orders')
+BEGIN
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'BranchId' AND Object_ID = OBJECT_ID(N'dbo.Orders'))
+    BEGIN
+        ALTER TABLE dbo.Orders ADD BranchId INT NULL;
+    END
 END
 GO
 

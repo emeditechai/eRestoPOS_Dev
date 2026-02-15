@@ -38,6 +38,46 @@ namespace RestaurantManagementSystem.Controllers
             _cache = cache;
         }
 
+        private int? GetActiveBranchId()
+        {
+            return User.GetActiveBranchId();
+        }
+
+        private bool IsOrderInActiveBranch(int orderId)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return false;
+            }
+
+            if (!ColumnExistsInTable("Orders", "BranchId"))
+            {
+                return true;
+            }
+
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        SELECT COUNT(1)
+                        FROM dbo.Orders
+                        WHERE Id = @OrderId AND BranchId = @BranchId", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@OrderId", orderId);
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private bool GetIsCounterRequiredForPos()
         {
             try
@@ -292,6 +332,12 @@ END", connection))
         [RequirePermission("NAV_ORDERS_DASH", PermissionAction.View)]
         public IActionResult Dashboard(DateTime? fromDate = null, DateTime? toDate = null)
         {
+            if (!GetActiveBranchId().HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             var model = GetOrderDashboard(fromDate, toDate);
 
             // Counter filter options (client-side).
@@ -350,6 +396,13 @@ END", connection))
         [RequirePermission("NAV_ORDERS_CREATE", PermissionAction.View)]
         public IActionResult Create(int? tableId = null)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             var model = new CreateOrderViewModel();
             
             if (tableId.HasValue)
@@ -365,14 +418,20 @@ END", connection))
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+                bool hasTableBranchColumn = ColumnExistsInTable("Tables", "BranchId");
                 
                 // Get available tables
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT Id, TableName, Capacity, Status
                     FROM Tables
-                    WHERE Status = 0
+                    WHERE Status = 0 " + (hasTableBranchColumn ? "AND BranchId = @BranchId " : "") + @"
                     ORDER BY TableName", connection))
                 {
+                    if (hasTableBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
+
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -394,9 +453,14 @@ END", connection))
                     SELECT tt.Id, t.Id, t.TableName, tt.GuestName, tt.PartySize, tt.Status
                     FROM TableTurnovers tt
                     INNER JOIN Tables t ON tt.TableId = t.Id
-                    WHERE tt.Status < 5 -- Not departed
+                    WHERE tt.Status < 5 " + (hasTableBranchColumn ? "AND t.BranchId = @BranchId " : "") + @"-- Not departed
                     ORDER BY t.TableName", connection))
                 {
+                    if (hasTableBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
+
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -429,6 +493,13 @@ END", connection))
     [RequirePermission("NAV_ORDERS_CREATE", PermissionAction.Add)]
     public async Task<IActionResult> Create(CreateOrderViewModel model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             // Server-side conditional validation for Delivery address
             if (model.OrderType == 2 && string.IsNullOrWhiteSpace(model.CustomerAddress))
             {
@@ -505,6 +576,19 @@ END", connection))
                                         reader.Close();
                                         if (orderId > 0)
                                         {
+                                            if (ColumnExistsInTable("Orders", "BranchId"))
+                                            {
+                                                using (var branchCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                                    UPDATE dbo.Orders
+                                                    SET BranchId = @BranchId
+                                                    WHERE Id = @OrderId", connection, transaction))
+                                                {
+                                                    branchCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                                                    branchCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                                    branchCmd.ExecuteNonQuery();
+                                                }
+                                            }
+
                                             // Persist Room Service hotel fields (safe check for column existence)
                                             if (model.OrderType == 4)
                                             {
@@ -922,6 +1006,11 @@ END", connection))
                 return BadRequest("Order ID or token is required");
             }
 
+            if (!IsOrderInActiveBranch(actualId))
+            {
+                return NotFound();
+            }
+
             var model = GetOrderDetails(actualId);
             if (model == null)
             {
@@ -1010,6 +1099,7 @@ END", connection))
                 }
 
                 // Load available menu items filtered by group if column exists; else load all
+                     bool hasMenuBranchColumn = ColumnExistsInTable("MenuItems", "BranchId");
                      var sql = @"DECLARE @hasGroupCol bit = 0;
                                       DECLARE @hasRoomServiceCol bit = 0;
                                       IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.MenuItems') AND name = 'menuitemgroupID')
@@ -1023,14 +1113,14 @@ END", connection))
                                           BEGIN
                                                 SELECT Id, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice, RoomServicePrice
                                                 FROM dbo.MenuItems
-                                                WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId)
+                                                WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
                                                 ORDER BY Name
                                           END
                                           ELSE
                                           BEGIN
                                                 SELECT Id, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice, CAST(NULL AS decimal(18,2)) AS RoomServicePrice
                                                 FROM dbo.MenuItems
-                                                WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId)
+                                                WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
                                                 ORDER BY Name
                                           END
                                       END
@@ -1040,20 +1130,25 @@ END", connection))
                                           BEGIN
                                                 SELECT Id, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice, RoomServicePrice
                                                 FROM dbo.MenuItems
-                                                WHERE IsAvailable = 1
+                                                WHERE IsAvailable = 1 " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
                                                 ORDER BY Name
                                           END
                                           ELSE
                                           BEGIN
                                                 SELECT Id, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice, CAST(NULL AS decimal(18,2)) AS RoomServicePrice
                                                 FROM dbo.MenuItems
-                                                WHERE IsAvailable = 1
+                                                WHERE IsAvailable = 1 " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
                                                 ORDER BY Name
                                           END
                                       END";
                 using (var icmd = new Microsoft.Data.SqlClient.SqlCommand(sql, connection))
                 {
                     icmd.Parameters.AddWithValue("@GroupId", model.SelectedMenuItemGroupId);
+                              if (hasMenuBranchColumn)
+                              {
+                                icmd.Parameters.AddWithValue("@BranchId", GetActiveBranchId()!.Value);
+                              }
+
                     using (var reader = icmd.ExecuteReader())
                     {
                         while (reader.Read())
@@ -1129,9 +1224,16 @@ END", connection))
             var items = new List<object>();
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return Json(items);
+                }
+
                 using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
+                    var hasMenuBranchColumn = ColumnExistsInTable("MenuItems", "BranchId");
                     
                     // Get order type if orderId is provided
                     int orderType = 0; // Default to Dine-In
@@ -1163,7 +1265,7 @@ END", connection))
                                                 ELSE Price  -- Dine-In (0) or default
                                             END AS Price
                                         FROM dbo.MenuItems
-                                        WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId)
+                                        WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
                                         ORDER BY Name
                                     END
                                     ELSE
@@ -1175,7 +1277,7 @@ END", connection))
                                                 ELSE Price  -- Dine-In (0) or default
                                             END AS Price
                                         FROM dbo.MenuItems
-                                        WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId)
+                                        WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
                                         ORDER BY Name
                                     END
                                  END
@@ -1191,7 +1293,7 @@ END", connection))
                                                 ELSE Price  -- Dine-In (0) or default
                                             END AS Price
                                         FROM dbo.MenuItems
-                                        WHERE IsAvailable = 1
+                                        WHERE IsAvailable = 1 " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
                                         ORDER BY Name
                                     END
                                     ELSE
@@ -1203,7 +1305,7 @@ END", connection))
                                                 ELSE Price  -- Dine-In (0) or default
                                             END AS Price
                                         FROM dbo.MenuItems
-                                        WHERE IsAvailable = 1
+                                        WHERE IsAvailable = 1 " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
                                         ORDER BY Name
                                     END
                                  END";
@@ -1211,6 +1313,11 @@ END", connection))
                     {
                         cmd.Parameters.AddWithValue("@GroupId", groupId);
                         cmd.Parameters.AddWithValue("@OrderType", orderType);
+                        if (hasMenuBranchColumn)
+                        {
+                            cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        }
+
                         using (var r = cmd.ExecuteReader())
                         {
                             while (r.Read())
@@ -1328,6 +1435,17 @@ END", connection))
         [ValidateAntiForgeryToken]
         public IActionResult QuickAddMenuItem(int orderId, string menuItemNameOrId, int quantity)
         {
+            if (!IsOrderInActiveBranch(orderId))
+            {
+                return NotFound();
+            }
+
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return RedirectToAction("Index", "Home");
+            }
+
             if (quantity < 1) quantity = 1;
             int menuItemId = 0;
             // Try to parse as ID, otherwise resolve by name
@@ -1336,9 +1454,15 @@ END", connection))
                 using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
-                    using (var command = new Microsoft.Data.SqlClient.SqlCommand("SELECT TOP 1 Id FROM MenuItems WHERE Name = @Name OR PLUCode = @Name", connection))
+                    var hasMenuBranchColumn = ColumnExistsInTable("MenuItems", "BranchId");
+                    using (var command = new Microsoft.Data.SqlClient.SqlCommand("SELECT TOP 1 Id FROM MenuItems WHERE (Name = @Name OR PLUCode = @Name) " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : string.Empty), connection))
                     {
                         command.Parameters.AddWithValue("@Name", menuItemNameOrId);
+                        if (hasMenuBranchColumn)
+                        {
+                            command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        }
+
                         var result = command.ExecuteScalar();
                         if (result != null)
                         {
@@ -1355,6 +1479,7 @@ END", connection))
             using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+                var hasMenuBranchColumn = ColumnExistsInTable("MenuItems", "BranchId");
                 // Get order type to determine which price to use
                 int orderType = 0;
                 using (var typeCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT OrderType FROM Orders WHERE Id = @OrderId", connection))
@@ -1383,7 +1508,7 @@ END", connection))
                                 ELSE Price * @Quantity  -- Dine-In (0) or default
                             END,
                             0, GETDATE() 
-                        FROM MenuItems WHERE Id = @MenuItemId
+                        FROM MenuItems WHERE Id = @MenuItemId " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : string.Empty) + @"
                     END
                     ELSE
                     BEGIN
@@ -1400,13 +1525,18 @@ END", connection))
                                 ELSE Price * @Quantity  -- Dine-In (0) or default
                             END,
                             0, GETDATE() 
-                        FROM MenuItems WHERE Id = @MenuItemId
+                        FROM MenuItems WHERE Id = @MenuItemId " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : string.Empty) + @"
                     END", connection))
                 {
                     command.Parameters.AddWithValue("@OrderId", orderId);
                     command.Parameters.AddWithValue("@MenuItemId", menuItemId);
                     command.Parameters.AddWithValue("@Quantity", quantity);
                     command.Parameters.AddWithValue("@OrderType", orderType);
+                    if (hasMenuBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
+
                     command.ExecuteNonQuery();
                 }
             }
@@ -2692,6 +2822,18 @@ END", connection))
         [RequirePermission("NAV_ORDERS_POS", PermissionAction.View)]
         public IActionResult POSOrder(int? orderId = null)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
+            if (orderId.HasValue && !IsOrderInActiveBranch(orderId.Value))
+            {
+                return NotFound();
+            }
+
             ViewData["Title"] = "POS Order";
 
             var isCounterRequired = GetIsCounterRequiredForPos();
@@ -2783,17 +2925,33 @@ END", connection))
         {
             if (counterId <= 0) return BadRequest(new { success = false, message = "Invalid counter." });
 
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return BadRequest(new { success = false, message = "No active branch selected." });
+            }
+
             try
             {
                 using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
                     using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                        SELECT TOP 1 Id, CounterCode, CounterName, IsActive
-                        FROM dbo.Counters
-                        WHERE Id = @Id", connection))
+                        IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Counters') AND name = 'BranchId')
+                        BEGIN
+                            SELECT TOP 1 Id, CounterCode, CounterName, IsActive
+                            FROM dbo.Counters
+                            WHERE Id = @Id AND BranchId = @BranchId;
+                        END
+                        ELSE
+                        BEGIN
+                            SELECT TOP 1 Id, CounterCode, CounterName, IsActive
+                            FROM dbo.Counters
+                            WHERE Id = @Id;
+                        END", connection))
                     {
                         cmd.Parameters.AddWithValue("@Id", counterId);
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         using (var reader = cmd.ExecuteReader())
                         {
                             if (!reader.Read())
@@ -2830,17 +2988,34 @@ END", connection))
         private List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem> GetActiveCountersSelectList()
         {
             var list = new List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>();
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return list;
+            }
+
             try
             {
                 using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
                     using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                        SELECT Id, CounterCode, CounterName
-                        FROM dbo.Counters
-                        WHERE IsActive = 1
-                        ORDER BY CounterCode", connection))
+                        IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Counters') AND name = 'BranchId')
+                        BEGIN
+                            SELECT Id, CounterCode, CounterName
+                            FROM dbo.Counters
+                            WHERE IsActive = 1 AND BranchId = @BranchId
+                            ORDER BY CounterCode;
+                        END
+                        ELSE
+                        BEGIN
+                            SELECT Id, CounterCode, CounterName
+                            FROM dbo.Counters
+                            WHERE IsActive = 1
+                            ORDER BY CounterCode;
+                        END", connection))
                     {
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         using (var reader = cmd.ExecuteReader())
                         {
                             while (reader.Read())
@@ -3013,6 +3188,13 @@ END", connection))
         {
             ViewData["Title"] = "POS Order";
 
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             if (model == null)
             {
                 return BadRequest("Invalid request.");
@@ -3113,6 +3295,24 @@ END", connection))
                                     setCashierCmd.Parameters.AddWithValue("@CashierId", GetCurrentUserId());
                                     setCashierCmd.Parameters.AddWithValue("@OrderId", orderId);
                                     setCashierCmd.ExecuteNonQuery();
+                                }
+                            }
+                            catch { /* non-fatal */ }
+
+                            // Ensure Orders.BranchId is populated for branch-wise order segregation
+                            try
+                            {
+                                using (var setBranchCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                    IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'BranchId')
+                                    BEGIN
+                                        UPDATE dbo.Orders
+                                        SET BranchId = @BranchId
+                                        WHERE Id = @OrderId AND (BranchId IS NULL OR BranchId <> @BranchId);
+                                    END", connection, transaction))
+                                {
+                                    setBranchCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                                    setBranchCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                    setBranchCmd.ExecuteNonQuery();
                                 }
                             }
                             catch { /* non-fatal */ }
@@ -3243,6 +3443,12 @@ END", connection))
                 return Json(new { success = false, message = "Invalid request." });
             }
 
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return Json(new { success = false, message = "No active branch selected. Please select a branch first." });
+            }
+
             var isCounterRequired = GetIsCounterRequiredForPos();
             int? selectedCounterId = null;
 
@@ -3338,6 +3544,24 @@ END", connection))
                                     setCashierCmd.Parameters.AddWithValue("@CashierId", GetCurrentUserId());
                                     setCashierCmd.Parameters.AddWithValue("@OrderId", orderId);
                                     setCashierCmd.ExecuteNonQuery();
+                                }
+                            }
+                            catch { /* non-fatal */ }
+
+                            // Ensure Orders.BranchId is populated for branch-wise order segregation
+                            try
+                            {
+                                using (var setBranchCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                    IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'BranchId')
+                                    BEGIN
+                                        UPDATE dbo.Orders
+                                        SET BranchId = @BranchId
+                                        WHERE Id = @OrderId AND (BranchId IS NULL OR BranchId <> @BranchId);
+                                    END", connection, transaction))
+                                {
+                                    setBranchCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                                    setBranchCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                    setBranchCmd.ExecuteNonQuery();
                                 }
                             }
                             catch { /* non-fatal */ }
@@ -3459,6 +3683,13 @@ END", connection))
             // Only show Foods group to keep the catalog lean for POS and cache briefly to speed reloads.
             if (order == null) return;
 
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                order.AvailableMenuItems = new List<MenuItem>();
+                return;
+            }
+
             // Cache is scoped per login/session so menu loads once per login.
             var sessionToken = User?.FindFirst("SessionToken")?.Value;
             var userId = User?.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -3471,7 +3702,7 @@ END", connection))
                 cacheScope = User?.Identity?.Name ?? "anon";
             }
 
-            var cacheKey = $"POS_MENU_FOODS:{cacheScope}";
+            var cacheKey = $"POS_MENU_FOODS:{cacheScope}:B{activeBranchId.Value}";
             if (_cache.TryGetValue(cacheKey, out List<MenuItem> cached) && cached != null && cached.Count > 0)
             {
                 order.AvailableMenuItems = cached.Select(mi => new MenuItem
@@ -3529,6 +3760,7 @@ END", connection))
 
                     using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                         DECLARE @hasNotAvailable bit = CASE WHEN COL_LENGTH('dbo.MenuItems','NotAvailable') IS NULL THEN 0 ELSE 1 END;
+                        DECLARE @hasBranchCol bit = CASE WHEN COL_LENGTH('dbo.MenuItems','BranchId') IS NULL THEN 0 ELSE 1 END;
 
                         SELECT 
                             m.Id,
@@ -3543,6 +3775,7 @@ END", connection))
                         INNER JOIN dbo.Categories c ON m.CategoryId = c.Id
                         WHERE ISNULL(m.IsAvailable, 1) = 1
                           AND (@hasNotAvailable = 0 OR ISNULL(m.NotAvailable, 0) = 0)
+                                                    AND (@hasBranchCol = 0 OR m.BranchId = @BranchId)
                           AND (
                                 @GroupId IS NULL 
                                 OR COL_LENGTH('dbo.MenuItems','menuitemgroupID') IS NULL 
@@ -3551,6 +3784,7 @@ END", connection))
                         ORDER BY c.Name, m.Name;", connection))
                     {
                         cmd.Parameters.AddWithValue("@GroupId", (object?)foodsGroupId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
 
                         using (var reader = cmd.ExecuteReader())
                         {
@@ -3973,6 +4207,19 @@ END", connection))
     
     private OrderDashboardViewModel GetOrderDashboard(DateTime? fromDate = null, DateTime? toDate = null)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return new OrderDashboardViewModel
+                {
+                    ActiveOrders = new List<OrderSummary>(),
+                    CompletedOrders = new List<OrderSummary>(),
+                    CancelledOrders = new List<OrderSummary>()
+                };
+            }
+
+            var hasOrdersBranchColumn = ColumnExistsInTable("Orders", "BranchId");
+            var hasCountersBranchColumn = ColumnExistsInTable("Counters", "BranchId");
             var canViewAllRecords = CurrentUserCanViewAllOrderData();
             var currentUserId = GetCurrentUserId();
             var model = new OrderDashboardViewModel
@@ -4020,8 +4267,14 @@ END", connection))
                         ELSE
                         BEGIN
                             SELECT Id, CounterCode, CounterName
-                            FROM dbo.Counters;
+                            FROM dbo.Counters " + (hasCountersBranchColumn ? "WHERE BranchId = @BranchId;" : ";") + @"
                         END", connection))
+                    {
+                        if (hasCountersBranchColumn)
+                        {
+                            cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        }
+                    
                     using (var reader = cmd.ExecuteReader())
                     {
                         while (reader.Read())
@@ -4033,6 +4286,7 @@ END", connection))
                             var display = $"{code}-{name}".Trim('-').Trim();
                             if (!counterDisplayById.ContainsKey(id)) counterDisplayById[id] = display;
                         }
+                    }
                     }
                 }
                 catch { /* ignore */ }
@@ -4050,6 +4304,11 @@ END", connection))
                     WHERE (OrderKitchenType != 'Bar' OR OrderKitchenType IS NULL)
                       AND NULLIF(LTRIM(RTRIM(OrderNumber)), '') IS NOT NULL";
 
+                if (hasOrdersBranchColumn)
+                {
+                    orderSummarySql += " AND BranchId = @BranchId";
+                }
+
                 if (!canViewAllRecords)
                 {
                     orderSummarySql += " AND UserId = @UserId";
@@ -4060,6 +4319,10 @@ END", connection))
                     if (!canViewAllRecords)
                     {
                         command.Parameters.AddWithValue("@UserId", currentUserId);
+                    }
+                    if (hasOrdersBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     }
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
@@ -4107,6 +4370,11 @@ END", connection))
                     AND (o.OrderKitchenType != 'Bar' OR o.OrderKitchenType IS NULL)
                     AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL";
 
+                if (hasOrdersBranchColumn)
+                {
+                    activeOrderSql += " AND o.BranchId = @BranchId";
+                }
+
                 if (!canViewAllRecords)
                 {
                     activeOrderSql += " AND o.UserId = @UserId";
@@ -4119,6 +4387,10 @@ END", connection))
                     if (!canViewAllRecords)
                     {
                         command.Parameters.AddWithValue("@UserId", currentUserId);
+                    }
+                    if (hasOrdersBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     }
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
@@ -4274,6 +4546,11 @@ END", connection))
                     AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL
                 ";
 
+                if (hasOrdersBranchColumn)
+                {
+                    completedSql += " AND o.BranchId = @BranchId";
+                }
+
                 if (!canViewAllRecords)
                 {
                     completedSql += " AND o.UserId = @UserId";
@@ -4295,6 +4572,10 @@ END", connection))
                     if (!canViewAllRecords)
                     {
                         command.Parameters.AddWithValue("@UserId", currentUserId);
+                    }
+                    if (hasOrdersBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     }
                     if (fromDate.HasValue && toDate.HasValue)
                     {
@@ -4380,6 +4661,11 @@ END", connection))
                     AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL
                     AND CAST(ISNULL(o.UpdatedAt, o.CreatedAt) AS DATE) = CAST(GETDATE() AS DATE) -- Filter by cancellation date";
 
+                if (hasOrdersBranchColumn)
+                {
+                    cancelledSql += " AND o.BranchId = @BranchId";
+                }
+
                 if (!canViewAllRecords)
                 {
                     cancelledSql += " AND o.UserId = @UserId";
@@ -4392,6 +4678,10 @@ END", connection))
                     if (!canViewAllRecords)
                     {
                         command.Parameters.AddWithValue("@UserId", currentUserId);
+                    }
+                    if (hasOrdersBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     }
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
@@ -4709,6 +4999,11 @@ END", connection))
         
         private OrderViewModel GetOrderDetails(int id)
         {
+            if (!IsOrderInActiveBranch(id))
+            {
+                return null;
+            }
+
             OrderViewModel order = null;
             
             // Use separate connections for different data readers to avoid nested DataReader issues
@@ -4725,6 +5020,7 @@ END", connection))
                 bool hasRoomIdColumn = ColumnExistsInTable("Orders", "RoomID");
                 bool hasHBookingIdColumn = ColumnExistsInTable("Orders", "HBookingID");
                 bool hasHBookingNoColumn = ColumnExistsInTable("Orders", "HBookingNo");
+                bool hasOrdersBranchColumn = ColumnExistsInTable("Orders", "BranchId");
                 
                 // Build the SQL query based on column existence
                 string selectSql = hasUpdatedAtColumn 
@@ -4802,9 +5098,13 @@ END", connection))
                     LEFT JOIN Users u ON o.UserId = u.Id
                     LEFT JOIN TableTurnovers tt ON o.TableTurnoverId = tt.Id
                     LEFT JOIN Tables t ON tt.TableId = t.Id
-                    WHERE o.Id = @OrderId", connection))
+                    WHERE o.Id = @OrderId" + (hasOrdersBranchColumn ? " AND o.BranchId = @BranchId" : string.Empty), connection))
                 {
                     command.Parameters.AddWithValue("@OrderId", id);
+                    if (hasOrdersBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", GetActiveBranchId()!.Value);
+                    }
                     
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {

@@ -2,8 +2,10 @@
 @using RestaurantManagementSystem.Utilities
 @{
     ViewData["Title"] = "Restaurant Dashboard";
-    var activeBranchName = User.GetActiveBranchName() ?? "Not Selected";
-    var isActiveMainBranch = string.Equals(User.FindFirst("ActiveBranchIsMain")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+    var activeBranchName = ViewBag.ActiveBranchName as string ?? User.GetActiveBranchName() ?? "Not Selected";
+    var isActiveMainBranch = ViewBag.IsActiveMainBranch is bool dbIsMain
+        ? dbIsMain
+        : string.Equals(User.FindFirst("ActiveBranchIsMain")?.Value, "true", StringComparison.OrdinalIgnoreCase);
 }
 
 <!-- Add jQuery FIRST, before other plugins -->

@@ -13,6 +13,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Security.Claims;
+using RestaurantManagementSystem.Utilities;
 
 namespace RestaurantManagementSystem.Controllers
 {
@@ -62,10 +63,138 @@ namespace RestaurantManagementSystem.Controllers
             _logger = logger;
             _encryptionService = encryptionService;
         }
+
+        private int? GetActiveBranchId()
+        {
+            return User.GetActiveBranchId();
+        }
+
+        private bool HasColumn(string tableName, string columnName)
+        {
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new SqlCommand(@"
+                        SELECT COUNT(1)
+                        FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_NAME = @TableName AND COLUMN_NAME = @ColumnName", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@TableName", tableName);
+                        cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                        return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsOrderInActiveBranch(int orderId)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return false;
+            }
+
+            if (!HasColumn("Orders", "BranchId"))
+            {
+                return true;
+            }
+
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new SqlCommand(@"
+                        SELECT COUNT(1)
+                        FROM dbo.Orders
+                        WHERE Id = @OrderId AND BranchId = @BranchId", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@OrderId", orderId);
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void SyncPaymentBranchFromOrder(int paymentId)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue || !HasColumn("Payments", "BranchId") || !HasColumn("Orders", "BranchId"))
+            {
+                return;
+            }
+
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new SqlCommand(@"
+                        UPDATE p
+                        SET p.BranchId = o.BranchId
+                        FROM dbo.Payments p
+                        INNER JOIN dbo.Orders o ON p.OrderId = o.Id
+                        WHERE p.Id = @PaymentId AND o.BranchId = @BranchId", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@PaymentId", paymentId);
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void SyncSplitBillBranchFromOrder(int splitBillId, int orderId)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue || !HasColumn("SplitBills", "BranchId") || !HasColumn("Orders", "BranchId"))
+            {
+                return;
+            }
+
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new SqlCommand(@"
+                        UPDATE sb
+                        SET sb.BranchId = o.BranchId
+                        FROM dbo.SplitBills sb
+                        INNER JOIN dbo.Orders o ON sb.OrderId = o.Id
+                        WHERE sb.Id = @SplitBillId AND sb.OrderId = @OrderId AND o.BranchId = @BranchId", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@SplitBillId", splitBillId);
+                        cmd.Parameters.AddWithValue("@OrderId", orderId);
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch { }
+        }
         
         // Payment Dashboard
         public async Task<IActionResult> Index(int id, bool? fromBar = null)
         {
+            if (!IsOrderInActiveBranch(id))
+            {
+                return NotFound();
+            }
+
             var model = GetPaymentViewModel(id);
             
             if (model == null)
@@ -283,6 +412,11 @@ namespace RestaurantManagementSystem.Controllers
             else
             {
                 return BadRequest("Order ID or token is required");
+            }
+
+            if (!IsOrderInActiveBranch(actualOrderId))
+            {
+                return NotFound();
             }
 
             // Get payment view model with GST calculations
@@ -875,6 +1009,8 @@ END", connection))
                                     
                                     if (paymentId > 0)
                                     {
+                                        SyncPaymentBranchFromOrder(paymentId);
+
                                         // Decide whether this payment should be pending based on settings and payment details
                                         // New rule: If a discount was applied, respect the discount-approval setting only.
                                         // That is, when discounts DO NOT require approval (discountApprovalRequired == false),
@@ -1754,6 +1890,8 @@ END", connection))
                                     {
                                         throw new Exception(string.IsNullOrWhiteSpace(message) ? "Failed to process one of the split payments." : message);
                                     }
+
+                                    SyncPaymentBranchFromOrder(paymentId);
 
                                     // Apply approval status if needed
                                     if (needsApproval && paymentStatus == 1)
@@ -2758,6 +2896,11 @@ END", connection))
         // Split Bill
         public IActionResult SplitBill(int orderId)
         {
+            if (!IsOrderInActiveBranch(orderId))
+            {
+                return NotFound();
+            }
+
             var model = new CreateSplitBillViewModel
             {
                 OrderId = orderId
@@ -2860,6 +3003,11 @@ END", connection))
         [ValidateAntiForgeryTokenAttribute]
         public IActionResult SplitBill(CreateSplitBillViewModel model, int[] selectedItems, int[] itemQuantities)
         {
+            if (!IsOrderInActiveBranch(model.OrderId))
+            {
+                return NotFound();
+            }
+
             if (ModelState.IsValid)
             {
                 if (selectedItems == null || selectedItems.Length == 0)
@@ -2926,6 +3074,7 @@ END", connection))
                                     
                                     if (splitBillId > 0)
                                     {
+                                        SyncSplitBillBranchFromOrder(splitBillId, model.OrderId);
                                         TempData["SuccessMessage"] = $"Split bill created successfully for ${totalAmount:F2}.";
                                         return RedirectToAction("Index", new { id = model.OrderId });
                                     }
@@ -3052,6 +3201,12 @@ END", connection))
         // Payment Dashboard
         public IActionResult Dashboard(DateTime? fromDate = null, DateTime? toDate = null, string orderType = null)
         {
+            if (!GetActiveBranchId().HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             var model = new PaymentDashboardViewModel
             {
                 FromDate = fromDate ?? DateTime.Today,
@@ -3387,6 +3542,12 @@ END", connection))
         // Bar Payment Dashboard - filtered to BAR orders only
         public IActionResult BarDashboard(DateTime? fromDate = null, DateTime? toDate = null)
         {
+            if (!GetActiveBranchId().HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             var model = new PaymentDashboardViewModel
             {
                 FromDate = fromDate ?? DateTime.Today,
@@ -3736,6 +3897,11 @@ END", connection))
         // Helper methods
         private PaymentViewModel GetPaymentViewModel(int orderId)
         {
+            if (!IsOrderInActiveBranch(orderId))
+            {
+                return null;
+            }
+
             var model = new PaymentViewModel
             {
                 OrderId = orderId
@@ -4508,6 +4674,13 @@ END", connection))
         {
             int filterMode = GetOrderFilterMode(orderType);
             var list = new List<PaymentHistoryItem>();
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return list;
+            }
+
+            var hasOrdersBranchColumn = HasColumn("Orders", "BranchId");
             using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
@@ -4536,6 +4709,7 @@ END", connection))
                     LEFT JOIN Tables tt ON tto.TableId = tt.Id
                     INNER JOIN Payments p ON o.Id = p.OrderId AND p.Status = 1
                     WHERE CAST(p.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
+                                            " + (hasOrdersBranchColumn ? "AND o.BranchId = @BranchId" : string.Empty) + @"
                       AND (
                           @FilterMode = 0 OR
                           (@FilterMode = 1 AND NOT EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = o.Id AND kt.KitchenStation = 'BAR')) OR
@@ -4547,6 +4721,10 @@ END", connection))
                     command.Parameters.AddWithValue("@FromDate", fromDate.Date);
                     command.Parameters.AddWithValue("@ToDate", toDate.Date);
                     command.Parameters.AddWithValue("@FilterMode", filterMode);
+                    if (hasOrdersBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
 
                     using (var reader = command.ExecuteReader())
                     {
@@ -4579,6 +4757,13 @@ END", connection))
         private List<PaymentHistoryItem> GetBarPaymentHistory(DateTime fromDate, DateTime toDate)
         {
             var list = new List<PaymentHistoryItem>();
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return list;
+            }
+
+            var hasOrdersBranchColumn = HasColumn("Orders", "BranchId");
             using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
@@ -4607,6 +4792,7 @@ END", connection))
                     LEFT JOIN Tables tt ON tto.TableId = tt.Id
                     INNER JOIN Payments p ON o.Id = p.OrderId AND p.Status = 1
                     WHERE CAST(p.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
+                                            " + (hasOrdersBranchColumn ? "AND o.BranchId = @BranchId" : string.Empty) + @"
                       AND EXISTS (
                           SELECT 1 FROM KitchenTickets kt 
                           WHERE kt.OrderId = o.Id 
@@ -4618,6 +4804,10 @@ END", connection))
                 {
                     command.Parameters.AddWithValue("@FromDate", fromDate.Date);
                     command.Parameters.AddWithValue("@ToDate", toDate.Date);
+                    if (hasOrdersBranchColumn)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
 
                     using (var reader = command.ExecuteReader())
                     {
@@ -4766,6 +4956,11 @@ END", connection))
         {
             try
             {
+                if (!IsOrderInActiveBranch(orderId))
+                {
+                    return NotFound();
+                }
+
                 var model = GetPaymentViewModel(orderId);
                 
                 if (model == null)
@@ -4806,40 +5001,8 @@ END", connection))
                     catch { /* ignore display-only failures */ }
                 }
                 
-                // Get restaurant settings for bill header
-                RestaurantSettings settings = null;
-                using (var connection = new SqlConnection(_connectionString))
-                {
-                    connection.Open();
-                    using (var command = new SqlCommand("SELECT * FROM dbo.RestaurantSettings", connection))
-                    {
-                        using (var reader = command.ExecuteReader())
-                        {
-                            if (reader.Read())
-                            {
-                                settings = new RestaurantSettings
-                                {
-                                    RestaurantName = reader["RestaurantName"].ToString(),
-                                    StreetAddress = reader["StreetAddress"].ToString(),
-                                    City = reader["City"].ToString(),
-                                    State = reader["State"].ToString(),
-                                    Pincode = reader["Pincode"].ToString(),
-                                    Country = reader["Country"].ToString(),
-                                    GSTCode = reader["GSTCode"].ToString(),
-                                    PhoneNumber = reader["PhoneNumber"].ToString(),
-                                    Email = reader["Email"].ToString(),
-                                    Website = reader["Website"].ToString(),
-                                    CurrencySymbol = reader["CurrencySymbol"].ToString(),
-                                    DefaultGSTPercentage = reader["DefaultGSTPercentage"] != DBNull.Value 
-                                        ? Convert.ToDecimal(reader["DefaultGSTPercentage"]) 
-                                        : 0
-                                };
-                                    // Read FssaiNo if present
-                                    try { settings.FssaiNo = reader["FssaiNo"].ToString(); } catch { /* ignore if column missing */ }
-                            }
-                        }
-                    }
-                }
+                // Get restaurant settings for bill header (branch-wise by order branch when available)
+                var settings = LoadRestaurantSettingsForOrder(orderId);
                 
                 ViewBag.RestaurantSettings = settings ?? new RestaurantSettings
                 {
@@ -4853,6 +5016,8 @@ END", connection))
                     PhoneNumber = "",
                     Email = ""
                 };
+
+                ViewBag.PrintBranchName = ResolveBranchNameForOrder(orderId);
                 
                 // Check if this is a BAR order
                 bool isBarOrder = false;
@@ -5108,6 +5273,11 @@ END", connection))
         {
             try
             {
+                if (!IsOrderInActiveBranch(orderId))
+                {
+                    return NotFound();
+                }
+
                 var model = GetPaymentViewModel(orderId);
                 if (model == null)
                 {
@@ -5147,40 +5317,8 @@ END", connection))
                     catch { /* ignore display-only failures */ }
                 }
 
-                // Get restaurant settings for bill header
-                RestaurantSettings settings = null;
-                using (var connection = new SqlConnection(_connectionString))
-                {
-                    connection.Open();
-                    using (var command = new SqlCommand("SELECT * FROM dbo.RestaurantSettings", connection))
-                    {
-                        using (var reader = command.ExecuteReader())
-                        {
-                            if (reader.Read())
-                            {
-                                settings = new RestaurantSettings
-                                {
-                                    RestaurantName = reader["RestaurantName"].ToString(),
-                                    StreetAddress = reader["StreetAddress"].ToString(),
-                                    City = reader["City"].ToString(),
-                                    State = reader["State"].ToString(),
-                                    Pincode = reader["Pincode"].ToString(),
-                                    Country = reader["Country"].ToString(),
-                                    GSTCode = reader["GSTCode"].ToString(),
-                                    PhoneNumber = reader["PhoneNumber"].ToString(),
-                                    Email = reader["Email"].ToString(),
-                                    Website = reader["Website"].ToString(),
-                                    CurrencySymbol = reader["CurrencySymbol"].ToString(),
-                                    DefaultGSTPercentage = reader["DefaultGSTPercentage"] != DBNull.Value
-                                        ? Convert.ToDecimal(reader["DefaultGSTPercentage"])
-                                        : 0
-                                };
-                                // Read FssaiNo if present
-                                try { settings.FssaiNo = reader["FssaiNo"].ToString(); } catch { /* ignore if column missing */ }
-                            }
-                        }
-                    }
-                }
+                // Get restaurant settings for bill header (branch-wise by order branch when available)
+                var settings = LoadRestaurantSettingsForOrder(orderId);
 
                 ViewBag.RestaurantSettings = settings ?? new RestaurantSettings
                 {
@@ -5194,6 +5332,8 @@ END", connection))
                     PhoneNumber = "",
                     Email = ""
                 };
+
+                ViewBag.PrintBranchName = ResolveBranchNameForOrder(orderId);
 
                 // Check if this is a BAR order
                 bool isBarOrder = false;
@@ -5259,6 +5399,121 @@ END", connection))
                 TempData["ErrorMessage"] = $"Error loading POS bill for printing: {ex.Message}";
                 return RedirectToAction("Index", new { id = orderId });
             }
+        }
+
+        private string ResolveBranchNameForOrder(int orderId)
+        {
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+
+                    using (var command = new SqlCommand(@"
+                        IF COL_LENGTH('dbo.Orders','BranchId') IS NOT NULL
+                           AND OBJECT_ID('dbo.Branches','U') IS NOT NULL
+                        BEGIN
+                            SELECT TOP 1 b.BranchName
+                            FROM dbo.Orders o
+                            LEFT JOIN dbo.Branches b ON b.BranchId = o.BranchId
+                            WHERE o.Id = @OrderId;
+                        END
+                        ELSE
+                        BEGIN
+                            SELECT CAST(NULL AS nvarchar(150));
+                        END", connection))
+                    {
+                        command.Parameters.AddWithValue("@OrderId", orderId);
+                        var result = command.ExecuteScalar();
+                        if (result != null && result != DBNull.Value)
+                        {
+                            var name = result.ToString();
+                            if (!string.IsNullOrWhiteSpace(name))
+                            {
+                                return name;
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return User.GetActiveBranchName() ?? string.Empty;
+        }
+
+        private RestaurantSettings? LoadRestaurantSettingsForOrder(int orderId)
+        {
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+
+                    using (var command = new SqlCommand(@"
+                        IF OBJECT_ID('dbo.RestaurantSettings','U') IS NULL
+                        BEGIN
+                            SELECT TOP 0 * FROM dbo.RestaurantSettings;
+                        END
+                        ELSE IF COL_LENGTH('dbo.RestaurantSettings','BranchId') IS NOT NULL
+                             AND COL_LENGTH('dbo.Orders','BranchId') IS NOT NULL
+                        BEGIN
+                            SELECT TOP 1 rs.*
+                            FROM dbo.RestaurantSettings rs
+                            INNER JOIN dbo.Orders o ON o.Id = @OrderId
+                            WHERE rs.BranchId = o.BranchId
+                            ORDER BY rs.Id DESC;
+
+                            IF @@ROWCOUNT = 0
+                            BEGIN
+                                SELECT TOP 1 *
+                                FROM dbo.RestaurantSettings
+                                ORDER BY Id DESC;
+                            END
+                        END
+                        ELSE
+                        BEGIN
+                            SELECT TOP 1 *
+                            FROM dbo.RestaurantSettings
+                            ORDER BY Id DESC;
+                        END", connection))
+                    {
+                        command.Parameters.AddWithValue("@OrderId", orderId);
+                        using (var reader = command.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                var settings = new RestaurantSettings
+                                {
+                                    RestaurantName = reader["RestaurantName"]?.ToString(),
+                                    StreetAddress = reader["StreetAddress"]?.ToString(),
+                                    City = reader["City"]?.ToString(),
+                                    State = reader["State"]?.ToString(),
+                                    Pincode = reader["Pincode"]?.ToString(),
+                                    Country = reader["Country"]?.ToString(),
+                                    GSTCode = reader["GSTCode"]?.ToString(),
+                                    PhoneNumber = reader["PhoneNumber"]?.ToString(),
+                                    Email = reader["Email"]?.ToString(),
+                                    Website = reader["Website"]?.ToString(),
+                                    CurrencySymbol = reader["CurrencySymbol"]?.ToString(),
+                                    DefaultGSTPercentage = reader["DefaultGSTPercentage"] != DBNull.Value
+                                        ? Convert.ToDecimal(reader["DefaultGSTPercentage"])
+                                        : 0
+                                };
+
+                                try { settings.FssaiNo = reader["FssaiNo"]?.ToString(); } catch { }
+                                return settings;
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
         }
 
         private (int CounterId, string CounterDisplay) ResolvePosCounterForOrder(int orderId)

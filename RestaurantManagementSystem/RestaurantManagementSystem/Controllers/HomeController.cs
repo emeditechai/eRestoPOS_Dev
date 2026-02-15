@@ -11,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using RestaurantManagementSystem.Utilities;
 
 namespace RestaurantManagementSystem.Controllers
 {
@@ -49,13 +50,46 @@ namespace RestaurantManagementSystem.Controllers
             }
 
             var canViewAllDashboardData = UserHasFullDashboardVisibility();
+            var activeBranchId = User.GetActiveBranchId();
             
             // Get live dashboard data from database
-            var dashboardStats = await GetDashboardStatsAsync(userIdNumeric, canViewAllDashboardData);
-            var recentOrders = await GetRecentOrdersAsync(userIdNumeric, canViewAllDashboardData);
+            var dashboardStats = await GetDashboardStatsAsync(userIdNumeric, canViewAllDashboardData, activeBranchId);
+            var recentOrders = await GetRecentOrdersAsync(userIdNumeric, canViewAllDashboardData, activeBranchId);
             
             // Get last login date from database
             DateTime? lastLoginDate = await GetLastLoginDateAsync(userId);
+
+            string? activeBranchNameFromDb = null;
+            bool isActiveMainBranchFromDb = false;
+
+            // Resolve active branch display from DB using ActiveBranchId claim to avoid stale branch-name claims
+            try
+            {
+                var activeBranchIdValue = User.FindFirst("ActiveBranchId")?.Value;
+                if (int.TryParse(activeBranchIdValue, out var activeBranchIdFromClaim) && activeBranchIdFromClaim > 0)
+                {
+                    using var branchCon = new SqlConnection(_connectionString);
+                    await branchCon.OpenAsync();
+                    using var branchCmd = new SqlCommand(@"
+                        SELECT TOP 1 BranchName, ISNULL(Is_MainBranch, 0) AS IsMain
+                        FROM dbo.Branches
+                        WHERE BranchId = @BranchId AND ISNULL(IsActive, 1) = 1", branchCon);
+                    branchCmd.Parameters.AddWithValue("@BranchId", activeBranchIdFromClaim);
+
+                    using var branchReader = await branchCmd.ExecuteReaderAsync();
+                    if (await branchReader.ReadAsync())
+                    {
+                        activeBranchNameFromDb = branchReader.IsDBNull(0) ? null : branchReader.GetString(0);
+                        isActiveMainBranchFromDb = !branchReader.IsDBNull(1) && branchReader.GetBoolean(1);
+                        ViewBag.ActiveBranchName = string.IsNullOrWhiteSpace(activeBranchNameFromDb) ? "Not Selected" : activeBranchNameFromDb;
+                        ViewBag.IsActiveMainBranch = isActiveMainBranchFromDb;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Unable to resolve active branch display from database");
+            }
 
             // Load restaurant logo path (fall back to default if not set)
             string? logoPath = null;
@@ -64,7 +98,24 @@ namespace RestaurantManagementSystem.Controllers
             {
                 using var logoCon = new SqlConnection(_connectionString);
                 await logoCon.OpenAsync();
-                using var logoCmd = new SqlCommand("SELECT TOP 1 LogoPath, RestaurantName FROM RestaurantSettings ORDER BY Id DESC", logoCon);
+
+                var hasRestaurantSettingsBranchColumn = await HasColumnAsync("RestaurantSettings", "BranchId");
+                SqlCommand logoCmd;
+
+                if (hasRestaurantSettingsBranchColumn && activeBranchId.HasValue)
+                {
+                    logoCmd = new SqlCommand(@"
+                        SELECT TOP 1 LogoPath, RestaurantName
+                        FROM dbo.RestaurantSettings
+                        WHERE BranchId = @BranchId
+                        ORDER BY ISNULL(UpdatedAt, CreatedAt) DESC, Id DESC", logoCon);
+                    logoCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                }
+                else
+                {
+                    logoCmd = new SqlCommand("SELECT TOP 1 LogoPath, RestaurantName FROM dbo.RestaurantSettings ORDER BY ISNULL(UpdatedAt, CreatedAt) DESC, Id DESC", logoCon);
+                }
+
                 using (var reader = await logoCmd.ExecuteReaderAsync())
                 {
                     if (await reader.ReadAsync())
@@ -81,6 +132,26 @@ namespace RestaurantManagementSystem.Controllers
                         }
                     }
                 }
+
+                // If branch-specific setting row is missing, fallback to latest global settings row.
+                if (string.IsNullOrWhiteSpace(logoPath) && string.IsNullOrWhiteSpace(restaurantName) && hasRestaurantSettingsBranchColumn)
+                {
+                    using var fallbackCmd = new SqlCommand("SELECT TOP 1 LogoPath, RestaurantName FROM dbo.RestaurantSettings ORDER BY ISNULL(UpdatedAt, CreatedAt) DESC, Id DESC", logoCon);
+                    using var fallbackReader = await fallbackCmd.ExecuteReaderAsync();
+                    if (await fallbackReader.ReadAsync())
+                    {
+                        if (!fallbackReader.IsDBNull(fallbackReader.GetOrdinal("LogoPath")))
+                        {
+                            var raw = fallbackReader.GetString(fallbackReader.GetOrdinal("LogoPath"));
+                            if (!string.IsNullOrWhiteSpace(raw)) logoPath = raw;
+                        }
+                        if (!fallbackReader.IsDBNull(fallbackReader.GetOrdinal("RestaurantName")))
+                        {
+                            var rawName = fallbackReader.GetString(fallbackReader.GetOrdinal("RestaurantName"));
+                            if (!string.IsNullOrWhiteSpace(rawName)) restaurantName = rawName;
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -93,7 +164,9 @@ namespace RestaurantManagementSystem.Controllers
             }
             if (string.IsNullOrWhiteSpace(restaurantName))
             {
-                restaurantName = "Restaurant"; // fallback label
+                restaurantName = !string.IsNullOrWhiteSpace(activeBranchNameFromDb)
+                    ? activeBranchNameFromDb
+                    : "Restaurant"; // fallback label
             }
             
             // Create a dashboard view model with live data
@@ -149,45 +222,68 @@ namespace RestaurantManagementSystem.Controllers
             return View(model);
         }
 
-        private async Task<(decimal TodaySales, int TodayOrders, int ActiveTables, int UpcomingReservations)> GetDashboardStatsAsync(int? userId, bool canViewAll)
+        private async Task<(decimal TodaySales, int TodayOrders, int ActiveTables, int UpcomingReservations)> GetDashboardStatsAsync(int? userId, bool canViewAll, int? activeBranchId)
         {
-            // Prefer stored procedure for plan reuse and centralized logic. Using usp_GetHomeDashboardStatsEnhanced if present else fallback.
-            var procedureNamePrimary = "usp_GetHomeDashboardStatsEnhanced";
-            var procedureNameFallback = "usp_GetHomeDashboardStats";
+            if (!activeBranchId.HasValue)
+            {
+                return (0m, 0, 0, 0);
+            }
+
             try
             {
                 using var connection = new SqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                // Try enhanced first
-                foreach (var proc in new [] { procedureNamePrimary, procedureNameFallback })
+                using var command = new SqlCommand(@"
+                    DECLARE @hasOrdersBranch bit = CASE WHEN COL_LENGTH('dbo.Orders','BranchId') IS NULL THEN 0 ELSE 1 END;
+                    DECLARE @hasTablesBranch bit = CASE WHEN COL_LENGTH('dbo.Tables','BranchId') IS NULL THEN 0 ELSE 1 END;
+                    DECLARE @hasResBranch bit = CASE WHEN OBJECT_ID('dbo.Reservations','U') IS NOT NULL AND COL_LENGTH('dbo.Reservations','BranchId') IS NOT NULL THEN 1 ELSE 0 END;
+
+                    SELECT
+                        ISNULL(SUM(
+                            CASE
+                                WHEN o.Status = 3
+                                 AND CAST(ISNULL(o.CompletedAt, ISNULL(o.UpdatedAt, o.CreatedAt)) AS date) = CAST(GETDATE() AS date)
+                                THEN ISNULL(o.TotalAmount, 0)
+                                ELSE 0
+                            END
+                        ), 0) AS TodaySales,
+                        ISNULL(SUM(CASE WHEN CAST(o.CreatedAt AS date) = CAST(GETDATE() AS date) THEN 1 ELSE 0 END), 0) AS TodayOrders,
+                        ISNULL((
+                            SELECT COUNT(1)
+                            FROM dbo.TableTurnovers tt
+                            INNER JOIN dbo.Tables t ON t.Id = tt.TableId
+                            WHERE tt.Status < 5
+                              AND (@hasTablesBranch = 0 OR t.BranchId = @BranchId)
+                        ), 0) AS ActiveTables,
+                        ISNULL((
+                            SELECT COUNT(1)
+                            FROM dbo.Reservations r
+                            WHERE CAST(r.ReservationDate AS date) >= CAST(GETDATE() AS date)
+                              AND ISNULL(r.Status, '') NOT IN ('Cancelled', 'Completed')
+                              AND (@hasResBranch = 0 OR r.BranchId = @BranchId)
+                        ), 0) AS UpcomingReservations
+                    FROM dbo.Orders o
+                    WHERE (@CanViewAll = 1 OR o.UserId = @UserId)
+                      AND (@hasOrdersBranch = 0 OR o.BranchId = @BranchId);", connection);
+
+                command.Parameters.AddWithValue("@UserId", userId.HasValue ? userId.Value : (object)DBNull.Value);
+                command.Parameters.AddWithValue("@CanViewAll", canViewAll ? 1 : 0);
+                command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+
+                using var reader = await command.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
                 {
-                    try
-                    {
-                        using var command = new SqlCommand(proc, connection) { CommandType = System.Data.CommandType.StoredProcedure };
-                        command.Parameters.AddWithValue("@UserId", userId.HasValue ? userId.Value : (object)DBNull.Value);
-                        command.Parameters.AddWithValue("@CanViewAll", canViewAll);
-                        using var reader = await command.ExecuteReaderAsync();
-                        if (await reader.ReadAsync())
-                        {
-                            // Enhanced version returns extra columns; we only map required if they exist.
-                            decimal todaySales = SafeGetDecimal(reader, "TodaySales");
-                            int todayOrders = SafeGetInt(reader, "TodayOrders");
-                            int activeTables = SafeGetInt(reader, "ActiveTables");
-                            int upcomingRes = SafeGetInt(reader, "UpcomingReservations");
-                            return (todaySales, todayOrders, activeTables, upcomingRes);
-                        }
-                    }
-                    catch (SqlException sqlEx)
-                    {
-                        _logger?.LogWarning(sqlEx, "Stored procedure {Proc} failed, will attempt fallback if available", proc);
-                        // continue to next proc in sequence
-                    }
+                    decimal todaySales = reader.IsDBNull(0) ? 0m : reader.GetDecimal(0);
+                    int todayOrders = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
+                    int activeTables = reader.IsDBNull(2) ? 0 : reader.GetInt32(2);
+                    int upcomingRes = reader.IsDBNull(3) ? 0 : reader.GetInt32(3);
+                    return (todaySales, todayOrders, activeTables, upcomingRes);
                 }
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Error getting dashboard stats via stored procedure");
+                _logger?.LogError(ex, "Error getting branch-filtered dashboard stats");
             }
             return (0m, 0, 0, 0);
         }
@@ -204,22 +300,50 @@ namespace RestaurantManagementSystem.Controllers
             return reader.IsDBNull(ordinal) ? 0 : reader.GetInt32(ordinal);
         }
 
-        private async Task<List<DashboardOrderViewModel>> GetRecentOrdersAsync(int? userId, bool canViewAll)
+        private async Task<List<DashboardOrderViewModel>> GetRecentOrdersAsync(int? userId, bool canViewAll, int? activeBranchId)
         {
             var orders = new List<DashboardOrderViewModel>();
+
+            if (!activeBranchId.HasValue)
+            {
+                return orders;
+            }
             
             try
             {
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
-                    
-                    using (var command = new SqlCommand("usp_GetRecentOrdersForDashboard", connection))
+
+                    using (var command = new SqlCommand(@"
+                        DECLARE @hasOrdersBranch bit = CASE WHEN COL_LENGTH('dbo.Orders','BranchId') IS NULL THEN 0 ELSE 1 END;
+
+                        SELECT TOP (@OrderCount)
+                            o.Id AS OrderId,
+                            ISNULL(NULLIF(LTRIM(RTRIM(o.OrderNumber)), ''), CONCAT('ORD-', o.Id)) AS OrderNumber,
+                            ISNULL(NULLIF(LTRIM(RTRIM(CASE WHEN o.OrderType = 0 THEN ISNULL(tt.GuestName, o.CustomerName) ELSE o.CustomerName END)), ''), 'Walk-in Customer') AS CustomerName,
+                            ISNULL(t.TableName, 'Takeout/Delivery') AS TableNumber,
+                            ISNULL(o.TotalAmount, 0) AS TotalAmount,
+                            CASE o.Status
+                                WHEN 0 THEN 'Open'
+                                WHEN 1 THEN 'In Progress'
+                                WHEN 2 THEN 'Ready'
+                                WHEN 3 THEN 'Completed'
+                                WHEN 4 THEN 'Cancelled'
+                                ELSE 'Unknown'
+                            END AS Status,
+                            CONVERT(varchar(20), o.CreatedAt, 100) AS OrderTime
+                        FROM dbo.Orders o
+                        LEFT JOIN dbo.TableTurnovers tt ON tt.Id = o.TableTurnoverId
+                        LEFT JOIN dbo.Tables t ON t.Id = tt.TableId
+                        WHERE (@CanViewAll = 1 OR o.UserId = @UserId)
+                          AND (@hasOrdersBranch = 0 OR o.BranchId = @BranchId)
+                        ORDER BY o.CreatedAt DESC;", connection))
                     {
-                        command.CommandType = System.Data.CommandType.StoredProcedure;
                         command.Parameters.AddWithValue("@OrderCount", 5);
                         command.Parameters.AddWithValue("@UserId", userId.HasValue ? userId.Value : (object)DBNull.Value);
-                        command.Parameters.AddWithValue("@CanViewAll", canViewAll);
+                        command.Parameters.AddWithValue("@CanViewAll", canViewAll ? 1 : 0);
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         
                         using (var reader = await command.ExecuteReaderAsync())
                         {
@@ -256,6 +380,26 @@ namespace RestaurantManagementSystem.Controllers
                 var roles = User?.FindAll(ClaimTypes.Role)?.Select(r => r.Value) ?? Enumerable.Empty<string>();
                 string[] privilegedRoles = ["Administrator", "FloorManager", "Floor Manager"];
                 return roles.Any(role => privilegedRoles.Any(privileged => string.Equals(role, privileged, StringComparison.OrdinalIgnoreCase)));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<bool> HasColumnAsync(string tableName, string columnName)
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = @TableName AND COLUMN_NAME = @ColumnName", connection);
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                return Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
             }
             catch
             {

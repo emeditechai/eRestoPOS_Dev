@@ -907,6 +907,106 @@ END
             {
                 cmd.ExecuteNonQuery();
             }
+
+            EnsureTableSectionsUniquePerBranch(con);
+        }
+
+        private void EnsureTableSectionsUniquePerBranch(Microsoft.Data.SqlClient.SqlConnection con)
+        {
+            var activeBranchId = GetActiveBranchId();
+
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+DECLARE @DefaultBranchId INT = @BranchId;
+
+IF @DefaultBranchId IS NULL
+BEGIN
+    SELECT TOP 1 @DefaultBranchId = b.BranchId
+    FROM dbo.Branches b
+    WHERE ISNULL(b.IsActive, 1) = 1
+    ORDER BY CASE WHEN ISNULL(b.Is_MainBranch, 0) = 1 THEN 0 ELSE 1 END, b.BranchId;
+END
+
+IF @DefaultBranchId IS NOT NULL
+BEGIN
+    UPDATE dbo.TableSections
+    SET BranchId = @DefaultBranchId
+    WHERE BranchId IS NULL;
+END
+
+-- Drop UNIQUE constraints that enforce global Name uniqueness (without BranchId)
+DECLARE @DropConstraintSql NVARCHAR(MAX) = N'';
+SELECT @DropConstraintSql = @DropConstraintSql +
+    N'ALTER TABLE dbo.TableSections DROP CONSTRAINT [' + kc.name + N'];'
+FROM sys.key_constraints kc
+INNER JOIN sys.tables t ON t.object_id = kc.parent_object_id
+WHERE t.name = 'TableSections'
+  AND kc.type = 'UQ'
+  AND EXISTS (
+        SELECT 1
+        FROM sys.index_columns ic
+        INNER JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+        WHERE ic.object_id = kc.parent_object_id
+          AND ic.index_id = kc.unique_index_id
+          AND c.name = 'Name'
+  )
+  AND NOT EXISTS (
+        SELECT 1
+        FROM sys.index_columns ic
+        INNER JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+        WHERE ic.object_id = kc.parent_object_id
+          AND ic.index_id = kc.unique_index_id
+          AND c.name = 'BranchId'
+  );
+
+IF LEN(@DropConstraintSql) > 0
+    EXEC sp_executesql @DropConstraintSql;
+
+-- Drop UNIQUE indexes that enforce global Name uniqueness (without BranchId)
+DECLARE @DropIndexSql NVARCHAR(MAX) = N'';
+SELECT @DropIndexSql = @DropIndexSql +
+    N'DROP INDEX [' + i.name + N'] ON dbo.TableSections;'
+FROM sys.indexes i
+INNER JOIN sys.tables t ON t.object_id = i.object_id
+WHERE t.name = 'TableSections'
+  AND i.is_unique = 1
+  AND i.is_primary_key = 0
+  AND i.is_unique_constraint = 0
+  AND EXISTS (
+        SELECT 1
+        FROM sys.index_columns ic
+        INNER JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+        WHERE ic.object_id = i.object_id
+          AND ic.index_id = i.index_id
+          AND c.name = 'Name'
+  )
+  AND NOT EXISTS (
+        SELECT 1
+        FROM sys.index_columns ic
+        INNER JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+        WHERE ic.object_id = i.object_id
+          AND ic.index_id = i.index_id
+          AND c.name = 'BranchId'
+  );
+
+IF LEN(@DropIndexSql) > 0
+    EXEC sp_executesql @DropIndexSql;
+
+-- Enforce branch-wise uniqueness
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID('dbo.TableSections')
+      AND name = 'UX_TableSections_BranchId_Name'
+)
+BEGIN
+    CREATE UNIQUE INDEX UX_TableSections_BranchId_Name
+        ON dbo.TableSections(BranchId, Name);
+END
+", con))
+            {
+                cmd.Parameters.AddWithValue("@BranchId", activeBranchId.HasValue ? activeBranchId.Value : (object)DBNull.Value);
+                cmd.ExecuteNonQuery();
+            }
         }
 
         private void EnsureTablesBranchColumnExists(Microsoft.Data.SqlClient.SqlConnection con)
@@ -967,6 +1067,10 @@ END
                     cmd.Parameters.AddWithValue("@Name", section.Trim());
                     cmd.ExecuteNonQuery();
                 }
+            }
+            catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 2601 || ex.Number == 2627)
+            {
+                // Duplicate section name; safe to ignore.
             }
             catch
             {
@@ -1261,8 +1365,18 @@ END
                 else
                 {
                     using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                        INSERT INTO TableSections (BranchId, Name, SortOrder, IsActive)
-                        VALUES (@BranchId, @Name, @SortOrder, @IsActive)", con))
+                        IF EXISTS (SELECT 1 FROM TableSections WHERE BranchId = @BranchId AND Name = @Name)
+                        BEGIN
+                            UPDATE TableSections
+                            SET SortOrder = @SortOrder,
+                                IsActive = @IsActive
+                            WHERE BranchId = @BranchId AND Name = @Name;
+                        END
+                        ELSE
+                        BEGIN
+                            INSERT INTO TableSections (BranchId, Name, SortOrder, IsActive)
+                            VALUES (@BranchId, @Name, @SortOrder, @IsActive);
+                        END", con))
                     {
                         cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         cmd.Parameters.AddWithValue("@Name", model.Name);
