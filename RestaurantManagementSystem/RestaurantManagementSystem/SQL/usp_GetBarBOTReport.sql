@@ -2,7 +2,8 @@
 CREATE OR ALTER PROCEDURE [dbo].[usp_GetBarBOTReport]
     @FromDate DATE = NULL,
     @ToDate DATE = NULL,
-    @Station NVARCHAR(100) = NULL
+    @Station NVARCHAR(100) = NULL,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -19,6 +20,7 @@ BEGIN
         FROM dbo.Orders o
         WHERE o.CreatedAt >= @Start
           AND o.CreatedAt < @End
+                    AND (@BranchId IS NULL OR COL_LENGTH('dbo.Orders', 'BranchId') IS NULL OR o.BranchId = @BranchId)
     ),
     BarMenuItems AS (
         SELECT i.Id AS MenuItemId,

@@ -2205,16 +2205,25 @@ END", connection))
                                     // Generate unique ticket number based on order type
                                     // BOT for bar orders, KOT for kitchen/food orders
                                     string ticketPrefix = model.IsBarOrder ? "BOT" : "KOT";
-                                    string ticketNumberSql = $@"
-                                        SELECT '{ticketPrefix}-' + CONVERT(NVARCHAR(8), GETDATE(), 112) + '-' + 
-                                        RIGHT('0000' + CAST((SELECT ISNULL(MAX(CAST(RIGHT(TicketNumber, 4) AS INT)), 0) + 1 
-                                                            FROM KitchenTickets 
-                                                            WHERE LEFT(TicketNumber, 12) = '{ticketPrefix}-' + CONVERT(NVARCHAR(8), GETDATE(), 112)) AS NVARCHAR(4)), 4)
+                                    string ticketNumberSql = @"
+                                        DECLARE @OrderBranchId INT;
+                                        SELECT @OrderBranchId = BranchId FROM Orders WHERE Id = @OrderId;
+
+                                        SELECT @TicketPrefix + '-' + CONVERT(NVARCHAR(8), GETDATE(), 112) + '-' +
+                                               RIGHT('0000' + CAST(
+                                                   ISNULL(MAX(TRY_CAST(RIGHT(kt.TicketNumber, 4) AS INT)), 0) + 1
+                                               AS NVARCHAR(4)), 4)
+                                        FROM KitchenTickets kt WITH (UPDLOCK, HOLDLOCK)
+                                        INNER JOIN Orders o2 ON o2.Id = kt.OrderId
+                                        WHERE LEFT(kt.TicketNumber, 12) = @TicketPrefix + '-' + CONVERT(NVARCHAR(8), GETDATE(), 112)
+                                          AND ((@OrderBranchId IS NULL AND o2.BranchId IS NULL) OR o2.BranchId = @OrderBranchId);
                                     ";
                                     
                                     string ticketNumber = null;
                                     using (Microsoft.Data.SqlClient.SqlCommand cmd = new Microsoft.Data.SqlClient.SqlCommand(ticketNumberSql, connection, transaction))
                                     {
+                                        cmd.Parameters.AddWithValue("@OrderId", model.OrderId);
+                                        cmd.Parameters.AddWithValue("@TicketPrefix", ticketPrefix);
                                         ticketNumber = (string)cmd.ExecuteScalar();
                                     }
                                     
@@ -5990,12 +5999,55 @@ END", connection))
                 BEGIN
                     DECLARE @Today varchar(8) = CONVERT(varchar(8), GETDATE(), 112);
                     DECLARE @OrderCount int;
+                    DECLARE @HasOrdersBranch bit = CASE WHEN COL_LENGTH('dbo.Orders', 'BranchId') IS NULL THEN 0 ELSE 1 END;
+                    DECLARE @OrderBranchId int = NULL;
+                    DECLARE @OrderPrefix nvarchar(20) = 'ORD';
 
-                    SELECT @OrderCount = ISNULL(MAX(CAST(RIGHT(OrderNumber, 4) AS int)), 0) + 1
-                    FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
-                    WHERE OrderNumber LIKE 'ORD-' + @Today + '-%';
+                    IF @HasOrdersBranch = 1
+                    BEGIN
+                        DECLARE @BranchSql nvarchar(max) = N'
+                            SELECT @OrderBranchIdOut = BranchId
+                            FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+                            WHERE Id = @OrderIdIn;';
 
-                    SET @OrderNumber = 'ORD-' + @Today + '-' + RIGHT('0000' + CAST(@OrderCount AS varchar(4)), 4);
+                        EXEC sp_executesql
+                            @BranchSql,
+                            N'@OrderIdIn int, @OrderBranchIdOut int OUTPUT',
+                            @OrderIdIn = @OrderId,
+                            @OrderBranchIdOut = @OrderBranchId OUTPUT;
+
+                        IF @OrderBranchId IS NOT NULL
+                        BEGIN
+                            SELECT TOP 1 @OrderPrefix = ISNULL(NULLIF(LTRIM(RTRIM(BranchCode)), ''), 'ORD')
+                            FROM dbo.Branches
+                            WHERE BranchId = @OrderBranchId;
+                        END
+                    END
+
+                    IF @HasOrdersBranch = 1 AND @OrderBranchId IS NOT NULL
+                    BEGIN
+                        DECLARE @CountSql nvarchar(max) = N'
+                            SELECT @OrderCountOut = ISNULL(MAX(CAST(RIGHT(OrderNumber, 4) AS int)), 0) + 1
+                            FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+                            WHERE OrderNumber LIKE @PrefixIn + ''-'' + @TodayIn + ''-%''
+                              AND BranchId = @BranchIdIn;';
+
+                        EXEC sp_executesql
+                            @CountSql,
+                            N'@TodayIn varchar(8), @PrefixIn nvarchar(20), @BranchIdIn int, @OrderCountOut int OUTPUT',
+                            @TodayIn = @Today,
+                            @PrefixIn = @OrderPrefix,
+                            @BranchIdIn = @OrderBranchId,
+                            @OrderCountOut = @OrderCount OUTPUT;
+                    END
+                    ELSE
+                    BEGIN
+                        SELECT @OrderCount = ISNULL(MAX(CAST(RIGHT(OrderNumber, 4) AS int)), 0) + 1
+                        FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+                        WHERE OrderNumber LIKE @OrderPrefix + '-' + @Today + '-%';
+                    END
+
+                    SET @OrderNumber = @OrderPrefix + '-' + @Today + '-' + RIGHT('0000' + CAST(@OrderCount AS varchar(4)), 4);
 
                     UPDATE dbo.Orders
                     SET OrderNumber = @OrderNumber,
@@ -6111,18 +6163,11 @@ END", connection))
         {
             try
             {
-                // Get next BOT number
-                string botNumber = null;
-                using (var cmd = new Microsoft.Data.SqlClient.SqlCommand("GetNextBOTNumber", connection, transaction))
-                {
-                    cmd.CommandType = System.Data.CommandType.StoredProcedure;
-                    botNumber = (string)cmd.ExecuteScalar();
-                }
-
                 // Get order details
                 string orderNumber = null, tableName = null, guestName = null, serverName = null;
+                int? orderBranchId = null;
                 using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                    SELECT o.OrderNumber, t.Name as TableName, o.GuestName, u.UserName as ServerName
+                    SELECT o.OrderNumber, t.Name as TableName, o.GuestName, u.UserName as ServerName, o.BranchId
                     FROM Orders o
                     LEFT JOIN Tables t ON o.TableId = t.Id
                     LEFT JOIN AspNetUsers u ON o.UserId = u.Id
@@ -6137,8 +6182,18 @@ END", connection))
                             tableName = reader.IsDBNull(1) ? null : reader.GetString(1);
                             guestName = reader.IsDBNull(2) ? null : reader.GetString(2);
                             serverName = reader.IsDBNull(3) ? null : reader.GetString(3);
+                            orderBranchId = reader.IsDBNull(4) ? (int?)null : reader.GetInt32(4);
                         }
                     }
+                }
+
+                // Get next BOT number (branch-wise)
+                string botNumber = null;
+                using (var cmd = new Microsoft.Data.SqlClient.SqlCommand("GetNextBOTNumber", connection, transaction))
+                {
+                    cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                    cmd.Parameters.AddWithValue("@BranchId", orderBranchId.HasValue ? (object)orderBranchId.Value : DBNull.Value);
+                    botNumber = (string)cmd.ExecuteScalar();
                 }
 
                 // Calculate totals for BOT items

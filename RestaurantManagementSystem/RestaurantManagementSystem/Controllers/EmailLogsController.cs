@@ -4,6 +4,7 @@ using Microsoft.Data.SqlClient;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Filters;
 using RestaurantManagementSystem.Models.Authorization;
+using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -35,6 +36,13 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction("Index", "Home");
+                }
+
                 // Default to today's date if no dates provided
                 if (!fromDate.HasValue && !toDate.HasValue)
                 {
@@ -60,8 +68,14 @@ namespace RestaurantManagementSystem.Controllers
                 {
                     await connection.OpenAsync();
 
+                    var hasEmailLogBranch = await HasColumnAsync(connection, "tbl_EmailLog", "BranchId");
+
                     // Build WHERE clause based on filters
                     var whereConditions = new List<string>();
+                    if (hasEmailLogBranch)
+                    {
+                        whereConditions.Add("BranchId = @BranchId");
+                    }
                     if (!string.IsNullOrEmpty(status) && status != "All")
                     {
                         whereConditions.Add("Status = @Status");
@@ -103,6 +117,10 @@ namespace RestaurantManagementSystem.Controllers
                         {
                             countCommand.Parameters.AddWithValue("@ToDate", toDate.Value);
                         }
+                        if (hasEmailLogBranch)
+                        {
+                            countCommand.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        }
                         totalCount = (int)await countCommand.ExecuteScalarAsync();
                     }
 
@@ -137,6 +155,10 @@ namespace RestaurantManagementSystem.Controllers
                         if (toDate.HasValue)
                         {
                             command.Parameters.AddWithValue("@ToDate", toDate.Value);
+                        }
+                        if (hasEmailLogBranch)
+                        {
+                            command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         }
                         command.Parameters.AddWithValue("@Skip", skip);
                         command.Parameters.AddWithValue("@PageSize", pageSize);
@@ -201,13 +223,23 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction("Index", "Home");
+                }
+
                 EmailLog log = null;
 
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
 
-                    var query = @"
+                    var hasEmailLogBranch = await HasColumnAsync(connection, "tbl_EmailLog", "BranchId");
+                    var branchFilter = hasEmailLogBranch ? "AND BranchId = @BranchId" : string.Empty;
+
+                    var query = $@"
                         SELECT 
                             EmailLogID, FromEmail, FromName, ToEmail, Subject, EmailBody, Body,
                             SmtpServer, SmtpPort, EnableSSL, SmtpUseSsl, SmtpTimeout, SmtpUsername,
@@ -215,11 +247,16 @@ namespace RestaurantManagementSystem.Controllers
                             SentAt, ProcessingTimeMs, IPAddress, UserAgent,
                             EmailType, SentFrom, CreatedBy, SentBy, CreatedAt
                         FROM tbl_EmailLog
-                        WHERE EmailLogID = @EmailLogID";
+                        WHERE EmailLogID = @EmailLogID
+                        {branchFilter}";
 
                     using (var command = new SqlCommand(query, connection))
                     {
                         command.Parameters.AddWithValue("@EmailLogID", id);
+                        if (hasEmailLogBranch)
+                        {
+                            command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        }
 
                         using (var reader = await command.ExecuteReaderAsync())
                         {
@@ -270,6 +307,25 @@ namespace RestaurantManagementSystem.Controllers
                 _logger.LogError(ex, "Error loading email log details for ID: {EmailLogID}", id);
                 TempData["ErrorMessage"] = $"Error loading email log details: {ex.Message}";
                 return RedirectToAction(nameof(Index));
+            }
+        }
+
+        private async Task<bool> HasColumnAsync(SqlConnection connection, string tableName, string columnName)
+        {
+            try
+            {
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = @TableName AND COLUMN_NAME = @ColumnName", connection);
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                var result = await cmd.ExecuteScalarAsync();
+                return Convert.ToInt32(result) > 0;
+            }
+            catch
+            {
+                return false;
             }
         }
     }

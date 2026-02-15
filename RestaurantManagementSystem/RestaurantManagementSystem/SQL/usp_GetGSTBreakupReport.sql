@@ -3,7 +3,8 @@ IF OBJECT_ID('dbo.usp_GetGSTBreakupReport', 'P') IS NOT NULL
 GO
 CREATE PROCEDURE dbo.usp_GetGSTBreakupReport
     @StartDate DATE = NULL,
-    @EndDate   DATE = NULL
+    @EndDate   DATE = NULL,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -40,6 +41,7 @@ BEGIN
     INNER JOIN Payments p ON o.Id = p.OrderId
     WHERE CAST(p.CreatedAt AS DATE) BETWEEN @StartDate AND @EndDate
       AND p.Status = 1 -- Only approved/completed payments
+            AND (@BranchId IS NULL OR COL_LENGTH('dbo.Orders', 'BranchId') IS NULL OR o.BranchId = @BranchId)
     GROUP BY o.Id, o.OrderNumber;
 
     -- Summary: One row per order (invoice)

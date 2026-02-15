@@ -11,7 +11,8 @@ GO
 CREATE PROCEDURE usp_GetFinancialSummary
     @StartDate DATETIME = NULL,
     @EndDate DATETIME = NULL,
-    @ComparisonPeriodDays INT = 30
+    @ComparisonPeriodDays INT = 30,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -31,6 +32,7 @@ BEGIN
     -- Calculate comparison period dates
     DECLARE @CompStartDate DATETIME = DATEADD(DAY, -@ComparisonPeriodDays, @StartDate);
     DECLARE @CompEndDate DATETIME = DATEADD(DAY, -@ComparisonPeriodDays, @EndDate);
+    DECLARE @HasOrdersBranch BIT = CASE WHEN COL_LENGTH('dbo.Orders', 'BranchId') IS NULL THEN 0 ELSE 1 END;
 
     -- Result Set 1: Summary Statistics
     SELECT
@@ -74,6 +76,7 @@ BEGIN
     LEFT JOIN Payments p ON o.Id = p.OrderId AND p.Status = 1
     LEFT JOIN PaymentMethods pm ON p.PaymentMethodId = pm.Id
     WHERE o.CreatedAt BETWEEN @StartDate AND @EndDate
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         AND o.Status IN (2, 3);
 
     -- Result Set 2: Payment Method Breakdown
@@ -96,6 +99,7 @@ BEGIN
     LEFT JOIN Payments p ON pm.Id = p.PaymentMethodId 
         AND p.Status = 1
         AND p.CreatedAt BETWEEN @StartDate AND @EndDate
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR EXISTS (SELECT 1 FROM Orders oFilter WHERE oFilter.Id = p.OrderId AND oFilter.BranchId = @BranchId))
     GROUP BY pm.Id, pm.Name, pm.DisplayName
     HAVING SUM(p.Amount) > 0
     ORDER BY TotalAmount DESC;
@@ -120,6 +124,7 @@ BEGIN
     LEFT JOIN Payments p ON o.Id = p.OrderId AND p.Status = 1
     LEFT JOIN PaymentMethods pm ON p.PaymentMethodId = pm.Id
     WHERE o.CreatedAt BETWEEN @StartDate AND @EndDate
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         AND o.Status IN (2, 3)
     GROUP BY CAST(o.CreatedAt AS DATE), DATENAME(WEEKDAY, o.CreatedAt)
     ORDER BY Date DESC;
@@ -149,6 +154,7 @@ BEGIN
     INNER JOIN OrderItems oi ON mi.Id = oi.MenuItemId
     INNER JOIN Orders o ON oi.OrderId = o.Id
     WHERE o.CreatedAt BETWEEN @StartDate AND @EndDate
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         AND o.Status IN (2, 3)
     GROUP BY c.Name
     ORDER BY TotalRevenue DESC;
@@ -181,6 +187,7 @@ BEGIN
     INNER JOIN OrderItems oi ON mi.Id = oi.MenuItemId
     INNER JOIN Orders o ON oi.OrderId = o.Id
     WHERE o.CreatedAt BETWEEN @StartDate AND @EndDate
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         AND o.Status IN (2, 3)
     GROUP BY mi.Id, mi.Name, c.Name, mi.Price
     ORDER BY TotalRevenue DESC;
@@ -195,6 +202,7 @@ BEGIN
         ISNULL(SUM(o.TaxAmount), 0) AS Tax
     FROM Orders o
     WHERE o.CreatedAt BETWEEN @StartDate AND @EndDate
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         AND o.Status IN (2, 3)
     
     UNION ALL
@@ -208,6 +216,7 @@ BEGIN
         ISNULL(SUM(o.TaxAmount), 0) AS Tax
     FROM Orders o
     WHERE o.CreatedAt BETWEEN @CompStartDate AND @CompEndDate
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         AND o.Status IN (2, 3)
     ORDER BY Period DESC;
 
@@ -219,6 +228,7 @@ BEGIN
         ISNULL(AVG(o.TotalAmount), 0) AS AvgOrderValue
     FROM Orders o
     WHERE o.CreatedAt BETWEEN @StartDate AND @EndDate
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         AND o.Status IN (2, 3)
     GROUP BY DATEPART(HOUR, o.CreatedAt)
     ORDER BY Hour;

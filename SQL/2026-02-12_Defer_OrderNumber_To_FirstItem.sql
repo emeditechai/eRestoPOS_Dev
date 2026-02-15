@@ -156,12 +156,55 @@ BEGIN
         BEGIN
             DECLARE @Today VARCHAR(8) = CONVERT(VARCHAR(8), GETDATE(), 112);
             DECLARE @OrderCount INT;
+            DECLARE @HasOrdersBranch BIT = CASE WHEN COL_LENGTH('dbo.Orders', 'BranchId') IS NULL THEN 0 ELSE 1 END;
+            DECLARE @OrderBranchId INT = NULL;
+            DECLARE @OrderPrefix NVARCHAR(20) = 'ORD';
 
-            SELECT @OrderCount = ISNULL(MAX(CAST(RIGHT(OrderNumber, 4) AS INT)), 0) + 1
-            FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
-            WHERE OrderNumber LIKE 'ORD-' + @Today + '-%';
+            IF @HasOrdersBranch = 1
+            BEGIN
+                DECLARE @BranchSql NVARCHAR(MAX) = N'
+                    SELECT @OrderBranchIdOut = BranchId
+                    FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+                    WHERE Id = @OrderIdIn;';
 
-            SET @OrderNumber = 'ORD-' + @Today + '-' + RIGHT('0000' + CAST(@OrderCount AS VARCHAR(4)), 4);
+                EXEC sp_executesql
+                    @BranchSql,
+                    N'@OrderIdIn INT, @OrderBranchIdOut INT OUTPUT',
+                    @OrderIdIn = @OrderId,
+                    @OrderBranchIdOut = @OrderBranchId OUTPUT;
+
+                IF @OrderBranchId IS NOT NULL
+                BEGIN
+                    SELECT TOP 1 @OrderPrefix = ISNULL(NULLIF(LTRIM(RTRIM(BranchCode)), ''), 'ORD')
+                    FROM dbo.Branches
+                    WHERE BranchId = @OrderBranchId;
+                END
+            END
+
+            IF @HasOrdersBranch = 1 AND @OrderBranchId IS NOT NULL
+            BEGIN
+                DECLARE @CountSql NVARCHAR(MAX) = N'
+                    SELECT @OrderCountOut = ISNULL(MAX(CAST(RIGHT(OrderNumber, 4) AS INT)), 0) + 1
+                    FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+                    WHERE OrderNumber LIKE @PrefixIn + ''-'' + @TodayIn + ''-%''
+                      AND BranchId = @BranchIdIn;';
+
+                EXEC sp_executesql
+                    @CountSql,
+                    N'@TodayIn VARCHAR(8), @PrefixIn NVARCHAR(20), @BranchIdIn INT, @OrderCountOut INT OUTPUT',
+                    @TodayIn = @Today,
+                    @PrefixIn = @OrderPrefix,
+                    @BranchIdIn = @OrderBranchId,
+                    @OrderCountOut = @OrderCount OUTPUT;
+            END
+            ELSE
+            BEGIN
+                SELECT @OrderCount = ISNULL(MAX(CAST(RIGHT(OrderNumber, 4) AS INT)), 0) + 1
+                FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+                WHERE OrderNumber LIKE @OrderPrefix + '-' + @Today + '-%';
+            END
+
+            SET @OrderNumber = @OrderPrefix + '-' + @Today + '-' + RIGHT('0000' + CAST(@OrderCount AS VARCHAR(4)), 4);
 
             UPDATE dbo.Orders
             SET OrderNumber = @OrderNumber,

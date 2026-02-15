@@ -6,8 +6,10 @@ using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using RestaurantManagementSystem.Utilities;
 using RestaurantManagementSystem.ViewModels;
 
 namespace RestaurantManagementSystem.Services
@@ -16,11 +18,13 @@ namespace RestaurantManagementSystem.Services
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger<DatabaseEmailSender> _logger;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public DatabaseEmailSender(IConfiguration configuration, ILogger<DatabaseEmailSender> logger)
+        public DatabaseEmailSender(IConfiguration configuration, ILogger<DatabaseEmailSender> logger, IHttpContextAccessor httpContextAccessor)
         {
             _configuration = configuration;
             _logger = logger;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public async Task<(bool Success, string? ErrorMessage)> SendAsync(
@@ -28,7 +32,8 @@ namespace RestaurantManagementSystem.Services
             string subject,
             string htmlBody,
             string? emailType = null,
-            string? sentFrom = null)
+            string? sentFrom = null,
+            int? branchId = null)
         {
             var stopwatch = Stopwatch.StartNew();
 
@@ -40,7 +45,7 @@ namespace RestaurantManagementSystem.Services
                     return (false, "Recipient email is empty");
                 }
 
-                mailConfig = await GetMailConfigurationAsync();
+                mailConfig = await GetMailConfigurationAsync(branchId);
                 if (mailConfig == null || !mailConfig.IsActive)
                 {
                     stopwatch.Stop();
@@ -55,7 +60,8 @@ namespace RestaurantManagementSystem.Services
                         smtpServer: mailConfig?.SmtpServer ?? "N/A",
                         smtpPort: mailConfig?.SmtpPort ?? 0,
                         smtpUsername: mailConfig?.SmtpUsername ?? "N/A",
-                        enableSsl: mailConfig?.EnableSSL ?? false);
+                        enableSsl: mailConfig?.EnableSSL ?? false,
+                        branchId: branchId);
 
                     return (false, "Mail configuration is missing or inactive");
                 }
@@ -95,7 +101,8 @@ namespace RestaurantManagementSystem.Services
                     smtpServer: smtpServer,
                     smtpPort: mailConfig.SmtpPort,
                     smtpUsername: mailConfig.SmtpUsername,
-                    enableSsl: mailConfig.EnableSSL);
+                    enableSsl: mailConfig.EnableSSL,
+                    branchId: branchId);
 
                 return (true, null);
             }
@@ -117,7 +124,8 @@ namespace RestaurantManagementSystem.Services
                         smtpServer: mailConfig?.SmtpServer ?? "N/A",
                         smtpPort: mailConfig?.SmtpPort ?? 0,
                         smtpUsername: mailConfig?.SmtpUsername ?? "N/A",
-                        enableSsl: mailConfig?.EnableSSL ?? false);
+                        enableSsl: mailConfig?.EnableSSL ?? false,
+                        branchId: branchId);
                 }
                 catch (Exception logEx)
                 {
@@ -128,21 +136,33 @@ namespace RestaurantManagementSystem.Services
             }
         }
 
-        private async Task<MailConfigurationViewModel?> GetMailConfigurationAsync()
+        private async Task<MailConfigurationViewModel?> GetMailConfigurationAsync(int? explicitBranchId = null)
         {
             var connectionString = _configuration.GetConnectionString("DefaultConnection");
+            var activeBranchId = explicitBranchId ?? _httpContextAccessor.HttpContext?.User.GetActiveBranchId();
 
             using (var connection = new SqlConnection(connectionString))
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasMailBranch = await HasColumnAsync(connection, "tbl_MailConfiguration", "BranchId");
+                var branchFilter = hasMailBranch && activeBranchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     SELECT Id, SmtpServer, SmtpPort, SmtpUsername, SmtpPassword, EnableSSL,
                            FromEmail, FromName, AdminNotificationEmail, IsActive
                     FROM tbl_MailConfiguration
-                    WHERE IsActive = 1";
+                    WHERE IsActive = 1
+                    {branchFilter}
+                    ORDER BY Id DESC";
 
                 using (var command = new SqlCommand(query, connection))
+                {
+                    if (hasMailBranch && activeBranchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
+                
                 using (var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow))
                 {
                     if (await reader.ReadAsync())
@@ -164,6 +184,7 @@ namespace RestaurantManagementSystem.Services
                             IsActive = reader.GetBoolean(9)
                         };
                     }
+                }
                 }
             }
 
@@ -228,29 +249,43 @@ namespace RestaurantManagementSystem.Services
             string smtpServer,
             int smtpPort,
             string smtpUsername,
-            bool enableSsl)
+            bool enableSsl,
+            int? branchId = null)
         {
             try
             {
                 var connectionString = _configuration.GetConnectionString("DefaultConnection");
+                var activeBranchId = branchId ?? _httpContextAccessor.HttpContext?.User.GetActiveBranchId();
 
                 using (var connection = new SqlConnection(connectionString))
                 {
                     await connection.OpenAsync();
 
-                    // Keep this insert compatible with the baseline tbl_EmailLog schema.
-                    var query = @"
-                        INSERT INTO tbl_EmailLog (
-                            FromEmail, ToEmail, Subject, EmailBody,
-                            SmtpServer, SmtpPort, EnableSSL, SmtpUsername,
-                            Status, ErrorMessage,
-                            SentAt, ProcessingTimeMs, CreatedAt
-                        ) VALUES (
-                            @FromEmail, @ToEmail, @Subject, @EmailBody,
-                            @SmtpServer, @SmtpPort, @EnableSSL, @SmtpUsername,
-                            @Status, @ErrorMessage,
-                            @SentAt, @ProcessingTimeMs, @CreatedAt
-                        )";
+                    var hasEmailLogBranch = await HasColumnAsync(connection, "tbl_EmailLog", "BranchId");
+
+                    var query = hasEmailLogBranch
+                        ? @"INSERT INTO tbl_EmailLog (
+                                FromEmail, ToEmail, Subject, EmailBody,
+                                SmtpServer, SmtpPort, EnableSSL, SmtpUsername,
+                                Status, ErrorMessage,
+                                SentAt, ProcessingTimeMs, CreatedAt, BranchId
+                            ) VALUES (
+                                @FromEmail, @ToEmail, @Subject, @EmailBody,
+                                @SmtpServer, @SmtpPort, @EnableSSL, @SmtpUsername,
+                                @Status, @ErrorMessage,
+                                @SentAt, @ProcessingTimeMs, @CreatedAt, @BranchId
+                            )"
+                        : @"INSERT INTO tbl_EmailLog (
+                                FromEmail, ToEmail, Subject, EmailBody,
+                                SmtpServer, SmtpPort, EnableSSL, SmtpUsername,
+                                Status, ErrorMessage,
+                                SentAt, ProcessingTimeMs, CreatedAt
+                            ) VALUES (
+                                @FromEmail, @ToEmail, @Subject, @EmailBody,
+                                @SmtpServer, @SmtpPort, @EnableSSL, @SmtpUsername,
+                                @Status, @ErrorMessage,
+                                @SentAt, @ProcessingTimeMs, @CreatedAt
+                            )";
 
                     using (var command = new SqlCommand(query, connection))
                     {
@@ -267,6 +302,10 @@ namespace RestaurantManagementSystem.Services
                         command.Parameters.AddWithValue("@SentAt", DateTime.Now);
                         command.Parameters.AddWithValue("@ProcessingTimeMs", (object?)processingTimeMs ?? DBNull.Value);
                         command.Parameters.AddWithValue("@CreatedAt", DateTime.Now);
+                        if (hasEmailLogBranch)
+                        {
+                            command.Parameters.AddWithValue("@BranchId", (object?)activeBranchId ?? DBNull.Value);
+                        }
 
                         await command.ExecuteNonQueryAsync();
                     }
@@ -275,6 +314,25 @@ namespace RestaurantManagementSystem.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to log email to database");
+            }
+        }
+
+        private async Task<bool> HasColumnAsync(SqlConnection connection, string tableName, string columnName)
+        {
+            try
+            {
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = @TableName AND COLUMN_NAME = @ColumnName", connection);
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                var result = await cmd.ExecuteScalarAsync();
+                return Convert.ToInt32(result) > 0;
+            }
+            catch
+            {
+                return false;
             }
         }
     }

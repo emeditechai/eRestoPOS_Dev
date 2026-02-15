@@ -18,7 +18,8 @@ GO
 
 CREATE PROCEDURE dbo.usp_GetMenuAnalysis
     @FromDate DATE = NULL,
-    @ToDate DATE = NULL
+    @ToDate DATE = NULL,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -27,6 +28,7 @@ BEGIN
     DECLARE @Start DATETIME = COALESCE(CAST(@FromDate AS DATETIME), DATEADD(day, -30, CAST(GETDATE() AS DATE)));
     -- Make @End be exclusive (next day at 00:00) so comparisons use < @End
     DECLARE @End DATETIME = DATEADD(day, 1, COALESCE(CAST(@ToDate AS DATETIME), CAST(GETDATE() AS DATE)));
+    DECLARE @HasOrdersBranch BIT = CASE WHEN COL_LENGTH('dbo.Orders', 'BranchId') IS NULL THEN 0 ELSE 1 END;
 
     -- 1) Summary
     SELECT 
@@ -37,6 +39,7 @@ BEGIN
     FROM OrderItems oi
     INNER JOIN Orders o ON oi.OrderId = o.Id
     WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
+            AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
 
     -- 2) Top Items
     SELECT TOP 10
@@ -49,6 +52,7 @@ BEGIN
     INNER JOIN Orders o ON oi.OrderId = o.Id
     INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
     WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
+            AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
     GROUP BY mi.Id, mi.Name
     ORDER BY QuantitySold DESC
 
@@ -63,6 +67,7 @@ BEGIN
     INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
     INNER JOIN Categories c ON mi.CategoryId = c.Id
     WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
+            AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
     GROUP BY c.Name
     ORDER BY Revenue DESC
 
@@ -74,6 +79,7 @@ BEGIN
     FROM OrderItems oi
     INNER JOIN Orders o ON oi.OrderId = o.Id
     WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
+            AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
     GROUP BY DATEADD(week, DATEDIFF(week, 0, o.CreatedAt), 0)
     ORDER BY PeriodLabel
 
@@ -88,7 +94,8 @@ BEGIN
         FROM OrderItems oi
         INNER JOIN Orders o ON oi.OrderId = o.Id
         INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
-    WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
+        WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
+            AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         GROUP BY mi.Id, mi.Name
     ) t
     ORDER BY t.QuantitySold DESC

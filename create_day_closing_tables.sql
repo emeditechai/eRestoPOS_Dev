@@ -17,6 +17,7 @@ BEGIN
     (
         [Id] INT IDENTITY(1,1) NOT NULL,
         [BusinessDate] DATE NOT NULL,
+        [BranchId] INT NULL,
         [CashierId] INT NOT NULL,
         [CashierName] NVARCHAR(100) NOT NULL,
         [OpeningFloat] DECIMAL(10,2) NOT NULL DEFAULT 0,
@@ -42,6 +43,11 @@ END
 ELSE
 BEGIN
     PRINT 'Table CashierDayOpening already exists';
+    IF COL_LENGTH('dbo.CashierDayOpening', 'BranchId') IS NULL
+    BEGIN
+        ALTER TABLE [dbo].[CashierDayOpening] ADD [BranchId] INT NULL;
+        PRINT 'Column BranchId added to CashierDayOpening';
+    END
 END
 GO
 
@@ -55,6 +61,7 @@ BEGIN
     (
         [Id] INT IDENTITY(1,1) NOT NULL,
         [BusinessDate] DATE NOT NULL,
+        [BranchId] INT NULL,
         [CashierId] INT NOT NULL,
         [CashierName] NVARCHAR(100) NOT NULL,
         [SystemAmount] DECIMAL(10,2) NOT NULL DEFAULT 0, -- Total cash from POS
@@ -92,6 +99,11 @@ END
 ELSE
 BEGIN
     PRINT 'Table CashierDayClose already exists';
+    IF COL_LENGTH('dbo.CashierDayClose', 'BranchId') IS NULL
+    BEGIN
+        ALTER TABLE [dbo].[CashierDayClose] ADD [BranchId] INT NULL;
+        PRINT 'Column BranchId added to CashierDayClose';
+    END
 END
 GO
 
@@ -105,6 +117,7 @@ BEGIN
     (
         [LockId] INT IDENTITY(1,1) NOT NULL,
         [BusinessDate] DATE NOT NULL,
+        [BranchId] INT NULL,
         [LockedBy] NVARCHAR(50) NOT NULL,
         [LockTime] DATETIME NOT NULL DEFAULT GETDATE(),
         [Remarks] NVARCHAR(1000) NULL,
@@ -127,6 +140,11 @@ END
 ELSE
 BEGIN
     PRINT 'Table DayLockAudit already exists';
+    IF COL_LENGTH('dbo.DayLockAudit', 'BranchId') IS NULL
+    BEGIN
+        ALTER TABLE [dbo].[DayLockAudit] ADD [BranchId] INT NULL;
+        PRINT 'Column BranchId added to DayLockAudit';
+    END
 END
 GO
 
@@ -144,7 +162,8 @@ CREATE PROCEDURE [dbo].[usp_InitializeDayOpening]
     @BusinessDate DATE,
     @CashierId INT,
     @OpeningFloat DECIMAL(10,2),
-    @CreatedBy NVARCHAR(50)
+    @CreatedBy NVARCHAR(50),
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -154,14 +173,16 @@ BEGIN
         
         -- Check if opening already exists
         IF EXISTS (SELECT 1 FROM CashierDayOpening 
-                   WHERE BusinessDate = @BusinessDate AND CashierId = @CashierId)
+                                     WHERE BusinessDate = @BusinessDate AND CashierId = @CashierId
+                                         AND (@BranchId IS NULL OR BranchId = @BranchId))
         BEGIN
             -- Update existing record
             UPDATE CashierDayOpening
             SET OpeningFloat = @OpeningFloat,
                 UpdatedBy = @CreatedBy,
                 UpdatedAt = GETDATE()
-            WHERE BusinessDate = @BusinessDate AND CashierId = @CashierId;
+                        WHERE BusinessDate = @BusinessDate AND CashierId = @CashierId
+                            AND (@BranchId IS NULL OR BranchId = @BranchId);
             
             SELECT 'Updated' AS Result, 'Opening float updated successfully' AS Message;
         END
@@ -172,12 +193,12 @@ BEGIN
             SELECT @CashierName = Username FROM Users WHERE Id = @CashierId;
             
             -- Insert new record
-            INSERT INTO CashierDayOpening (BusinessDate, CashierId, CashierName, OpeningFloat, CreatedBy)
-            VALUES (@BusinessDate, @CashierId, @CashierName, @OpeningFloat, @CreatedBy);
+            INSERT INTO CashierDayOpening (BusinessDate, BranchId, CashierId, CashierName, OpeningFloat, CreatedBy)
+            VALUES (@BusinessDate, @BranchId, @CashierId, @CashierName, @OpeningFloat, @CreatedBy);
             
             -- Also create corresponding close record
-            INSERT INTO CashierDayClose (BusinessDate, CashierId, CashierName, OpeningFloat, SystemAmount, CreatedBy)
-            VALUES (@BusinessDate, @CashierId, @CashierName, @OpeningFloat, 0, @CreatedBy);
+            INSERT INTO CashierDayClose (BusinessDate, BranchId, CashierId, CashierName, OpeningFloat, SystemAmount, CreatedBy)
+            VALUES (@BusinessDate, @BranchId, @CashierId, @CashierName, @OpeningFloat, 0, @CreatedBy);
             
             SELECT 'Created' AS Result, 'Opening float created successfully' AS Message;
         END
@@ -206,7 +227,8 @@ GO
 
 CREATE PROCEDURE [dbo].[usp_GetCashierSystemAmount]
     @BusinessDate DATE,
-    @CashierId INT
+    @CashierId INT,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -220,6 +242,7 @@ BEGIN
     INNER JOIN PaymentMethods pm ON p.PaymentMethodId = pm.Id
     WHERE CAST(o.CreatedAt AS DATE) = @BusinessDate
       AND o.CashierId = @CashierId
+            AND (@BranchId IS NULL OR o.BranchId = @BranchId)
       AND pm.Name = 'CASH'
       AND p.Status = 1 -- Approved payments only
       AND o.Status IN (2, 3); -- Completed or Paid status
@@ -240,7 +263,8 @@ CREATE PROCEDURE [dbo].[usp_SaveDeclaredCash]
     @BusinessDate DATE,
     @CashierId INT,
     @DeclaredAmount DECIMAL(10,2),
-    @UpdatedBy NVARCHAR(50)
+    @UpdatedBy NVARCHAR(50),
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -256,7 +280,8 @@ BEGIN
         -- Get opening float and system amount
         SELECT @OpeningFloat = OpeningFloat, @SystemAmount = SystemAmount
         FROM CashierDayClose
-        WHERE BusinessDate = @BusinessDate AND CashierId = @CashierId;
+                WHERE BusinessDate = @BusinessDate AND CashierId = @CashierId
+                    AND (@BranchId IS NULL OR BranchId = @BranchId);
         
         -- Calculate variance: (Declared + Opening) - System
         SET @Variance = (@DeclaredAmount + @OpeningFloat) - @SystemAmount;
@@ -274,7 +299,8 @@ BEGIN
             Status = @Status,
             UpdatedBy = @UpdatedBy,
             UpdatedAt = GETDATE()
-        WHERE BusinessDate = @BusinessDate AND CashierId = @CashierId;
+                WHERE BusinessDate = @BusinessDate AND CashierId = @CashierId
+                    AND (@BranchId IS NULL OR BranchId = @BranchId);
         
         COMMIT TRANSACTION;
         
@@ -306,7 +332,8 @@ GO
 CREATE PROCEDURE [dbo].[usp_LockDay]
     @BusinessDate DATE,
     @LockedBy NVARCHAR(50),
-    @Remarks NVARCHAR(1000) = NULL
+    @Remarks NVARCHAR(1000) = NULL,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -321,7 +348,8 @@ BEGIN
         FROM CashierDayClose
         WHERE BusinessDate = @BusinessDate 
           AND Status = 'CHECK'
-          AND LockedFlag = 0;
+                    AND LockedFlag = 0
+                    AND (@BranchId IS NULL OR BranchId = @BranchId);
         
         IF @IssueCount > 0
         BEGIN
@@ -340,11 +368,12 @@ BEGIN
             Status = 'LOCKED',
             UpdatedBy = @LockedBy,
             UpdatedAt = GETDATE()
-        WHERE BusinessDate = @BusinessDate;
+                WHERE BusinessDate = @BusinessDate
+                    AND (@BranchId IS NULL OR BranchId = @BranchId);
         
         -- Insert audit record
-        INSERT INTO DayLockAudit (BusinessDate, LockedBy, LockTime, Remarks, Status)
-        VALUES (@BusinessDate, @LockedBy, GETDATE(), @Remarks, 'LOCKED');
+        INSERT INTO DayLockAudit (BusinessDate, BranchId, LockedBy, LockTime, Remarks, Status)
+        VALUES (@BusinessDate, @BranchId, @LockedBy, GETDATE(), @Remarks, 'LOCKED');
         
         COMMIT TRANSACTION;
         
@@ -372,7 +401,8 @@ END
 GO
 
 CREATE PROCEDURE [dbo].[usp_GetDayClosingSummary]
-    @BusinessDate DATE
+    @BusinessDate DATE,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -396,6 +426,7 @@ BEGIN
         (cdc.SystemAmount + cdc.OpeningFloat) AS ExpectedCash
     FROM CashierDayClose cdc
     WHERE cdc.BusinessDate = @BusinessDate
+            AND (@BranchId IS NULL OR cdc.BranchId = @BranchId)
     ORDER BY cdc.CashierName;
     
     -- Get day lock status
@@ -408,6 +439,7 @@ BEGIN
         Status
     FROM DayLockAudit
     WHERE BusinessDate = @BusinessDate
+            AND (@BranchId IS NULL OR BranchId = @BranchId)
     ORDER BY LockTime DESC;
 END
 GO

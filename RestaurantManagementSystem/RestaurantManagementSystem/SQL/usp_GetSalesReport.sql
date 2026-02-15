@@ -11,7 +11,8 @@ GO
 CREATE PROCEDURE usp_GetSalesReport
     @StartDate DATE = NULL,
     @EndDate DATE = NULL,
-    @UserId INT = NULL
+  @UserId INT = NULL,
+  @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -22,6 +23,7 @@ BEGIN
     
     DECLARE @StartDateTime DATETIME = CAST(@StartDate AS DATETIME);
     DECLARE @EndDateTime DATETIME = DATEADD(DAY, 1, CAST(@EndDate AS DATETIME));
+    DECLARE @HasOrdersBranch BIT = CASE WHEN COL_LENGTH('dbo.Orders', 'BranchId') IS NULL THEN 0 ELSE 1 END;
     
     -- Result Set 1: Summary Statistics
     SELECT 
@@ -37,7 +39,8 @@ BEGIN
     FROM Orders WITH (NOLOCK)
     WHERE CreatedAt >= @StartDateTime 
       AND CreatedAt < @EndDateTime
-      AND (@UserId IS NULL OR UserId = @UserId);
+      AND (@UserId IS NULL OR UserId = @UserId)
+      AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR BranchId = @BranchId);
     
     -- Result Set 2: Daily Sales Trend
     SELECT 
@@ -49,6 +52,7 @@ BEGIN
     WHERE CreatedAt >= @StartDateTime 
       AND CreatedAt < @EndDateTime
       AND (@UserId IS NULL OR UserId = @UserId)
+      AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR BranchId = @BranchId)
     GROUP BY CAST(CreatedAt AS DATE)
     ORDER BY SalesDate DESC;
     
@@ -66,6 +70,7 @@ BEGIN
     WHERE o.CreatedAt >= @StartDateTime 
       AND o.CreatedAt < @EndDateTime
       AND (@UserId IS NULL OR o.UserId = @UserId)
+      AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
     GROUP BY mi.Id, mi.Name
     ORDER BY TotalRevenue DESC;
     
@@ -83,6 +88,7 @@ BEGIN
     WHERE o.CreatedAt >= @StartDateTime 
       AND o.CreatedAt < @EndDateTime
       AND (@UserId IS NULL OR u.Id = @UserId)
+      AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
     GROUP BY u.Id, u.Username, u.FirstName, u.LastName
     ORDER BY TotalSales DESC;
     
@@ -102,12 +108,14 @@ BEGIN
             WHEN (SELECT COUNT(*) FROM Orders WITH (NOLOCK) 
                   WHERE CreatedAt >= @StartDateTime 
                     AND CreatedAt < @EndDateTime
-                    AND (@UserId IS NULL OR UserId = @UserId)) > 0
+                    AND (@UserId IS NULL OR UserId = @UserId)
+                    AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR BranchId = @BranchId)) > 0
             THEN CAST(COUNT(*) * 100.0 / (
                 SELECT COUNT(*) FROM Orders WITH (NOLOCK) 
                 WHERE CreatedAt >= @StartDateTime 
                   AND CreatedAt < @EndDateTime
                   AND (@UserId IS NULL OR UserId = @UserId)
+                  AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR BranchId = @BranchId)
             ) AS DECIMAL(5,2))
             ELSE 0
         END
@@ -115,6 +123,7 @@ BEGIN
     WHERE CreatedAt >= @StartDateTime 
       AND CreatedAt < @EndDateTime
       AND (@UserId IS NULL OR UserId = @UserId)
+      AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR BranchId = @BranchId)
     GROUP BY Status
     ORDER BY OrderCount DESC;
     
@@ -128,6 +137,7 @@ BEGIN
     WHERE CreatedAt >= @StartDateTime 
       AND CreatedAt < @EndDateTime
       AND (@UserId IS NULL OR UserId = @UserId)
+      AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR BranchId = @BranchId)
     GROUP BY DATEPART(HOUR, CreatedAt)
     ORDER BY HourOfDay;
     
@@ -157,6 +167,7 @@ BEGIN
     WHERE o.CreatedAt >= @StartDateTime 
       AND o.CreatedAt < @EndDateTime
       AND (@UserId IS NULL OR o.UserId = @UserId)
+      AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
     ORDER BY o.CreatedAt DESC;
 END
 GO

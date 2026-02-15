@@ -268,11 +268,13 @@ AS
 BEGIN
     DECLARE @OrderNumber NVARCHAR(20);
     DECLARE @TableName NVARCHAR(50) = NULL;
+    DECLARE @OrderBranchId INT = NULL;
     
     -- Get order information
     SELECT 
         @OrderNumber = OrderNumber,
-        @TableName = t.TableName
+        @TableName = t.TableName,
+        @OrderBranchId = o.BranchId
     FROM 
         Orders o
     LEFT JOIN 
@@ -331,6 +333,18 @@ BEGIN
         
         IF @TicketId IS NULL
         BEGIN
+            DECLARE @StationTicketNumber NVARCHAR(20);
+
+            SELECT @StationTicketNumber =
+                'KOT-' + CONVERT(NVARCHAR(8), GETDATE(), 112) + '-' +
+                RIGHT('0000' + CAST(
+                    ISNULL(MAX(TRY_CAST(RIGHT(kt.TicketNumber, 4) AS INT)), 0) + 1
+                AS NVARCHAR(4)), 4)
+            FROM KitchenTickets kt WITH (UPDLOCK, HOLDLOCK)
+            INNER JOIN Orders o2 ON o2.Id = kt.OrderId
+            WHERE LEFT(kt.TicketNumber, 12) = 'KOT-' + CONVERT(NVARCHAR(8), GETDATE(), 112)
+              AND ((@OrderBranchId IS NULL AND o2.BranchId IS NULL) OR o2.BranchId = @OrderBranchId);
+
             -- Create new ticket for this station
             INSERT INTO KitchenTickets (
                 TicketNumber,
@@ -343,7 +357,7 @@ BEGIN
                 CreatedAt
             )
             VALUES (
-                'KT' + RIGHT('00000' + CAST(@OrderId AS VARCHAR(10)), 5) + '-' + RIGHT('00' + CAST(@StationId AS VARCHAR(10)), 2),
+                @StationTicketNumber,
                 @OrderId,
                 @OrderNumber,
                 @StationId,
@@ -451,6 +465,18 @@ BEGIN
         
         IF @GeneralTicketId IS NULL
         BEGIN
+            DECLARE @GeneralTicketNumber NVARCHAR(20);
+
+            SELECT @GeneralTicketNumber =
+                'KOT-' + CONVERT(NVARCHAR(8), GETDATE(), 112) + '-' +
+                RIGHT('0000' + CAST(
+                    ISNULL(MAX(TRY_CAST(RIGHT(kt.TicketNumber, 4) AS INT)), 0) + 1
+                AS NVARCHAR(4)), 4)
+            FROM KitchenTickets kt WITH (UPDLOCK, HOLDLOCK)
+            INNER JOIN Orders o2 ON o2.Id = kt.OrderId
+            WHERE LEFT(kt.TicketNumber, 12) = 'KOT-' + CONVERT(NVARCHAR(8), GETDATE(), 112)
+              AND ((@OrderBranchId IS NULL AND o2.BranchId IS NULL) OR o2.BranchId = @OrderBranchId);
+
             -- Create general ticket
             INSERT INTO KitchenTickets (
                 TicketNumber,
@@ -463,7 +489,7 @@ BEGIN
                 CreatedAt
             )
             VALUES (
-                'KT' + RIGHT('00000' + CAST(@OrderId AS VARCHAR(10)), 5) + '-GEN',
+                @GeneralTicketNumber,
                 @OrderId,
                 @OrderNumber,
                 NULL, -- No specific station

@@ -9,6 +9,7 @@ namespace RestaurantManagementSystem.Services
             string subject,
             string htmlBody,
             string? emailType = null,
-            string? sentFrom = null);
+            string? sentFrom = null,
+            int? branchId = null);
     }
 }

@@ -10,7 +10,8 @@ GO
 
 CREATE PROCEDURE usp_GetDiscountReport
     @StartDate DATE = NULL,
-    @EndDate DATE = NULL
+    @EndDate DATE = NULL,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -20,6 +21,7 @@ BEGIN
 
     DECLARE @StartDateTime DATETIME = CAST(@StartDate AS DATETIME);
     DECLARE @EndDateTime DATETIME = DATEADD(DAY, 1, CAST(@EndDate AS DATETIME)); -- exclusive
+    DECLARE @HasOrdersBranch BIT = CASE WHEN COL_LENGTH('dbo.Orders', 'BranchId') IS NULL THEN 0 ELSE 1 END;
 
     /* Summary Metrics */
     ;WITH Discounted AS (
@@ -27,6 +29,7 @@ BEGIN
         FROM Orders o WITH (NOLOCK)
         WHERE o.CreatedAt >= @StartDateTime AND o.CreatedAt < @EndDateTime
           AND o.DiscountAmount > 0
+                    AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
     )
     SELECT 
         TotalDiscountedOrders = COUNT(*),
@@ -66,6 +69,7 @@ BEGIN
     LEFT JOIN Users u WITH (NOLOCK) ON u.Id = o.UserId
     WHERE o.CreatedAt >= @StartDateTime AND o.CreatedAt < @EndDateTime
       AND o.DiscountAmount > 0
+            AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
     ORDER BY o.CreatedAt DESC;
 END
 GO

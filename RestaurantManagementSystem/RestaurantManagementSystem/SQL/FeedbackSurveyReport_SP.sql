@@ -12,10 +12,13 @@ CREATE PROCEDURE usp_GetFeedbackSurveyReport
     @ToDate DATE = NULL,
     @Location NVARCHAR(100) = NULL,
     @MinRating INT = NULL,
-    @MaxRating INT = NULL
+    @MaxRating INT = NULL,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    DECLARE @HasFeedbackBranch BIT = CASE WHEN COL_LENGTH('dbo.GuestFeedback', 'BranchId') IS NULL THEN 0 ELSE 1 END;
 
     -- Set default dates if not provided
     IF @FromDate IS NULL
@@ -67,6 +70,7 @@ BEGIN
         AND (@Location IS NULL OR gf.Location = @Location)
         AND (@MinRating IS NULL OR gf.OverallRating >= @MinRating)
         AND (@MaxRating IS NULL OR gf.OverallRating <= @MaxRating)
+        AND (@BranchId IS NULL OR @HasFeedbackBranch = 0 OR gf.BranchId = @BranchId)
     ORDER BY gf.VisitDate DESC, gf.CreatedAt DESC;
 
     -- Summary statistics
@@ -91,18 +95,28 @@ BEGIN
     WHERE VisitDate BETWEEN @FromDate AND @ToDate
         AND (@Location IS NULL OR Location = @Location)
         AND (@MinRating IS NULL OR OverallRating >= @MinRating)
-        AND (@MaxRating IS NULL OR OverallRating <= @MaxRating);
+        AND (@MaxRating IS NULL OR OverallRating <= @MaxRating)
+        AND (@BranchId IS NULL OR @HasFeedbackBranch = 0 OR BranchId = @BranchId);
 
     -- Rating distribution
     SELECT 
         OverallRating AS Rating,
         COUNT(*) AS Count,
-        CAST(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM GuestFeedback WHERE VisitDate BETWEEN @FromDate AND @ToDate) AS DECIMAL(5,2)) AS Percentage
+        CAST(COUNT(*) * 100.0 / NULLIF((
+            SELECT COUNT(*) 
+            FROM GuestFeedback gf2
+            WHERE gf2.VisitDate BETWEEN @FromDate AND @ToDate
+              AND (@Location IS NULL OR gf2.Location = @Location)
+              AND (@MinRating IS NULL OR gf2.OverallRating >= @MinRating)
+              AND (@MaxRating IS NULL OR gf2.OverallRating <= @MaxRating)
+              AND (@BranchId IS NULL OR @HasFeedbackBranch = 0 OR gf2.BranchId = @BranchId)
+        ), 0) AS DECIMAL(5,2)) AS Percentage
     FROM GuestFeedback
     WHERE VisitDate BETWEEN @FromDate AND @ToDate
         AND (@Location IS NULL OR Location = @Location)
         AND (@MinRating IS NULL OR OverallRating >= @MinRating)
         AND (@MaxRating IS NULL OR OverallRating <= @MaxRating)
+        AND (@BranchId IS NULL OR @HasFeedbackBranch = 0 OR BranchId = @BranchId)
     GROUP BY OverallRating
     ORDER BY OverallRating DESC;
 
@@ -118,6 +132,7 @@ BEGIN
         AND (@Location IS NULL OR Location = @Location)
         AND (@MinRating IS NULL OR OverallRating >= @MinRating)
         AND (@MaxRating IS NULL OR OverallRating <= @MaxRating)
+        AND (@BranchId IS NULL OR @HasFeedbackBranch = 0 OR BranchId = @BranchId)
     GROUP BY value
     ORDER BY COUNT(*) DESC;
 END

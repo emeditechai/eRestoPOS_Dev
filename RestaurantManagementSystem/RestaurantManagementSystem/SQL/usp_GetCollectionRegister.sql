@@ -12,7 +12,8 @@ CREATE PROCEDURE dbo.usp_GetCollectionRegister
     @ToDate DATE = NULL,
     @PaymentMethodId INT = NULL,  -- NULL means ALL payment methods
     @UserId INT = NULL,           -- NULL means all users
-    @CounterId INT = NULL         -- NULL means all counters (ignored if Orders counter column is missing)
+    @CounterId INT = NULL,        -- NULL means all counters (ignored if Orders counter column is missing)
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -134,21 +135,23 @@ BEGIN
            GROUP BY OrderId
         ) ot ON o.Id = ot.OrderId
         LEFT JOIN Tables t WITH (NOLOCK) ON ot.TableId = t.Id
+        WHERE (@BranchId IS NULL OR COL_LENGTH(''dbo.Orders'', ''BranchId'') IS NULL OR o.BranchId = @BranchId)
         ';
 
         IF @CounterId IS NOT NULL AND @CounterColumn IS NOT NULL
-            SET @Sql += N'WHERE o.' + QUOTENAME(@CounterColumn) + N' = @CounterId ' + CHAR(10);
+            SET @Sql += N'AND o.' + QUOTENAME(@CounterColumn) + N' = @CounterId ' + CHAR(10);
 
         SET @Sql += N'ORDER BY p.CreatedAt DESC, o.OrderNumber;';
 
         EXEC sp_executesql
            @Sql,
-           N'@FromDate DATE, @ToDate DATE, @PaymentMethodId INT, @UserId INT, @CounterId INT',
+           N'@FromDate DATE, @ToDate DATE, @PaymentMethodId INT, @UserId INT, @CounterId INT, @BranchId INT',
            @FromDate = @FromDate,
            @ToDate = @ToDate,
            @PaymentMethodId = @PaymentMethodId,
            @UserId = @UserId,
-           @CounterId = @CounterId;
+           @CounterId = @CounterId,
+           @BranchId = @BranchId;
 END
 GO
 

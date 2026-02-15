@@ -7,6 +7,7 @@ using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Models.Authorization;
 using RestaurantManagementSystem.ViewModels;
 using RestaurantManagementSystem.Services;
+using RestaurantManagementSystem.Utilities;
 using Microsoft.AspNetCore.Http;
 using SkiaSharp;
 using System.Data;
@@ -61,10 +62,87 @@ namespace RestaurantManagementSystem.Controllers
             ViewBag.CurrentMenuCode = menuCode;
         }
 
+        private int? GetActiveBranchId()
+        {
+            return User.GetActiveBranchId();
+        }
+
+        private IActionResult RedirectNoBranch()
+        {
+            TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+            return RedirectToAction("Index", "Home");
+        }
+
+        private async Task<bool> HasColumnAsync(SqlConnection connection, string tableName, string columnName)
+        {
+            try
+            {
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = @TableName AND COLUMN_NAME = @ColumnName", connection);
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                var result = await cmd.ExecuteScalarAsync();
+                return Convert.ToInt32(result) > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<bool> StoredProcedureHasParameterAsync(SqlConnection connection, string procedureName, string parameterName)
+        {
+            try
+            {
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM sys.parameters
+                    WHERE object_id = OBJECT_ID(@ProcedureName)
+                      AND name = @ParameterName", connection);
+                cmd.Parameters.AddWithValue("@ProcedureName", procedureName);
+                cmd.Parameters.AddWithValue("@ParameterName", parameterName);
+                var result = await cmd.ExecuteScalarAsync();
+                return Convert.ToInt32(result) > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task TryAddBranchParameterAsync(SqlConnection connection, SqlCommand command, int? branchId)
+        {
+            if (!branchId.HasValue || branchId.Value <= 0)
+            {
+                return;
+            }
+
+            if (command.CommandType != CommandType.StoredProcedure)
+            {
+                return;
+            }
+
+            if (await StoredProcedureHasParameterAsync(connection, command.CommandText, "@BranchId"))
+            {
+                command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                return;
+            }
+
+            if (await StoredProcedureHasParameterAsync(connection, command.CommandText, "@BranchID"))
+            {
+                command.Parameters.AddWithValue("@BranchID", branchId.Value);
+            }
+        }
+
         [HttpGet]
         [RequirePermission(MenuCodes.Sales, PermissionAction.View)]
         public async Task<IActionResult> Sales()
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Sales Reports";
             
             var viewModel = new SalesReportViewModel();
@@ -77,10 +155,10 @@ namespace RestaurantManagementSystem.Controllers
             }
             
             // Load available users for the filter dropdown
-            await LoadAvailableUsersAsync(viewModel, canViewAllReports, currentUserId);
+            await LoadAvailableUsersAsync(viewModel, canViewAllReports, currentUserId, activeBranchId.Value);
             
             // Load default report (last 30 days)
-            await LoadSalesReportDataAsync(viewModel, canViewAllReports, currentUserId);
+            await LoadSalesReportDataAsync(viewModel, canViewAllReports, currentUserId, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Sales);
             
             return View(viewModel);
@@ -90,6 +168,9 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Sales, PermissionAction.View)]
         public async Task<IActionResult> Sales(SalesReportFilter filter)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Sales Reports";
             
             var viewModel = new SalesReportViewModel
@@ -105,10 +186,10 @@ namespace RestaurantManagementSystem.Controllers
             }
             
             // Load available users for the filter dropdown
-            await LoadAvailableUsersAsync(viewModel, canViewAllReports, currentUserId);
+            await LoadAvailableUsersAsync(viewModel, canViewAllReports, currentUserId, activeBranchId.Value);
             
             // Load report data based on filter
-            await LoadSalesReportDataAsync(viewModel, canViewAllReports, currentUserId);
+            await LoadSalesReportDataAsync(viewModel, canViewAllReports, currentUserId, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Sales);
             
             return View(viewModel);
@@ -118,15 +199,18 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Orders, PermissionAction.View)]
         public async Task<IActionResult> Orders()
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Order Reports";
             
             var viewModel = new OrderReportViewModel();
             
             // Load available users for the filter dropdown
-            await LoadOrderReportUsersAsync(viewModel);
+            await LoadOrderReportUsersAsync(viewModel, activeBranchId.Value);
             
             // Load default report (today's orders)
-            await LoadOrderReportDataAsync(viewModel);
+            await LoadOrderReportDataAsync(viewModel, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Orders);
             
             return View(viewModel);
@@ -136,6 +220,9 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Orders, PermissionAction.View)]
         public async Task<IActionResult> Orders(OrderReportFilter filter, int page = 1)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Order Reports";
             
             var viewModel = new OrderReportViewModel
@@ -145,10 +232,10 @@ namespace RestaurantManagementSystem.Controllers
             };
             
             // Load available users for the filter dropdown
-            await LoadOrderReportUsersAsync(viewModel);
+            await LoadOrderReportUsersAsync(viewModel, activeBranchId.Value);
             
             // Load report data based on filter
-            await LoadOrderReportDataAsync(viewModel);
+            await LoadOrderReportDataAsync(viewModel, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Orders);
             
             return View(viewModel);
@@ -158,10 +245,13 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Menu, PermissionAction.View)]
         public async Task<IActionResult> Menu()
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Menu Analysis";
             var viewModel = new MenuReportViewModel();
             // Load default report (last 30 days)
-            await LoadMenuReportDataAsync(viewModel);
+            await LoadMenuReportDataAsync(viewModel, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Menu);
             return View(viewModel);
         }
@@ -170,13 +260,16 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Menu, PermissionAction.View)]
         public async Task<IActionResult> Menu(MenuReportFilter filter)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Menu Analysis";
             var viewModel = new MenuReportViewModel
             {
                 Filter = filter
             };
 
-            await LoadMenuReportDataAsync(viewModel);
+            await LoadMenuReportDataAsync(viewModel, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Menu);
             return View(viewModel);
         }
@@ -185,9 +278,12 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Customers, PermissionAction.View)]
         public async Task<IActionResult> Customers()
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Customer Reports";
             var model = new CustomerReportViewModel();
-            await LoadCustomerReportDataAsync(model);
+            await LoadCustomerReportDataAsync(model, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Customers);
             return View(model);
         }
@@ -196,9 +292,12 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Customers, PermissionAction.View)]
         public async Task<IActionResult> Customers(CustomerReportFilter filter)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Customer Reports";
             var model = new CustomerReportViewModel { Filter = filter };
-            await LoadCustomerReportDataAsync(model);
+            await LoadCustomerReportDataAsync(model, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Customers);
             return View(model);
         }
@@ -207,12 +306,15 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Financial, PermissionAction.View)]
         public async Task<IActionResult> Financial()
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Financial Summary";
             
             var viewModel = new FinancialSummaryViewModel();
             
             // Load default report (last 30 days)
-            await LoadFinancialSummaryDataAsync(viewModel);
+            await LoadFinancialSummaryDataAsync(viewModel, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Financial);
             
             return View(viewModel);
@@ -222,6 +324,9 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Financial, PermissionAction.View)]
         public async Task<IActionResult> Financial(FinancialSummaryFilter filter)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Financial Summary";
             
             var viewModel = new FinancialSummaryViewModel
@@ -230,13 +335,13 @@ namespace RestaurantManagementSystem.Controllers
             };
             
             // Load filtered report
-            await LoadFinancialSummaryDataAsync(viewModel);
+            await LoadFinancialSummaryDataAsync(viewModel, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Financial);
             
             return View(viewModel);
         }
 
-        private async Task LoadFinancialSummaryDataAsync(FinancialSummaryViewModel viewModel)
+        private async Task LoadFinancialSummaryDataAsync(FinancialSummaryViewModel viewModel, int? branchId = null)
         {
             try
             {
@@ -253,6 +358,7 @@ namespace RestaurantManagementSystem.Controllers
                 command.Parameters.AddWithValue("@StartDate", viewModel.Filter.StartDate);
                 command.Parameters.AddWithValue("@EndDate", viewModel.Filter.EndDate);
                 command.Parameters.AddWithValue("@ComparisonPeriodDays", viewModel.Filter.ComparisonPeriodDays);
+                await TryAddBranchParameterAsync(connection, command, branchId);
 
                 using var reader = await command.ExecuteReaderAsync();
 
@@ -442,6 +548,9 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Kitchen, PermissionAction.View)]
         public async Task<IActionResult> Kitchen(DateTime? from, DateTime? to, string station)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Kitchen KOT Report";
             var model = new KitchenReportViewModel();
             model.Filter.FromDate = from;
@@ -459,6 +568,7 @@ namespace RestaurantManagementSystem.Controllers
                     cmd.Parameters.AddWithValue("@FromDate", from.HasValue ? (object)from.Value.Date : DBNull.Value);
                     cmd.Parameters.AddWithValue("@ToDate", to.HasValue ? (object)to.Value.Date : DBNull.Value);
                     cmd.Parameters.AddWithValue("@Station", !string.IsNullOrWhiteSpace(station) ? (object)station : DBNull.Value);
+                    await TryAddBranchParameterAsync(connection, cmd, activeBranchId.Value);
 
                     using var reader = await cmd.ExecuteReaderAsync();
                     while (await reader.ReadAsync())
@@ -495,6 +605,9 @@ namespace RestaurantManagementSystem.Controllers
     [RequirePermission(MenuCodes.Kitchen, PermissionAction.Export)]
     public async Task<IActionResult> KitchenExport(DateTime? from, DateTime? to, string station)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("OrderNumber,TableName,ItemName,Quantity,Station,Status,RequestedAt");
 
@@ -507,6 +620,7 @@ namespace RestaurantManagementSystem.Controllers
                 cmd.Parameters.AddWithValue("@FromDate", from.HasValue ? (object)from.Value.Date : DBNull.Value);
                 cmd.Parameters.AddWithValue("@ToDate", to.HasValue ? (object)to.Value.Date : DBNull.Value);
                 cmd.Parameters.AddWithValue("@Station", !string.IsNullOrWhiteSpace(station) ? (object)station : DBNull.Value);
+                await TryAddBranchParameterAsync(connection, cmd, activeBranchId.Value);
 
                 using var reader = await cmd.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
@@ -536,6 +650,9 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Bar, PermissionAction.View)]
         public async Task<IActionResult> Bar(DateTime? from, DateTime? to, string station)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Bar BOT Report";
             var model = new BarReportViewModel();
             await SetViewPermissionsAsync(MenuCodes.Bar);
@@ -591,6 +708,7 @@ namespace RestaurantManagementSystem.Controllers
                 cmd.Parameters.AddWithValue("@FromDate", from.HasValue ? (object)from.Value.Date : DBNull.Value);
                 cmd.Parameters.AddWithValue("@ToDate", to.HasValue ? (object)to.Value.Date : DBNull.Value);
                 cmd.Parameters.AddWithValue("@Station", !string.IsNullOrWhiteSpace(station) ? (object)station : DBNull.Value);
+                await TryAddBranchParameterAsync(connection, cmd, activeBranchId.Value);
 
                 using var reader = await cmd.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
@@ -634,6 +752,9 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Bar, PermissionAction.Export)]
         public async Task<IActionResult> BarExport(DateTime? from, DateTime? to, string station)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("OrderNumber,TableName,ItemName,UOM,Quantity,Station,Status,RequestedAt");
 
@@ -646,6 +767,7 @@ namespace RestaurantManagementSystem.Controllers
                 cmd.Parameters.AddWithValue("@FromDate", from.HasValue ? (object)from.Value.Date : DBNull.Value);
                 cmd.Parameters.AddWithValue("@ToDate", to.HasValue ? (object)to.Value.Date : DBNull.Value);
                 cmd.Parameters.AddWithValue("@Station", !string.IsNullOrWhiteSpace(station) ? (object)station : DBNull.Value);
+                await TryAddBranchParameterAsync(connection, cmd, activeBranchId.Value);
 
                 using var reader = await cmd.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
@@ -680,7 +802,7 @@ namespace RestaurantManagementSystem.Controllers
             return File(bytes, "text/csv", "BarBOTReport.csv");
         }
 
-        private async Task LoadAvailableUsersAsync(SalesReportViewModel viewModel, bool canViewAllUsers, int currentUserId)
+        private async Task LoadAvailableUsersAsync(SalesReportViewModel viewModel, bool canViewAllUsers, int currentUserId, int? branchId = null)
         {
             try
             {
@@ -718,12 +840,22 @@ namespace RestaurantManagementSystem.Controllers
                     return;
                 }
                 
-                using var command = new SqlCommand(@"
+                    var hasOrdersBranchColumn = await HasColumnAsync(connection, "Orders", "BranchId");
+                    var usersSql = @"
                     SELECT DISTINCT u.Id, u.FirstName, u.LastName, u.Username 
                     FROM Users u 
                     INNER JOIN Orders o ON u.Id = o.UserId 
                     WHERE u.FirstName IS NOT NULL AND u.LastName IS NOT NULL
-                    ORDER BY u.FirstName, u.LastName", connection);
+                        ORDER BY u.FirstName, u.LastName";
+                    if (hasOrdersBranchColumn && branchId.HasValue)
+                    {
+                        usersSql = usersSql.Replace("ORDER BY u.FirstName, u.LastName", "AND o.BranchId = @BranchId ORDER BY u.FirstName, u.LastName");
+                    }
+                    using var command = new SqlCommand(usersSql, connection);
+                    if (hasOrdersBranchColumn && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
                 
                 using var reader = await command.ExecuteReaderAsync();
                 
@@ -744,7 +876,7 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        private async Task LoadSalesReportDataAsync(SalesReportViewModel viewModel, bool canViewAllRecords, int currentUserId)
+        private async Task LoadSalesReportDataAsync(SalesReportViewModel viewModel, bool canViewAllRecords, int currentUserId, int? branchId = null)
         {
             try
             {
@@ -775,6 +907,7 @@ namespace RestaurantManagementSystem.Controllers
                 { 
                     Value = requestedUserId.HasValue ? requestedUserId.Value : DBNull.Value 
                 });
+                await TryAddBranchParameterAsync(connection, command, branchId);
                 
                 // Clear existing collections to avoid accumulation when posting back
                 viewModel.DailySales.Clear();
@@ -922,21 +1055,31 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        private async Task LoadOrderReportUsersAsync(OrderReportViewModel viewModel)
+        private async Task LoadOrderReportUsersAsync(OrderReportViewModel viewModel, int? branchId = null)
         {
             try
             {
                 using var connection = new SqlConnection(_connectionString);
                 await connection.OpenAsync();
                 
-                using var command = new SqlCommand(@"
+                var hasOrdersBranchColumn = await HasColumnAsync(connection, "Orders", "BranchId");
+                var orderUsersSql = @"
                     SELECT DISTINCT u.Id, u.FirstName, u.LastName 
                     FROM Users u 
                     INNER JOIN Orders o ON u.Id = o.UserId 
                                         WHERE u.IsActive = 1
                                             AND u.FirstName IS NOT NULL AND u.LastName IS NOT NULL
                                             AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL
-                    ORDER BY u.FirstName, u.LastName", connection);
+                    ORDER BY u.FirstName, u.LastName";
+                if (hasOrdersBranchColumn && branchId.HasValue)
+                {
+                    orderUsersSql = orderUsersSql.Replace("ORDER BY u.FirstName, u.LastName", "AND o.BranchId = @BranchId ORDER BY u.FirstName, u.LastName");
+                }
+                using var command = new SqlCommand(orderUsersSql, connection);
+                if (hasOrdersBranchColumn && branchId.HasValue)
+                {
+                    command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                }
                 
                 using var reader = await command.ExecuteReaderAsync();
                 
@@ -962,7 +1105,7 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        private async Task LoadOrderReportDataAsync(OrderReportViewModel viewModel)
+        private async Task LoadOrderReportDataAsync(OrderReportViewModel viewModel, int? branchId = null)
         {
             try
             {
@@ -983,6 +1126,7 @@ namespace RestaurantManagementSystem.Controllers
                 command.Parameters.AddWithValue("@SearchTerm", !string.IsNullOrWhiteSpace(viewModel.Filter.SearchTerm) ? (object)viewModel.Filter.SearchTerm : DBNull.Value);
                 command.Parameters.AddWithValue("@PageNumber", viewModel.CurrentPage);
                 command.Parameters.AddWithValue("@PageSize", viewModel.Filter.PageSize);
+                await TryAddBranchParameterAsync(connection, command, branchId);
                 
                 using var reader = await command.ExecuteReaderAsync();
                 
@@ -1075,9 +1219,12 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Discount, PermissionAction.View)]
         public async Task<IActionResult> DiscountReport()
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Discount Report";
             var model = new DiscountReportViewModel();
-            await LoadDiscountReportAsync(model);
+            await LoadDiscountReportAsync(model, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Discount);
             return View(model);
         }
@@ -1086,14 +1233,17 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Discount, PermissionAction.View)]
         public async Task<IActionResult> DiscountReport(DiscountReportFilter filter)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Discount Report";
             var model = new DiscountReportViewModel { Filter = filter };
-            await LoadDiscountReportAsync(model);
+            await LoadDiscountReportAsync(model, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Discount);
             return View(model);
         }
 
-        private async Task LoadDiscountReportAsync(DiscountReportViewModel model)
+        private async Task LoadDiscountReportAsync(DiscountReportViewModel model, int? branchId = null)
         {
             try
             {
@@ -1103,6 +1253,7 @@ namespace RestaurantManagementSystem.Controllers
                 { CommandType = CommandType.StoredProcedure };
                 command.Parameters.AddWithValue("@StartDate", (object?)model.Filter.StartDate?.Date ?? DBNull.Value);
                 command.Parameters.AddWithValue("@EndDate", (object?)model.Filter.EndDate?.Date ?? DBNull.Value);
+                await TryAddBranchParameterAsync(connection, command, branchId);
                 using var reader = await command.ExecuteReaderAsync();
                 if (await reader.ReadAsync())
                 {
@@ -1151,9 +1302,12 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Gst, PermissionAction.View)]
         public async Task<IActionResult> GSTBreakup()
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "GST Breakup Report";
             var model = new GSTBreakupReportViewModel();
-            await LoadGSTBreakupReportAsync(model);
+            await LoadGSTBreakupReportAsync(model, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Gst);
             return View(model);
         }
@@ -1162,14 +1316,17 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Gst, PermissionAction.View)]
         public async Task<IActionResult> GSTBreakup(GSTBreakupReportFilter filter)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "GST Breakup Report";
             var model = new GSTBreakupReportViewModel { Filter = filter };
-            await LoadGSTBreakupReportAsync(model);
+            await LoadGSTBreakupReportAsync(model, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Gst);
             return View(model);
         }
 
-        private async Task LoadGSTBreakupReportAsync(GSTBreakupReportViewModel model)
+        private async Task LoadGSTBreakupReportAsync(GSTBreakupReportViewModel model, int? branchId = null)
         {
             try
             {
@@ -1179,6 +1336,7 @@ namespace RestaurantManagementSystem.Controllers
                 { CommandType = CommandType.StoredProcedure };
                 command.Parameters.AddWithValue("@StartDate", (object?)model.Filter.StartDate?.Date ?? DBNull.Value);
                 command.Parameters.AddWithValue("@EndDate", (object?)model.Filter.EndDate?.Date ?? DBNull.Value);
+                await TryAddBranchParameterAsync(connection, command, branchId);
                 using var reader = await command.ExecuteReaderAsync();
                 if (await reader.ReadAsync())
                 {
@@ -1196,22 +1354,75 @@ namespace RestaurantManagementSystem.Controllers
                 }
                 if (await reader.NextResultAsync())
                 {
+                    static int GetOrdinalSafe(SqlDataReader dataReader, string columnName)
+                    {
+                        try
+                        {
+                            return dataReader.GetOrdinal(columnName);
+                        }
+                        catch (IndexOutOfRangeException)
+                        {
+                            return -1;
+                        }
+                    }
+
+                    var paymentDateOrdinal = GetOrdinalSafe(reader, "PaymentDate");
+                    var orderNumberOrdinal = GetOrdinalSafe(reader, "OrderNumber");
+                    var taxableValueOrdinal = GetOrdinalSafe(reader, "TaxableValue");
+                    var discountAmountOrdinal = GetOrdinalSafe(reader, "DiscountAmount");
+                    var gstPercentageOrdinal = GetOrdinalSafe(reader, "GSTPercentage");
+                    var cgstPercentageOrdinal = GetOrdinalSafe(reader, "CGSTPercentage");
+                    var cgstAmountOrdinal = GetOrdinalSafe(reader, "CGSTAmount");
+                    var sgstPercentageOrdinal = GetOrdinalSafe(reader, "SGSTPercentage");
+                    var sgstAmountOrdinal = GetOrdinalSafe(reader, "SGSTAmount");
+                    var invoiceTotalOrdinal = GetOrdinalSafe(reader, "InvoiceTotal");
+                    var orderTypeOrdinal = GetOrdinalSafe(reader, "OrderType");
+                    var tableNumberOrdinal = GetOrdinalSafe(reader, "TableNumber");
+
                     while (await reader.ReadAsync())
                     {
+                        var cgstPercentage = cgstPercentageOrdinal >= 0 && !reader.IsDBNull(cgstPercentageOrdinal)
+                            ? reader.GetDecimal(cgstPercentageOrdinal)
+                            : 0;
+
+                        var sgstPercentage = sgstPercentageOrdinal >= 0 && !reader.IsDBNull(sgstPercentageOrdinal)
+                            ? reader.GetDecimal(sgstPercentageOrdinal)
+                            : 0;
+
                         model.Rows.Add(new GSTBreakupReportRow
                         {
-                            PaymentDate = reader.IsDBNull(reader.GetOrdinal("PaymentDate")) ? DateTime.MinValue : reader.GetDateTime(reader.GetOrdinal("PaymentDate")),
-                            OrderNumber = reader.IsDBNull(reader.GetOrdinal("OrderNumber")) ? string.Empty : reader.GetString(reader.GetOrdinal("OrderNumber")),
-                            TaxableValue = reader.IsDBNull(reader.GetOrdinal("TaxableValue")) ? 0 : reader.GetDecimal(reader.GetOrdinal("TaxableValue")),
-                            DiscountAmount = reader.IsDBNull(reader.GetOrdinal("DiscountAmount")) ? 0 : reader.GetDecimal(reader.GetOrdinal("DiscountAmount")),
-                            GSTPercentage = reader.IsDBNull(reader.GetOrdinal("GSTPercentage")) ? 0 : reader.GetDecimal(reader.GetOrdinal("GSTPercentage")),
-                            CGSTPercentage = reader.IsDBNull(reader.GetOrdinal("CGSTPercentage")) ? 0 : reader.GetDecimal(reader.GetOrdinal("CGSTPercentage")),
-                            CGSTAmount = reader.IsDBNull(reader.GetOrdinal("CGSTAmount")) ? 0 : reader.GetDecimal(reader.GetOrdinal("CGSTAmount")),
-                            SGSTPercentage = reader.IsDBNull(reader.GetOrdinal("SGSTPercentage")) ? 0 : reader.GetDecimal(reader.GetOrdinal("SGSTPercentage")),
-                            SGSTAmount = reader.IsDBNull(reader.GetOrdinal("SGSTAmount")) ? 0 : reader.GetDecimal(reader.GetOrdinal("SGSTAmount")),
-                            InvoiceTotal = reader.IsDBNull(reader.GetOrdinal("InvoiceTotal")) ? 0 : reader.GetDecimal(reader.GetOrdinal("InvoiceTotal")),
-                            OrderType = reader.IsDBNull(reader.GetOrdinal("OrderType")) ? string.Empty : reader.GetString(reader.GetOrdinal("OrderType")),
-                            TableNumber = reader.IsDBNull(reader.GetOrdinal("TableNumber")) ? string.Empty : reader.GetString(reader.GetOrdinal("TableNumber"))
+                            PaymentDate = paymentDateOrdinal >= 0 && !reader.IsDBNull(paymentDateOrdinal)
+                                ? reader.GetDateTime(paymentDateOrdinal)
+                                : DateTime.MinValue,
+                            OrderNumber = orderNumberOrdinal >= 0 && !reader.IsDBNull(orderNumberOrdinal)
+                                ? reader.GetString(orderNumberOrdinal)
+                                : string.Empty,
+                            TaxableValue = taxableValueOrdinal >= 0 && !reader.IsDBNull(taxableValueOrdinal)
+                                ? reader.GetDecimal(taxableValueOrdinal)
+                                : 0,
+                            DiscountAmount = discountAmountOrdinal >= 0 && !reader.IsDBNull(discountAmountOrdinal)
+                                ? reader.GetDecimal(discountAmountOrdinal)
+                                : 0,
+                            GSTPercentage = gstPercentageOrdinal >= 0 && !reader.IsDBNull(gstPercentageOrdinal)
+                                ? reader.GetDecimal(gstPercentageOrdinal)
+                                : (cgstPercentage + sgstPercentage),
+                            CGSTPercentage = cgstPercentage,
+                            CGSTAmount = cgstAmountOrdinal >= 0 && !reader.IsDBNull(cgstAmountOrdinal)
+                                ? reader.GetDecimal(cgstAmountOrdinal)
+                                : 0,
+                            SGSTPercentage = sgstPercentage,
+                            SGSTAmount = sgstAmountOrdinal >= 0 && !reader.IsDBNull(sgstAmountOrdinal)
+                                ? reader.GetDecimal(sgstAmountOrdinal)
+                                : 0,
+                            InvoiceTotal = invoiceTotalOrdinal >= 0 && !reader.IsDBNull(invoiceTotalOrdinal)
+                                ? reader.GetDecimal(invoiceTotalOrdinal)
+                                : 0,
+                            OrderType = orderTypeOrdinal >= 0 && !reader.IsDBNull(orderTypeOrdinal)
+                                ? reader.GetString(orderTypeOrdinal)
+                                : "Foods",
+                            TableNumber = tableNumberOrdinal >= 0 && !reader.IsDBNull(tableNumberOrdinal)
+                                ? reader.GetString(tableNumberOrdinal)
+                                : string.Empty
                         });
                     }
                 }
@@ -1222,7 +1433,7 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        private async Task LoadCustomerReportDataAsync(CustomerReportViewModel model)
+        private async Task LoadCustomerReportDataAsync(CustomerReportViewModel model, int? branchId = null)
         {
             try
             {
@@ -1231,6 +1442,7 @@ namespace RestaurantManagementSystem.Controllers
                 using var command = new SqlCommand("usp_GetCustomerAnalysis", connection) { CommandType = CommandType.StoredProcedure };
                 command.Parameters.AddWithValue("@FromDate", (object?)model.Filter.From?.Date ?? DBNull.Value);
                 command.Parameters.AddWithValue("@ToDate", (object?)model.Filter.To?.Date ?? DBNull.Value);
+                await TryAddBranchParameterAsync(connection, command, branchId);
 
                 // Clear existing
                 model.TopCustomers.Clear();
@@ -1321,7 +1533,8 @@ namespace RestaurantManagementSystem.Controllers
             {
                 using var connection2 = new SqlConnection(_connectionString);
                 await connection2.OpenAsync();
-                using var cmd = new SqlCommand(@"
+                var hasOrdersBranchColumn = await HasColumnAsync(connection2, "Orders", "BranchId");
+                var customerSql = @"
                     SELECT 
                         ISNULL(NULLIF(o.CustomerName,''), 'Unknown') AS Name,
                         ISNULL(NULLIF(o.CustomerPhone,''), '') AS Phone,
@@ -1332,14 +1545,20 @@ namespace RestaurantManagementSystem.Controllers
                     FROM Orders o WITH (NOLOCK)
                     WHERE o.OrderType IN (0,1,2)
                       AND (@From IS NULL OR o.CreatedAt >= @From)
-                      AND (@To IS NULL OR o.CreatedAt < DATEADD(DAY,1,@To))
+                                            AND (@To IS NULL OR o.CreatedAt < DATEADD(DAY,1,@To))
                     GROUP BY 
                         ISNULL(NULLIF(o.CustomerName,''), 'Unknown'),
                         ISNULL(NULLIF(o.CustomerPhone,''), ''),
                         CASE o.OrderType WHEN 0 THEN 'Dine-In' WHEN 1 THEN 'Takeout' WHEN 2 THEN 'Delivery' ELSE 'Other' END
                     HAVING (ISNULL(NULLIF(o.CustomerPhone,''), '') <> '' OR MAX(ISNULL(o.Customeremailid,'')) <> '')
                     ORDER BY Visits DESC, Name ASC
-                ", connection2)
+                ";
+                if (hasOrdersBranchColumn && branchId.HasValue)
+                {
+                    customerSql = customerSql.Replace("GROUP BY", "AND o.BranchId = @BranchId GROUP BY");
+                }
+
+                using var cmd = new SqlCommand(customerSql, connection2)
                 {
                     CommandType = CommandType.Text,
                     CommandTimeout = 60
@@ -1347,6 +1566,10 @@ namespace RestaurantManagementSystem.Controllers
 
                 cmd.Parameters.Add(new SqlParameter("@From", SqlDbType.Date) { Value = (object?)model.Filter.From?.Date ?? DBNull.Value });
                 cmd.Parameters.Add(new SqlParameter("@To", SqlDbType.Date) { Value = (object?)model.Filter.To?.Date ?? DBNull.Value });
+                if (hasOrdersBranchColumn && branchId.HasValue)
+                {
+                    cmd.Parameters.Add(new SqlParameter("@BranchId", SqlDbType.Int) { Value = branchId.Value });
+                }
 
                 using var r = await cmd.ExecuteReaderAsync();
                 while (await r.ReadAsync())
@@ -1368,7 +1591,7 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        private async Task LoadMenuReportDataAsync(MenuReportViewModel viewModel)
+        private async Task LoadMenuReportDataAsync(MenuReportViewModel viewModel, int? branchId = null)
         {
             try
             {
@@ -1382,6 +1605,7 @@ namespace RestaurantManagementSystem.Controllers
 
                 command.Parameters.Add(new SqlParameter("@FromDate", SqlDbType.Date) { Value = (object?)viewModel.Filter.From?.Date ?? DBNull.Value });
                 command.Parameters.Add(new SqlParameter("@ToDate", SqlDbType.Date) { Value = (object?)viewModel.Filter.To?.Date ?? DBNull.Value });
+                await TryAddBranchParameterAsync(connection, command, branchId);
 
                 // Clear existing collections
                 viewModel.TopItems.Clear();
@@ -1479,6 +1703,9 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Collection, PermissionAction.View)]
         public async Task<IActionResult> CollectionRegister()
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Order Wise Payment Method Wise Collection Register";
             var model = new CollectionRegisterViewModel
             {
@@ -1511,16 +1738,35 @@ namespace RestaurantManagementSystem.Controllers
                 model.Filter.UserId = currentUserId;
             }
             await LoadPaymentMethodsAsync(model);
-            await LoadCountersAsync(model);
-            await LoadCollectionRegisterDataAsync(model, canViewAllCollections, currentUserId);
+            await LoadCountersAsync(model, activeBranchId.Value);
+            await LoadCollectionRegisterDataAsync(model, canViewAllCollections, currentUserId, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Collection);
             return View(model);
         }
 
         [HttpPost]
         [RequirePermission(MenuCodes.Collection, PermissionAction.View)]
-        public async Task<IActionResult> CollectionRegister(CollectionRegisterFilter filter)
+        public async Task<IActionResult> CollectionRegister([Bind(Prefix = "Filter")] CollectionRegisterFilter filter)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
+            filter ??= new CollectionRegisterFilter();
+
+            if (!filter.FromDate.HasValue && !filter.ToDate.HasValue)
+            {
+                filter.FromDate = DateTime.Today;
+                filter.ToDate = DateTime.Today;
+            }
+            else if (!filter.FromDate.HasValue && filter.ToDate.HasValue)
+            {
+                filter.FromDate = filter.ToDate.Value.Date;
+            }
+            else if (filter.FromDate.HasValue && !filter.ToDate.HasValue)
+            {
+                filter.ToDate = filter.FromDate.Value.Date;
+            }
+
             ViewData["Title"] = "Order Wise Payment Method Wise Collection Register";
             var model = new CollectionRegisterViewModel { Filter = filter };
             var canViewAllCollections = CurrentUserCanViewAllReportData();
@@ -1531,8 +1777,8 @@ namespace RestaurantManagementSystem.Controllers
                 model.Filter.UserId = currentUserId;
             }
             await LoadPaymentMethodsAsync(model);
-            await LoadCountersAsync(model);
-            await LoadCollectionRegisterDataAsync(model, canViewAllCollections, currentUserId);
+            await LoadCountersAsync(model, activeBranchId.Value);
+            await LoadCollectionRegisterDataAsync(model, canViewAllCollections, currentUserId, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Collection);
             return View(model);
         }
@@ -1541,6 +1787,9 @@ namespace RestaurantManagementSystem.Controllers
         [RequirePermission(MenuCodes.Collection, PermissionAction.Export)]
         public async Task<IActionResult> CollectionRegisterPdf(DateTime? fromDate, DateTime? toDate, int? paymentMethodId, int? counterId)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Order Wise Payment Method Wise Collection Register";
 
             var model = new CollectionRegisterViewModel
@@ -1562,8 +1811,8 @@ namespace RestaurantManagementSystem.Controllers
             }
 
             await LoadPaymentMethodsAsync(model);
-            await LoadCountersAsync(model);
-            await LoadCollectionRegisterDataAsync(model, canViewAllCollections, currentUserId);
+            await LoadCountersAsync(model, activeBranchId.Value);
+            await LoadCollectionRegisterDataAsync(model, canViewAllCollections, currentUserId, activeBranchId.Value);
 
             var pdfBytes = BuildCollectionRegisterPdf(model);
             var fileName = BuildCollectionRegisterExportFileName(model.Filter, "pdf");
@@ -1721,7 +1970,7 @@ namespace RestaurantManagementSystem.Controllers
             return stream.ToArray();
         }
 
-        private async Task LoadCountersAsync(CollectionRegisterViewModel model)
+        private async Task LoadCountersAsync(CollectionRegisterViewModel model, int? branchId = null)
         {
             try
             {
@@ -1742,10 +1991,20 @@ namespace RestaurantManagementSystem.Controllers
                     }
                 }
 
-                using var command = new SqlCommand(@"
+                var hasCounterBranchColumn = await HasColumnAsync(connection, "Counters", "BranchId");
+                var countersSql = @"
 SELECT Id, CounterCode, CounterName, IsActive
 FROM dbo.Counters WITH (NOLOCK)
-ORDER BY CounterCode, CounterName", connection);
+ORDER BY CounterCode, CounterName";
+                if (hasCounterBranchColumn && branchId.HasValue)
+                {
+                    countersSql = countersSql.Replace("ORDER BY CounterCode, CounterName", "WHERE BranchId = @BranchId ORDER BY CounterCode, CounterName");
+                }
+                using var command = new SqlCommand(countersSql, connection);
+                if (hasCounterBranchColumn && branchId.HasValue)
+                {
+                    command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                }
 
                 using var reader = await command.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
@@ -1806,7 +2065,7 @@ ORDER BY CounterCode, CounterName", connection);
             }
         }
 
-        private async Task LoadCollectionRegisterDataAsync(CollectionRegisterViewModel model, bool canViewAllRecords, int currentUserId)
+        private async Task LoadCollectionRegisterDataAsync(CollectionRegisterViewModel model, bool canViewAllRecords, int currentUserId, int? branchId = null)
         {
             try
             {
@@ -1840,6 +2099,7 @@ ORDER BY CounterCode, CounterName", connection);
                 command.Parameters.AddWithValue("@ToDate", (object?)model.Filter.ToDate?.Date ?? DBNull.Value);
                 command.Parameters.AddWithValue("@PaymentMethodId", (object?)model.Filter.PaymentMethodId ?? DBNull.Value);
                 command.Parameters.AddWithValue("@UserId", (object?)requestedUserId ?? DBNull.Value);
+                await TryAddBranchParameterAsync(connection, command, branchId);
 
                 // Counter filter (only if the stored procedure supports it)
                 var hasCounterParam = false;
@@ -1974,6 +2234,13 @@ FROM dbo.Orders o WITH (NOLOCK)
 {(hasCountersTable ? $"LEFT JOIN dbo.Counters c WITH (NOLOCK) ON c.Id = TRY_CONVERT(int, o.[{ordersCounterCol}])" : string.Empty)}
 WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
 
+                                var hasOrdersBranch = await HasColumnAsync(connection, "Orders", "BranchId");
+                                if (branchId.HasValue && hasOrdersBranch)
+                                {
+                                    cmd.CommandText += " AND o.BranchId = @BranchId";
+                                    cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                                }
+
                                 using var r = await cmd.ExecuteReaderAsync();
                                 while (await r.ReadAsync())
                                 {
@@ -2095,6 +2362,9 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
         [RequirePermission(MenuCodes.CashClosing, PermissionAction.View)]
         public async Task<IActionResult> CashClosing()
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Cash Closing Report";
             
             var viewModel = new CashClosingReportViewModel();
@@ -2104,13 +2374,14 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
             viewModel.Filters.EndDate = DateTime.Today;
             
             // Load cashiers for filter dropdown
-            await LoadCashiersForFilterAsync(viewModel);
+            await LoadCashiersForFilterAsync(viewModel, activeBranchId.Value);
             
             // Load default report
             var reportData = await _dayClosingService.GenerateCashClosingReportAsync(
                 viewModel.Filters.StartDate, 
                 viewModel.Filters.EndDate, 
-                viewModel.Filters.CashierId
+                viewModel.Filters.CashierId,
+                activeBranchId.Value
             );
             
             viewModel.Summary = reportData.Summary;
@@ -2160,6 +2431,9 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
         [RequirePermission(MenuCodes.CashClosing, PermissionAction.View)]
         public async Task<IActionResult> CashClosing(CashClosingReportFilters filters)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Cash Closing Report";
             
             var viewModel = new CashClosingReportViewModel
@@ -2171,18 +2445,19 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
             if (filters.StartDate > filters.EndDate)
             {
                 ModelState.AddModelError("", "Start date cannot be after end date");
-                await LoadCashiersForFilterAsync(viewModel);
+                await LoadCashiersForFilterAsync(viewModel, activeBranchId.Value);
                 return View(viewModel);
             }
             
             // Load cashiers for filter dropdown
-            await LoadCashiersForFilterAsync(viewModel);
+            await LoadCashiersForFilterAsync(viewModel, activeBranchId.Value);
             
             // Load report based on filters
             var reportData = await _dayClosingService.GenerateCashClosingReportAsync(
                 filters.StartDate, 
                 filters.EndDate, 
-                filters.CashierId
+                filters.CashierId,
+                activeBranchId.Value
             );
             
             viewModel.Summary = reportData.Summary;
@@ -2195,7 +2470,7 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
             return View(viewModel);
         }
 
-        private async Task LoadCashiersForFilterAsync(CashClosingReportViewModel viewModel)
+        private async Task LoadCashiersForFilterAsync(CashClosingReportViewModel viewModel, int? branchId = null)
         {
             try
             {
@@ -2203,6 +2478,7 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
                 {
                     await connection.OpenAsync();
 
+                    var hasUsersBranchColumn = await HasColumnAsync(connection, "Users", "BranchId");
                     var query = @"
                         SELECT DISTINCT 
                             u.Id, 
@@ -2213,10 +2489,19 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
                         WHERE u.IsActive = 1 
                           AND r.Name IN ('Administrator', 'Manager', 'Cashier')
                         ORDER BY u.Username";
+                    if (hasUsersBranchColumn && branchId.HasValue)
+                    {
+                        query = query.Replace("ORDER BY u.Username", "AND u.BranchId = @BranchId ORDER BY u.Username");
+                    }
 
                     using (var command = new SqlCommand(query, connection))
-                    using (var reader = await command.ExecuteReaderAsync())
                     {
+                        if (hasUsersBranchColumn && branchId.HasValue)
+                        {
+                            command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                        }
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
                         var cashiers = new List<(int Id, string Name)>();
                         while (await reader.ReadAsync())
                         {
@@ -2227,6 +2512,7 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
                         }
                         
                         ViewBag.Cashiers = cashiers;
+                        }
                     }
                 }
             }
@@ -2242,6 +2528,9 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
         [RequirePermission(MenuCodes.Feedback, PermissionAction.View)]
         public async Task<IActionResult> FeedbackSurveyReport(DateTime? fromDate, DateTime? toDate, string location, int? minRating, int? maxRating)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
             ViewData["Title"] = "Feedback Survey Report";
             
             var viewModel = new FeedbackSurveyReportViewModel
@@ -2267,6 +2556,7 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
                         command.Parameters.AddWithValue("@Location", (object)viewModel.Location ?? DBNull.Value);
                         command.Parameters.AddWithValue("@MinRating", (object)viewModel.MinRating ?? DBNull.Value);
                         command.Parameters.AddWithValue("@MaxRating", (object)viewModel.MaxRating ?? DBNull.Value);
+                        await TryAddBranchParameterAsync(connection, command, activeBranchId.Value);
 
                         using (var reader = await command.ExecuteReaderAsync())
                         {

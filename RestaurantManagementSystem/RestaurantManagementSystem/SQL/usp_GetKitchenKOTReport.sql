@@ -2,13 +2,15 @@
 create or alter PROCEDURE [dbo].[usp_GetKitchenKOTReport]
     @FromDate DATE = NULL,
     @ToDate DATE = NULL,
-    @Station NVARCHAR(100) = NULL
+    @Station NVARCHAR(100) = NULL,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
 
     DECLARE @Start DATETIME = COALESCE(CAST(@FromDate AS DATETIME), DATEADD(day, -1, CAST(GETDATE() AS DATE)));
     DECLARE @End DATETIME = DATEADD(day, 1, COALESCE(CAST(@ToDate AS DATETIME), CAST(GETDATE() AS DATE)));
+    DECLARE @HasOrdersBranch BIT = CASE WHEN COL_LENGTH('dbo.Orders', 'BranchId') IS NULL THEN 0 ELSE 1 END;
 
     SELECT
         o.Id AS OrderId,
@@ -33,6 +35,7 @@ BEGIN
           OR (kti.CompletionTime >= @Start AND kti.CompletionTime < @End)
       )
       AND (@Station IS NULL OR @Station = '' OR s.Name = @Station)
+      AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
       AND (s.Name IS NULL OR s.Name <> 'Bar')
     ORDER BY kt.CreatedAt DESC, kt.TicketNumber DESC;
 END

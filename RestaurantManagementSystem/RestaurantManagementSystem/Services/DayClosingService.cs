@@ -11,17 +11,17 @@ namespace RestaurantManagementSystem.Services
 {
     public interface IDayClosingService
     {
-        Task<List<CashierOption>> GetAvailableCashiersAsync(DateTime businessDate);
-        Task<(bool Success, string Message)> InitializeDayOpeningAsync(DateTime businessDate, int cashierId, decimal openingFloat, string createdBy);
-        Task<decimal> GetCashierSystemAmountAsync(DateTime businessDate, int cashierId);
-        Task<List<CashierDayCloseViewModel>> GetDayClosingSummaryAsync(DateTime businessDate);
-        Task<DayLockStatus?> GetDayLockStatusAsync(DateTime businessDate);
-        Task<(bool Success, string Message, decimal Variance)> SaveDeclaredCashAsync(DateTime businessDate, int cashierId, decimal declaredAmount, string updatedBy);
-        Task<(bool Success, string Message)> ApproveVarianceAsync(int closeId, string approvedBy, string comment, bool approved);
-        Task<(bool Success, string Message, int IssueCount)> LockDayAsync(DateTime businessDate, string lockedBy, string? remarks);
-        Task<EODReportViewModel> GenerateEODReportAsync(DateTime businessDate, string generatedBy);
-        Task<bool> UpdateCashierSystemAmountsAsync(DateTime businessDate);
-        Task<CashClosingReportViewModel> GenerateCashClosingReportAsync(DateTime startDate, DateTime endDate, int? cashierId = null);
+        Task<List<CashierOption>> GetAvailableCashiersAsync(DateTime businessDate, int? branchId = null);
+        Task<(bool Success, string Message)> InitializeDayOpeningAsync(DateTime businessDate, int cashierId, decimal openingFloat, string createdBy, int? branchId = null);
+        Task<decimal> GetCashierSystemAmountAsync(DateTime businessDate, int cashierId, int? branchId = null);
+        Task<List<CashierDayCloseViewModel>> GetDayClosingSummaryAsync(DateTime businessDate, int? branchId = null);
+        Task<DayLockStatus?> GetDayLockStatusAsync(DateTime businessDate, int? branchId = null);
+        Task<(bool Success, string Message, decimal Variance)> SaveDeclaredCashAsync(DateTime businessDate, int cashierId, decimal declaredAmount, string updatedBy, int? branchId = null);
+        Task<(bool Success, string Message)> ApproveVarianceAsync(int closeId, string approvedBy, string comment, bool approved, int? branchId = null);
+        Task<(bool Success, string Message, int IssueCount)> LockDayAsync(DateTime businessDate, string lockedBy, string? remarks, int? branchId = null);
+        Task<EODReportViewModel> GenerateEODReportAsync(DateTime businessDate, string generatedBy, int? branchId = null);
+        Task<bool> UpdateCashierSystemAmountsAsync(DateTime businessDate, int? branchId = null);
+        Task<CashClosingReportViewModel> GenerateCashClosingReportAsync(DateTime startDate, DateTime endDate, int? cashierId = null, int? branchId = null);
     }
 
     public class DayClosingService : IDayClosingService
@@ -36,10 +36,49 @@ namespace RestaurantManagementSystem.Services
                 ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
         }
 
+        private async Task<bool> StoredProcedureHasParameterAsync(SqlConnection connection, string procedureName, string parameterName)
+        {
+            try
+            {
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM sys.parameters
+                    WHERE object_id = OBJECT_ID(@ProcedureName)
+                      AND name = @ParameterName", connection);
+                cmd.Parameters.AddWithValue("@ProcedureName", procedureName);
+                cmd.Parameters.AddWithValue("@ParameterName", parameterName);
+                var result = await cmd.ExecuteScalarAsync();
+                return Convert.ToInt32(result) > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<bool> HasColumnAsync(SqlConnection connection, string tableName, string columnName)
+        {
+            try
+            {
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = @TableName AND COLUMN_NAME = @ColumnName", connection);
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                var result = await cmd.ExecuteScalarAsync();
+                return Convert.ToInt32(result) > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         /// <summary>
         /// Get list of cashiers available for day opening
         /// </summary>
-        public async Task<List<CashierOption>> GetAvailableCashiersAsync(DateTime businessDate)
+        public async Task<List<CashierOption>> GetAvailableCashiersAsync(DateTime businessDate, int? branchId = null)
         {
             var cashiers = new List<CashierOption>();
 
@@ -47,7 +86,18 @@ namespace RestaurantManagementSystem.Services
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasUsersBranch = await HasColumnAsync(connection, "Users", "BranchId");
+                var hasOpeningBranch = await HasColumnAsync(connection, "CashierDayOpening", "BranchId");
+
+                var openingJoin = hasOpeningBranch && branchId.HasValue
+                    ? "LEFT JOIN CashierDayOpening cdo ON u.Id = cdo.CashierId AND cdo.BusinessDate = @BusinessDate AND cdo.BranchId = @BranchId"
+                    : "LEFT JOIN CashierDayOpening cdo ON u.Id = cdo.CashierId AND cdo.BusinessDate = @BusinessDate";
+
+                var branchPredicate = hasUsersBranch && branchId.HasValue
+                    ? "AND u.BranchId = @BranchId"
+                    : string.Empty;
+
+                var query = $@"
                     SELECT DISTINCT 
                         u.Id, 
                         u.Username, 
@@ -56,14 +106,19 @@ namespace RestaurantManagementSystem.Services
                     FROM Users u
                     INNER JOIN UserRoles ur ON u.Id = ur.UserId
                     INNER JOIN Roles r ON ur.RoleId = r.Id
-                    LEFT JOIN CashierDayOpening cdo ON u.Id = cdo.CashierId AND cdo.BusinessDate = @BusinessDate
+                    {openingJoin}
                     WHERE r.Name IN ('Cashier', 'Manager', 'Administrator')
                       AND u.IsActive = 1
+                      {branchPredicate}
                     ORDER BY u.Username";
 
                 using (var command = new SqlCommand(query, connection))
                 {
                     command.Parameters.AddWithValue("@BusinessDate", businessDate);
+                    if (branchId.HasValue && (hasUsersBranch || hasOpeningBranch))
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
 
                     using (var reader = await command.ExecuteReaderAsync())
                     {
@@ -88,11 +143,15 @@ namespace RestaurantManagementSystem.Services
         /// Initialize day opening for a cashier
         /// </summary>
         public async Task<(bool Success, string Message)> InitializeDayOpeningAsync(
-            DateTime businessDate, int cashierId, decimal openingFloat, string createdBy)
+            DateTime businessDate, int cashierId, decimal openingFloat, string createdBy, int? branchId = null)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
+
+                var hasOpeningBranch = await HasColumnAsync(connection, "CashierDayOpening", "BranchId");
+                var hasCloseBranch = await HasColumnAsync(connection, "CashierDayClose", "BranchId");
+                var spHasBranch = await StoredProcedureHasParameterAsync(connection, "usp_InitializeDayOpening", "@BranchId");
 
                 using (var command = new SqlCommand("usp_InitializeDayOpening", connection))
                 {
@@ -101,6 +160,10 @@ namespace RestaurantManagementSystem.Services
                     command.Parameters.AddWithValue("@CashierId", cashierId);
                     command.Parameters.AddWithValue("@OpeningFloat", openingFloat);
                     command.Parameters.AddWithValue("@CreatedBy", createdBy);
+                    if (branchId.HasValue && spHasBranch)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
 
                     try
                     {
@@ -112,6 +175,34 @@ namespace RestaurantManagementSystem.Services
                                 return (true, message);
                             }
                         }
+
+                        if (branchId.HasValue && !spHasBranch)
+                        {
+                            if (hasOpeningBranch)
+                            {
+                                using var openingCmd = new SqlCommand(@"
+                                    UPDATE CashierDayOpening
+                                    SET BranchId = @BranchId
+                                    WHERE BusinessDate = @BusinessDate AND CashierId = @CashierId", connection);
+                                openingCmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                                openingCmd.Parameters.AddWithValue("@BusinessDate", businessDate.Date);
+                                openingCmd.Parameters.AddWithValue("@CashierId", cashierId);
+                                await openingCmd.ExecuteNonQueryAsync();
+                            }
+
+                            if (hasCloseBranch)
+                            {
+                                using var closeCmd = new SqlCommand(@"
+                                    UPDATE CashierDayClose
+                                    SET BranchId = @BranchId
+                                    WHERE BusinessDate = @BusinessDate AND CashierId = @CashierId", connection);
+                                closeCmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                                closeCmd.Parameters.AddWithValue("@BusinessDate", businessDate.Date);
+                                closeCmd.Parameters.AddWithValue("@CashierId", cashierId);
+                                await closeCmd.ExecuteNonQueryAsync();
+                            }
+                        }
+
                         return (true, "Opening float initialized successfully");
                     }
                     catch (Exception ex)
@@ -125,25 +216,70 @@ namespace RestaurantManagementSystem.Services
         /// <summary>
         /// Get system cash amount for a cashier
         /// </summary>
-        public async Task<decimal> GetCashierSystemAmountAsync(DateTime businessDate, int cashierId)
+        public async Task<decimal> GetCashierSystemAmountAsync(DateTime businessDate, int cashierId, int? branchId = null)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
+
+                var spHasBranch = await StoredProcedureHasParameterAsync(connection, "usp_GetCashierSystemAmount", "@BranchId")
+                    || await StoredProcedureHasParameterAsync(connection, "usp_GetCashierSystemAmount", "@BranchID");
 
                 using (var command = new SqlCommand("usp_GetCashierSystemAmount", connection))
                 {
                     command.CommandType = CommandType.StoredProcedure;
                     command.Parameters.AddWithValue("@BusinessDate", businessDate);
                     command.Parameters.AddWithValue("@CashierId", cashierId);
-
-                    using (var reader = await command.ExecuteReaderAsync())
+                    if (branchId.HasValue)
                     {
-                        if (await reader.ReadAsync())
+                        if (await StoredProcedureHasParameterAsync(connection, "usp_GetCashierSystemAmount", "@BranchId"))
                         {
-                            return reader.GetDecimal(0);
+                            command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                        }
+                        else if (await StoredProcedureHasParameterAsync(connection, "usp_GetCashierSystemAmount", "@BranchID"))
+                        {
+                            command.Parameters.AddWithValue("@BranchID", branchId.Value);
                         }
                     }
+
+                    if (spHasBranch || !branchId.HasValue)
+                    {
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                return reader.GetDecimal(0);
+                            }
+                        }
+                    }
+                }
+
+                if (branchId.HasValue)
+                {
+                    var hasOrdersBranch = await HasColumnAsync(connection, "Orders", "BranchId");
+                    var branchFilter = hasOrdersBranch ? "AND o.BranchId = @BranchId" : string.Empty;
+
+                    using var fallbackCommand = new SqlCommand($@"
+                        SELECT ISNULL(SUM(p.Amount + ISNULL(p.RoundoffAdjustmentAmt, 0)), 0) AS SystemAmount
+                        FROM Orders o
+                        INNER JOIN Payments p ON p.OrderId = o.Id
+                        INNER JOIN PaymentMethods pm ON p.PaymentMethodId = pm.Id
+                        WHERE CAST(o.CreatedAt AS DATE) = @BusinessDate
+                          AND o.CashierId = @CashierId
+                          AND pm.Name = 'CASH'
+                          AND p.Status = 1
+                          AND o.Status IN (2, 3)
+                          {branchFilter}", connection);
+
+                    fallbackCommand.Parameters.AddWithValue("@BusinessDate", businessDate.Date);
+                    fallbackCommand.Parameters.AddWithValue("@CashierId", cashierId);
+                    if (hasOrdersBranch)
+                    {
+                        fallbackCommand.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
+
+                    var amount = await fallbackCommand.ExecuteScalarAsync();
+                    return amount == DBNull.Value || amount == null ? 0 : Convert.ToDecimal(amount);
                 }
             }
 
@@ -153,14 +289,20 @@ namespace RestaurantManagementSystem.Services
         /// <summary>
         /// Update system amounts for all cashiers on a given date
         /// </summary>
-        public async Task<bool> UpdateCashierSystemAmountsAsync(DateTime businessDate)
+        public async Task<bool> UpdateCashierSystemAmountsAsync(DateTime businessDate, int? branchId = null)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
+                var hasCloseBranch = await HasColumnAsync(connection, "CashierDayClose", "BranchId");
+                var hasOrdersBranch = await HasColumnAsync(connection, "Orders", "BranchId");
+
+                var orderBranchFilter = hasOrdersBranch && branchId.HasValue ? "AND o.BranchId = @BranchId" : string.Empty;
+                var closeBranchFilter = hasCloseBranch && branchId.HasValue ? "AND cdc.BranchId = @BranchId" : string.Empty;
+
                 // Query using Payments table (actual schema)
-                var query = @"
+                var query = $@"
                     -- Refresh SystemAmount per cashier for the business date
                     -- Prefer Orders.CashierId; fallback to Payments.ProcessedBy when Orders.CashierId is NULL
                     UPDATE cdc
@@ -177,13 +319,19 @@ namespace RestaurantManagementSystem.Services
                           AND pm.Name = 'CASH'
                           AND p.Status = 1
                           AND o.Status IN (2, 3)
+                          {orderBranchFilter}
                         GROUP BY COALESCE(o.CashierId, p.ProcessedBy)
                     ) cashSummary ON cdc.CashierId = cashSummary.CashierId
-                    WHERE cdc.BusinessDate = @BusinessDate";
+                    WHERE cdc.BusinessDate = @BusinessDate
+                      {closeBranchFilter}";
 
                 using (var command = new SqlCommand(query, connection))
                 {
                     command.Parameters.AddWithValue("@BusinessDate", businessDate);
+                    if (branchId.HasValue && (hasCloseBranch || hasOrdersBranch))
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
                     await command.ExecuteNonQueryAsync();
                     return true;
                 }
@@ -193,10 +341,10 @@ namespace RestaurantManagementSystem.Services
         /// <summary>
         /// Get day closing summary for all cashiers
         /// </summary>
-        public async Task<List<CashierDayCloseViewModel>> GetDayClosingSummaryAsync(DateTime businessDate)
+        public async Task<List<CashierDayCloseViewModel>> GetDayClosingSummaryAsync(DateTime businessDate, int? branchId = null)
         {
             // First update system amounts
-            await UpdateCashierSystemAmountsAsync(businessDate);
+            await UpdateCashierSystemAmountsAsync(businessDate, branchId);
 
             var closings = new List<CashierDayCloseViewModel>();
 
@@ -204,18 +352,126 @@ namespace RestaurantManagementSystem.Services
             {
                 await connection.OpenAsync();
 
+                var hasCloseBranch = await HasColumnAsync(connection, "CashierDayClose", "BranchId");
+                var spHasBranch = await StoredProcedureHasParameterAsync(connection, "usp_GetDayClosingSummary", "@BranchId")
+                    || await StoredProcedureHasParameterAsync(connection, "usp_GetDayClosingSummary", "@BranchID");
+
                 using (var command = new SqlCommand("usp_GetDayClosingSummary", connection))
                 {
                     command.CommandType = CommandType.StoredProcedure;
                     command.Parameters.AddWithValue("@BusinessDate", businessDate);
+                    if (branchId.HasValue)
+                    {
+                        if (await StoredProcedureHasParameterAsync(connection, "usp_GetDayClosingSummary", "@BranchId"))
+                        {
+                            command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                        }
+                        else if (await StoredProcedureHasParameterAsync(connection, "usp_GetDayClosingSummary", "@BranchID"))
+                        {
+                            command.Parameters.AddWithValue("@BranchID", branchId.Value);
+                        }
+                    }
 
-                    using (var reader = await command.ExecuteReaderAsync())
+                    if (!branchId.HasValue || spHasBranch)
+                    {
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            while (await reader.ReadAsync())
+                            {
+                                var status = reader.GetString(reader.GetOrdinal("Status"));
+                                var variance = reader.IsDBNull(reader.GetOrdinal("Variance"))
+                                    ? (decimal?)null
+                                    : reader.GetDecimal(reader.GetOrdinal("Variance"));
+
+                                closings.Add(new CashierDayCloseViewModel
+                                {
+                                    Id = reader.GetInt32(reader.GetOrdinal("Id")),
+                                    CashierId = reader.GetInt32(reader.GetOrdinal("CashierId")),
+                                    CashierName = reader.GetString(reader.GetOrdinal("CashierName")),
+                                    OpeningFloat = reader.GetDecimal(reader.GetOrdinal("OpeningFloat")),
+                                    SystemAmount = reader.GetDecimal(reader.GetOrdinal("SystemAmount")),
+                                    DeclaredAmount = reader.IsDBNull(reader.GetOrdinal("DeclaredAmount"))
+                                        ? (decimal?)null
+                                        : reader.GetDecimal(reader.GetOrdinal("DeclaredAmount")),
+                                    ExpectedCash = reader.GetDecimal(reader.GetOrdinal("ExpectedCash")),
+                                    Variance = variance,
+                                    Status = status,
+                                    ApprovedBy = reader.IsDBNull(reader.GetOrdinal("ApprovedBy"))
+                                        ? null
+                                        : reader.GetString(reader.GetOrdinal("ApprovedBy")),
+                                    ApprovalComment = reader.IsDBNull(reader.GetOrdinal("ApprovalComment"))
+                                        ? null
+                                        : reader.GetString(reader.GetOrdinal("ApprovalComment")),
+                                    LockedFlag = reader.GetBoolean(reader.GetOrdinal("LockedFlag")),
+                                    LockedAt = reader.IsDBNull(reader.GetOrdinal("LockedAt"))
+                                        ? (DateTime?)null
+                                        : reader.GetDateTime(reader.GetOrdinal("LockedAt")),
+                                    LockedBy = reader.IsDBNull(reader.GetOrdinal("LockedBy"))
+                                        ? null
+                                        : reader.GetString(reader.GetOrdinal("LockedBy")),
+                                    StatusBadgeClass = GetStatusBadgeClass(status),
+                                    StatusIcon = GetStatusIcon(status),
+                                    RequiresApproval = status == "CHECK"
+                                });
+                            }
+                        }
+
+                        return closings;
+                    }
+
+                    var summarySql = hasCloseBranch
+                        ? @"SELECT 
+                                cdc.Id,
+                                cdc.CashierId,
+                                cdc.CashierName,
+                                cdc.OpeningFloat,
+                                cdc.SystemAmount,
+                                cdc.DeclaredAmount,
+                                cdc.Variance,
+                                cdc.Status,
+                                cdc.ApprovedBy,
+                                cdc.ApprovalComment,
+                                cdc.LockedFlag,
+                                cdc.LockedAt,
+                                cdc.LockedBy,
+                                (cdc.SystemAmount + cdc.OpeningFloat) AS ExpectedCash
+                           FROM CashierDayClose cdc
+                           WHERE cdc.BusinessDate = @BusinessDate
+                             AND cdc.BranchId = @BranchId
+                           ORDER BY cdc.CashierName"
+                        : @"SELECT 
+                                cdc.Id,
+                                cdc.CashierId,
+                                cdc.CashierName,
+                                cdc.OpeningFloat,
+                                cdc.SystemAmount,
+                                cdc.DeclaredAmount,
+                                cdc.Variance,
+                                cdc.Status,
+                                cdc.ApprovedBy,
+                                cdc.ApprovalComment,
+                                cdc.LockedFlag,
+                                cdc.LockedAt,
+                                cdc.LockedBy,
+                                (cdc.SystemAmount + cdc.OpeningFloat) AS ExpectedCash
+                           FROM CashierDayClose cdc
+                           WHERE cdc.BusinessDate = @BusinessDate
+                           ORDER BY cdc.CashierName";
+
+                    using var fallbackCommand = new SqlCommand(summarySql, connection);
+                    fallbackCommand.Parameters.AddWithValue("@BusinessDate", businessDate.Date);
+                    if (hasCloseBranch)
+                    {
+                        fallbackCommand.Parameters.AddWithValue("@BranchId", branchId!.Value);
+                    }
+
+                    using (var reader = await fallbackCommand.ExecuteReaderAsync())
                     {
                         while (await reader.ReadAsync())
                         {
                             var status = reader.GetString(reader.GetOrdinal("Status"));
-                            var variance = reader.IsDBNull(reader.GetOrdinal("Variance")) 
-                                ? (decimal?)null 
+                            var variance = reader.IsDBNull(reader.GetOrdinal("Variance"))
+                                ? (decimal?)null
                                 : reader.GetDecimal(reader.GetOrdinal("Variance"));
 
                             closings.Add(new CashierDayCloseViewModel
@@ -225,24 +481,24 @@ namespace RestaurantManagementSystem.Services
                                 CashierName = reader.GetString(reader.GetOrdinal("CashierName")),
                                 OpeningFloat = reader.GetDecimal(reader.GetOrdinal("OpeningFloat")),
                                 SystemAmount = reader.GetDecimal(reader.GetOrdinal("SystemAmount")),
-                                DeclaredAmount = reader.IsDBNull(reader.GetOrdinal("DeclaredAmount")) 
-                                    ? (decimal?)null 
+                                DeclaredAmount = reader.IsDBNull(reader.GetOrdinal("DeclaredAmount"))
+                                    ? (decimal?)null
                                     : reader.GetDecimal(reader.GetOrdinal("DeclaredAmount")),
                                 ExpectedCash = reader.GetDecimal(reader.GetOrdinal("ExpectedCash")),
                                 Variance = variance,
                                 Status = status,
-                                ApprovedBy = reader.IsDBNull(reader.GetOrdinal("ApprovedBy")) 
-                                    ? null 
+                                ApprovedBy = reader.IsDBNull(reader.GetOrdinal("ApprovedBy"))
+                                    ? null
                                     : reader.GetString(reader.GetOrdinal("ApprovedBy")),
-                                ApprovalComment = reader.IsDBNull(reader.GetOrdinal("ApprovalComment")) 
-                                    ? null 
+                                ApprovalComment = reader.IsDBNull(reader.GetOrdinal("ApprovalComment"))
+                                    ? null
                                     : reader.GetString(reader.GetOrdinal("ApprovalComment")),
                                 LockedFlag = reader.GetBoolean(reader.GetOrdinal("LockedFlag")),
-                                LockedAt = reader.IsDBNull(reader.GetOrdinal("LockedAt")) 
-                                    ? (DateTime?)null 
+                                LockedAt = reader.IsDBNull(reader.GetOrdinal("LockedAt"))
+                                    ? (DateTime?)null
                                     : reader.GetDateTime(reader.GetOrdinal("LockedAt")),
-                                LockedBy = reader.IsDBNull(reader.GetOrdinal("LockedBy")) 
-                                    ? null 
+                                LockedBy = reader.IsDBNull(reader.GetOrdinal("LockedBy"))
+                                    ? null
                                     : reader.GetString(reader.GetOrdinal("LockedBy")),
                                 StatusBadgeClass = GetStatusBadgeClass(status),
                                 StatusIcon = GetStatusIcon(status),
@@ -259,22 +515,30 @@ namespace RestaurantManagementSystem.Services
         /// <summary>
         /// Get day lock status
         /// </summary>
-        public async Task<DayLockStatus?> GetDayLockStatusAsync(DateTime businessDate)
+        public async Task<DayLockStatus?> GetDayLockStatusAsync(DateTime businessDate, int? branchId = null)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasAuditBranch = await HasColumnAsync(connection, "DayLockAudit", "BranchId");
+                var branchFilter = hasAuditBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     SELECT TOP 1
                         LockId, BusinessDate, LockedBy, LockTime, Remarks, Status
                     FROM DayLockAudit
                     WHERE BusinessDate = @BusinessDate
+                      {branchFilter}
                     ORDER BY LockTime DESC";
 
                 using (var command = new SqlCommand(query, connection))
                 {
                     command.Parameters.AddWithValue("@BusinessDate", businessDate);
+                    if (hasAuditBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
 
                     using (var reader = await command.ExecuteReaderAsync())
                     {
@@ -301,11 +565,86 @@ namespace RestaurantManagementSystem.Services
         /// Save declared cash amount for a cashier
         /// </summary>
         public async Task<(bool Success, string Message, decimal Variance)> SaveDeclaredCashAsync(
-            DateTime businessDate, int cashierId, decimal declaredAmount, string updatedBy)
+            DateTime businessDate, int cashierId, decimal declaredAmount, string updatedBy, int? branchId = null)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
+
+                var hasCloseBranch = await HasColumnAsync(connection, "CashierDayClose", "BranchId");
+                var spHasBranch = await StoredProcedureHasParameterAsync(connection, "usp_SaveDeclaredCash", "@BranchId")
+                    || await StoredProcedureHasParameterAsync(connection, "usp_SaveDeclaredCash", "@BranchID");
+
+                if (branchId.HasValue && hasCloseBranch && !spHasBranch)
+                {
+                    using var tx = connection.BeginTransaction();
+                    try
+                    {
+                        decimal openingFloat;
+                        decimal systemAmount;
+
+                        using (var fetchCommand = new SqlCommand(@"
+                            SELECT TOP 1 OpeningFloat, SystemAmount
+                            FROM CashierDayClose
+                            WHERE BusinessDate = @BusinessDate
+                              AND CashierId = @CashierId
+                              AND BranchId = @BranchId", connection, tx))
+                        {
+                            fetchCommand.Parameters.AddWithValue("@BusinessDate", businessDate.Date);
+                            fetchCommand.Parameters.AddWithValue("@CashierId", cashierId);
+                            fetchCommand.Parameters.AddWithValue("@BranchId", branchId.Value);
+
+                            using var reader = await fetchCommand.ExecuteReaderAsync();
+                            if (!await reader.ReadAsync())
+                            {
+                                await reader.CloseAsync();
+                                tx.Rollback();
+                                return (false, "Cashier closing record not found for selected branch", 0);
+                            }
+
+                            openingFloat = reader.GetDecimal(0);
+                            systemAmount = reader.GetDecimal(1);
+                        }
+
+                        var variance = (declaredAmount + openingFloat) - systemAmount;
+                        var status = Math.Abs(variance) > 100 ? "CHECK" : "OK";
+
+                        using (var updateCommand = new SqlCommand(@"
+                            UPDATE CashierDayClose
+                            SET DeclaredAmount = @DeclaredAmount,
+                                Variance = @Variance,
+                                Status = @Status,
+                                UpdatedBy = @UpdatedBy,
+                                UpdatedAt = GETDATE()
+                            WHERE BusinessDate = @BusinessDate
+                              AND CashierId = @CashierId
+                              AND BranchId = @BranchId", connection, tx))
+                        {
+                            updateCommand.Parameters.AddWithValue("@DeclaredAmount", declaredAmount);
+                            updateCommand.Parameters.AddWithValue("@Variance", variance);
+                            updateCommand.Parameters.AddWithValue("@Status", status);
+                            updateCommand.Parameters.AddWithValue("@UpdatedBy", updatedBy);
+                            updateCommand.Parameters.AddWithValue("@BusinessDate", businessDate.Date);
+                            updateCommand.Parameters.AddWithValue("@CashierId", cashierId);
+                            updateCommand.Parameters.AddWithValue("@BranchId", branchId.Value);
+
+                            var rows = await updateCommand.ExecuteNonQueryAsync();
+                            if (rows <= 0)
+                            {
+                                tx.Rollback();
+                                return (false, "No record updated for selected branch", 0);
+                            }
+                        }
+
+                        tx.Commit();
+                        return (true, "Cash declaration saved successfully", variance);
+                    }
+                    catch (Exception ex)
+                    {
+                        tx.Rollback();
+                        return (false, $"Error: {ex.Message}", 0);
+                    }
+                }
 
                 using (var command = new SqlCommand("usp_SaveDeclaredCash", connection))
                 {
@@ -314,6 +653,17 @@ namespace RestaurantManagementSystem.Services
                     command.Parameters.AddWithValue("@CashierId", cashierId);
                     command.Parameters.AddWithValue("@DeclaredAmount", declaredAmount);
                     command.Parameters.AddWithValue("@UpdatedBy", updatedBy);
+                    if (branchId.HasValue)
+                    {
+                        if (await StoredProcedureHasParameterAsync(connection, "usp_SaveDeclaredCash", "@BranchId"))
+                        {
+                            command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                        }
+                        else if (await StoredProcedureHasParameterAsync(connection, "usp_SaveDeclaredCash", "@BranchID"))
+                        {
+                            command.Parameters.AddWithValue("@BranchID", branchId.Value);
+                        }
+                    }
 
                     try
                     {
@@ -342,20 +692,24 @@ namespace RestaurantManagementSystem.Services
         /// Approve or reject variance
         /// </summary>
         public async Task<(bool Success, string Message)> ApproveVarianceAsync(
-            int closeId, string approvedBy, string comment, bool approved)
+            int closeId, string approvedBy, string comment, bool approved, int? branchId = null)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasCloseBranch = await HasColumnAsync(connection, "CashierDayClose", "BranchId");
+                var branchFilter = hasCloseBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     UPDATE CashierDayClose
                     SET Status = @Status,
                         ApprovedBy = @ApprovedBy,
                         ApprovalComment = @Comment,
                         UpdatedBy = @ApprovedBy,
                         UpdatedAt = GETDATE()
-                    WHERE Id = @CloseId";
+                    WHERE Id = @CloseId
+                      {branchFilter}";
 
                 using (var command = new SqlCommand(query, connection))
                 {
@@ -363,6 +717,10 @@ namespace RestaurantManagementSystem.Services
                     command.Parameters.AddWithValue("@Status", approved ? "OK" : "CHECK");
                     command.Parameters.AddWithValue("@ApprovedBy", approvedBy);
                     command.Parameters.AddWithValue("@Comment", comment);
+                    if (hasCloseBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
 
                     var rowsAffected = await command.ExecuteNonQueryAsync();
                     if (rowsAffected > 0)
@@ -378,11 +736,86 @@ namespace RestaurantManagementSystem.Services
         /// Lock the business day
         /// </summary>
         public async Task<(bool Success, string Message, int IssueCount)> LockDayAsync(
-            DateTime businessDate, string lockedBy, string? remarks)
+            DateTime businessDate, string lockedBy, string? remarks, int? branchId = null)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
+
+                var hasCloseBranch = await HasColumnAsync(connection, "CashierDayClose", "BranchId");
+                var hasAuditBranch = await HasColumnAsync(connection, "DayLockAudit", "BranchId");
+                var spHasBranch = await StoredProcedureHasParameterAsync(connection, "usp_LockDay", "@BranchId")
+                    || await StoredProcedureHasParameterAsync(connection, "usp_LockDay", "@BranchID");
+
+                if (branchId.HasValue && hasCloseBranch && !spHasBranch)
+                {
+                    using var tx = connection.BeginTransaction();
+                    try
+                    {
+                        int issueCount;
+                        using (var issueCmd = new SqlCommand(@"
+                            SELECT COUNT(*)
+                            FROM CashierDayClose
+                            WHERE BusinessDate = @BusinessDate
+                              AND Status = 'CHECK'
+                              AND LockedFlag = 0
+                              AND BranchId = @BranchId", connection, tx))
+                        {
+                            issueCmd.Parameters.AddWithValue("@BusinessDate", businessDate.Date);
+                            issueCmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                            issueCount = Convert.ToInt32(await issueCmd.ExecuteScalarAsync());
+                        }
+
+                        if (issueCount > 0)
+                        {
+                            tx.Rollback();
+                            return (false, $"Cannot lock day: {issueCount} cashier(s) have unresolved variances", issueCount);
+                        }
+
+                        using (var lockCmd = new SqlCommand(@"
+                            UPDATE CashierDayClose
+                            SET LockedFlag = 1,
+                                LockedAt = GETDATE(),
+                                LockedBy = @LockedBy,
+                                Status = 'LOCKED',
+                                UpdatedBy = @LockedBy,
+                                UpdatedAt = GETDATE()
+                            WHERE BusinessDate = @BusinessDate
+                              AND BranchId = @BranchId", connection, tx))
+                        {
+                            lockCmd.Parameters.AddWithValue("@BusinessDate", businessDate.Date);
+                            lockCmd.Parameters.AddWithValue("@LockedBy", lockedBy);
+                            lockCmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                            await lockCmd.ExecuteNonQueryAsync();
+                        }
+
+                        var auditSql = hasAuditBranch
+                            ? @"INSERT INTO DayLockAudit (BusinessDate, LockedBy, LockTime, Remarks, Status, BranchId)
+                                VALUES (@BusinessDate, @LockedBy, GETDATE(), @Remarks, 'LOCKED', @BranchId)"
+                            : @"INSERT INTO DayLockAudit (BusinessDate, LockedBy, LockTime, Remarks, Status)
+                                VALUES (@BusinessDate, @LockedBy, GETDATE(), @Remarks, 'LOCKED')";
+
+                        using (var auditCmd = new SqlCommand(auditSql, connection, tx))
+                        {
+                            auditCmd.Parameters.AddWithValue("@BusinessDate", businessDate.Date);
+                            auditCmd.Parameters.AddWithValue("@LockedBy", lockedBy);
+                            auditCmd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
+                            if (hasAuditBranch)
+                            {
+                                auditCmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                            }
+                            await auditCmd.ExecuteNonQueryAsync();
+                        }
+
+                        tx.Commit();
+                        return (true, "Day locked successfully", 0);
+                    }
+                    catch (Exception ex)
+                    {
+                        tx.Rollback();
+                        return (false, $"Error: {ex.Message}", 0);
+                    }
+                }
 
                 using (var command = new SqlCommand("usp_LockDay", connection))
                 {
@@ -390,6 +823,17 @@ namespace RestaurantManagementSystem.Services
                     command.Parameters.AddWithValue("@BusinessDate", businessDate);
                     command.Parameters.AddWithValue("@LockedBy", lockedBy);
                     command.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
+                    if (branchId.HasValue)
+                    {
+                        if (await StoredProcedureHasParameterAsync(connection, "usp_LockDay", "@BranchId"))
+                        {
+                            command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                        }
+                        else if (await StoredProcedureHasParameterAsync(connection, "usp_LockDay", "@BranchID"))
+                        {
+                            command.Parameters.AddWithValue("@BranchID", branchId.Value);
+                        }
+                    }
 
                     try
                     {
@@ -426,7 +870,7 @@ namespace RestaurantManagementSystem.Services
         /// <summary>
         /// Generate EOD Report
         /// </summary>
-        public async Task<EODReportViewModel> GenerateEODReportAsync(DateTime businessDate, string generatedBy)
+        public async Task<EODReportViewModel> GenerateEODReportAsync(DateTime businessDate, string generatedBy, int? branchId = null)
         {
             var report = new EODReportViewModel
             {
@@ -436,10 +880,10 @@ namespace RestaurantManagementSystem.Services
             };
 
             // Get cashier details
-            report.CashierDetails = await GetDayClosingSummaryAsync(businessDate);
+            report.CashierDetails = await GetDayClosingSummaryAsync(businessDate, branchId);
 
             // Get lock status
-            report.LockStatus = await GetDayLockStatusAsync(businessDate);
+            report.LockStatus = await GetDayLockStatusAsync(businessDate, branchId);
 
             // Calculate summary
             report.Summary = new DaySummary
@@ -461,15 +905,26 @@ namespace RestaurantManagementSystem.Services
             {
                 await connection.OpenAsync();
 
-                var query = "SELECT TOP 1 RestaurantName FROM RestaurantSettings";
+                var hasSettingsBranch = await HasColumnAsync(connection, "RestaurantSettings", "BranchId");
+                var hasOrdersBranch = await HasColumnAsync(connection, "Orders", "BranchId");
+
+                var query = hasSettingsBranch && branchId.HasValue
+                    ? "SELECT TOP 1 RestaurantName FROM RestaurantSettings WHERE BranchId = @BranchId ORDER BY Id DESC"
+                    : "SELECT TOP 1 RestaurantName FROM RestaurantSettings ORDER BY Id DESC";
                 using (var command = new SqlCommand(query, connection))
                 {
+                    if (hasSettingsBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
                     var name = await command.ExecuteScalarAsync();
                     report.RestaurantName = name?.ToString() ?? "Restaurant";
                 }
 
                 // Get sales summary
-                var salesQuery = @"
+                var orderBranchFilter = hasOrdersBranch && branchId.HasValue ? "AND o.BranchId = @BranchId" : string.Empty;
+
+                var salesQuery = $@"
                     SELECT 
                         COUNT(DISTINCT o.Id) AS TotalOrders,
                         ISNULL(SUM(o.TotalAmount), 0) AS TotalSales,
@@ -481,11 +936,16 @@ namespace RestaurantManagementSystem.Services
                     LEFT JOIN Payments p ON p.OrderId = o.Id AND p.Status = 1
                     LEFT JOIN PaymentMethods pm ON p.PaymentMethodId = pm.Id
                     WHERE CAST(o.CreatedAt AS DATE) = @BusinessDate
-                      AND o.Status IN (2, 3)";
+                                            AND o.Status IN (2, 3)
+                                            {orderBranchFilter}";
 
                 using (var command = new SqlCommand(salesQuery, connection))
                 {
                     command.Parameters.AddWithValue("@BusinessDate", businessDate);
+                                        if (hasOrdersBranch && branchId.HasValue)
+                                        {
+                                                command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                                        }
 
                     using (var reader = await command.ExecuteReaderAsync())
                     {
@@ -509,7 +969,7 @@ namespace RestaurantManagementSystem.Services
         /// <summary>
         /// Generate comprehensive cash closing report for date range
         /// </summary>
-        public async Task<CashClosingReportViewModel> GenerateCashClosingReportAsync(DateTime startDate, DateTime endDate, int? cashierId = null)
+        public async Task<CashClosingReportViewModel> GenerateCashClosingReportAsync(DateTime startDate, DateTime endDate, int? cashierId = null, int? branchId = null)
         {
             var report = new CashClosingReportViewModel();
 
@@ -523,6 +983,18 @@ namespace RestaurantManagementSystem.Services
                     command.Parameters.AddWithValue("@StartDate", startDate);
                     command.Parameters.AddWithValue("@EndDate", endDate);
                     command.Parameters.AddWithValue("@CashierId", cashierId.HasValue ? (object)cashierId.Value : DBNull.Value);
+
+                    if (branchId.HasValue && branchId.Value > 0)
+                    {
+                        if (await StoredProcedureHasParameterAsync(connection, "usp_GetCashClosingReport", "@BranchId"))
+                        {
+                            command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                        }
+                        else if (await StoredProcedureHasParameterAsync(connection, "usp_GetCashClosingReport", "@BranchID"))
+                        {
+                            command.Parameters.AddWithValue("@BranchID", branchId.Value);
+                        }
+                    }
 
                     using (var reader = await command.ExecuteReaderAsync())
                     {

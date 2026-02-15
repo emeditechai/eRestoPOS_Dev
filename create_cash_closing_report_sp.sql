@@ -20,10 +20,14 @@ GO
 CREATE PROCEDURE [dbo].[usp_GetCashClosingReport]
     @StartDate DATE,
     @EndDate DATE,
-    @CashierId INT = NULL -- Optional: Filter by specific cashier
+    @CashierId INT = NULL, -- Optional: Filter by specific cashier
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    DECLARE @HasCloseBranch BIT = CASE WHEN COL_LENGTH('dbo.CashierDayClose', 'BranchId') IS NULL THEN 0 ELSE 1 END;
+    DECLARE @HasAuditBranch BIT = CASE WHEN COL_LENGTH('dbo.DayLockAudit', 'BranchId') IS NULL THEN 0 ELSE 1 END;
     
     -- =====================================================
     -- RESULT SET 1: Summary Statistics
@@ -42,6 +46,7 @@ BEGIN
         COUNT(CASE WHEN Status = 'LOCKED' THEN 1 END) AS LockedCount
     FROM CashierDayClose
     WHERE BusinessDate BETWEEN @StartDate AND @EndDate
+            AND (@BranchId IS NULL OR @HasCloseBranch = 0 OR BranchId = @BranchId)
       AND (@CashierId IS NULL OR CashierId = @CashierId);
     
     -- =====================================================
@@ -59,6 +64,7 @@ BEGIN
         MAX(CASE WHEN LockedFlag = 1 THEN 'Yes' ELSE 'No' END) AS IsDayLocked
     FROM CashierDayClose
     WHERE BusinessDate BETWEEN @StartDate AND @EndDate
+            AND (@BranchId IS NULL OR @HasCloseBranch = 0 OR BranchId = @BranchId)
       AND (@CashierId IS NULL OR CashierId = @CashierId)
     GROUP BY BusinessDate
     ORDER BY BusinessDate DESC;
@@ -90,6 +96,7 @@ BEGIN
         cdc.UpdatedAt
     FROM CashierDayClose cdc
     WHERE cdc.BusinessDate BETWEEN @StartDate AND @EndDate
+            AND (@BranchId IS NULL OR @HasCloseBranch = 0 OR cdc.BranchId = @BranchId)
       AND (@CashierId IS NULL OR cdc.CashierId = @CashierId)
     ORDER BY cdc.BusinessDate DESC, cdc.CashierName;
     
@@ -110,6 +117,7 @@ BEGIN
         COUNT(CASE WHEN cdc.Status = 'CHECK' THEN 1 END) AS PendingDays
     FROM CashierDayClose cdc
     WHERE cdc.BusinessDate BETWEEN @StartDate AND @EndDate
+            AND (@BranchId IS NULL OR @HasCloseBranch = 0 OR cdc.BranchId = @BranchId)
       AND (@CashierId IS NULL OR cdc.CashierId = @CashierId)
     GROUP BY cdc.CashierId, cdc.CashierName
     ORDER BY cdc.CashierName;
@@ -128,6 +136,7 @@ BEGIN
         dla.ReopenReason
     FROM DayLockAudit dla
     WHERE dla.BusinessDate BETWEEN @StartDate AND @EndDate
+            AND (@BranchId IS NULL OR @HasAuditBranch = 0 OR dla.BranchId = @BranchId)
     ORDER BY dla.BusinessDate DESC, dla.LockTime DESC;
     
 END

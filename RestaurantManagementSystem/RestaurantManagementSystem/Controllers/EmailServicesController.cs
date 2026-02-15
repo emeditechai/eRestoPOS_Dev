@@ -5,6 +5,7 @@ using RestaurantManagementSystem.ViewModels;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Filters;
 using RestaurantManagementSystem.Models.Authorization;
+using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -53,12 +54,19 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction("Index", "Home");
+                }
+
                 var viewModel = new EmailServicesViewModel
                 {
-                    TodayBirthdays = await GetTodayBirthdaysAsync(),
-                    TodayAnniversaries = await GetTodayAnniversariesAsync(),
-                    AllGuests = await GetAllGuestsWithEmailAsync(),
-                    CustomTemplates = await GetCustomTemplatesAsync()
+                    TodayBirthdays = await GetTodayBirthdaysAsync(activeBranchId),
+                    TodayAnniversaries = await GetTodayAnniversariesAsync(activeBranchId),
+                    AllGuests = await GetAllGuestsWithEmailAsync(activeBranchId),
+                    CustomTemplates = await GetCustomTemplatesAsync(activeBranchId)
                 };
 
                 return View(viewModel);
@@ -83,6 +91,12 @@ namespace RestaurantManagementSystem.Controllers
 
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return Json(new { success = false, message = "No active branch selected" });
+                }
+
                 if (request == null)
                 {
                     _logger.LogWarning("AutoFireEmails - Request is null");
@@ -96,21 +110,21 @@ namespace RestaurantManagementSystem.Controllers
                 }
 
                 // Get mail configuration
-                var mailConfig = await GetMailConfigurationAsync();
+                var mailConfig = await GetMailConfigurationAsync(activeBranchId);
                 if (mailConfig == null)
                 {
                     return Json(new { success = false, message = "Mail configuration not found. Please configure email settings first." });
                 }
 
                 // Get template
-                var template = await GetDefaultTemplateAsync(request.EmailType);
+                var template = await GetDefaultTemplateAsync(request.EmailType, activeBranchId);
                 if (template == null)
                 {
                     return Json(new { success = false, message = $"No default {request.EmailType} template found" });
                 }
 
                 // Get guests
-                var guests = await GetGuestsByIdsAsync(request.GuestIds);
+                var guests = await GetGuestsByIdsAsync(request.GuestIds, activeBranchId);
                 result.TotalAttempted = guests.Count;
 
                 foreach (var guest in guests)
@@ -140,7 +154,8 @@ namespace RestaurantManagementSystem.Controllers
                                 fromName: mailConfig.FromName,
                                 smtpServer: mailConfig.SmtpServer,
                                 smtpPort: mailConfig.SmtpPort,
-                                emailType: $"{request.EmailType} Campaign"
+                                emailType: $"{request.EmailType} Campaign",
+                                branchId: activeBranchId
                             );
                             
                             // Log to campaign history
@@ -156,7 +171,7 @@ namespace RestaurantManagementSystem.Controllers
                                 Status = "Success",
                                 ProcessingTimeMs = emailResult.ProcessingTimeMs,
                                 SentBy = GetCurrentUserId()
-                            });
+                            }, activeBranchId);
                         }
                         else
                         {
@@ -175,7 +190,8 @@ namespace RestaurantManagementSystem.Controllers
                                 fromName: mailConfig.FromName,
                                 smtpServer: mailConfig.SmtpServer,
                                 smtpPort: mailConfig.SmtpPort,
-                                emailType: $"{request.EmailType} Campaign"
+                                emailType: $"{request.EmailType} Campaign",
+                                branchId: activeBranchId
                             );
                             
                             // Log failed attempt to campaign history
@@ -191,7 +207,7 @@ namespace RestaurantManagementSystem.Controllers
                                 Status = "Failed",
                                 ErrorMessage = emailResult.ErrorMessage,
                                 SentBy = GetCurrentUserId()
-                            });
+                            }, activeBranchId);
                         }
                     }
                     catch (Exception ex)
@@ -214,7 +230,8 @@ namespace RestaurantManagementSystem.Controllers
                                 fromName: mailConfig.FromName,
                                 smtpServer: mailConfig.SmtpServer,
                                 smtpPort: mailConfig.SmtpPort,
-                                emailType: $"{request.EmailType} Campaign"
+                                emailType: $"{request.EmailType} Campaign",
+                                branchId: activeBranchId
                             );
                         }
                         catch { /* Ignore logging errors */ }
@@ -249,6 +266,12 @@ namespace RestaurantManagementSystem.Controllers
 
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return Json(new { success = false, message = "No active branch selected" });
+                }
+
                 if (request == null)
                 {
                     _logger.LogWarning("SendCustomEmail - Request is null");
@@ -262,7 +285,7 @@ namespace RestaurantManagementSystem.Controllers
                 }
 
                 // Get mail configuration
-                var mailConfig = await GetMailConfigurationAsync();
+                var mailConfig = await GetMailConfigurationAsync(activeBranchId);
                 if (mailConfig == null)
                 {
                     return Json(new { success = false, message = "Mail configuration not found" });
@@ -273,7 +296,7 @@ namespace RestaurantManagementSystem.Controllers
                 if (request.TemplateId.HasValue)
                 {
                     // Use template
-                    var template = await GetTemplateByIdAsync(request.TemplateId.Value);
+                    var template = await GetTemplateByIdAsync(request.TemplateId.Value, activeBranchId);
                     if (template == null)
                     {
                         return Json(new { success = false, message = "Template not found" });
@@ -293,7 +316,7 @@ namespace RestaurantManagementSystem.Controllers
                 }
 
                 // Get guests
-                var guests = await GetGuestsByIdsAsync(request.GuestIds);
+                var guests = await GetGuestsByIdsAsync(request.GuestIds, activeBranchId);
                 result.TotalAttempted = guests.Count;
 
                 foreach (var guest in guests)
@@ -323,7 +346,8 @@ namespace RestaurantManagementSystem.Controllers
                                 fromName: mailConfig.FromName,
                                 smtpServer: mailConfig.SmtpServer,
                                 smtpPort: mailConfig.SmtpPort,
-                                emailType: "Custom Campaign"
+                                emailType: "Custom Campaign",
+                                branchId: activeBranchId
                             );
                             
                             await LogCampaignHistoryAsync(new EmailCampaignHistory
@@ -338,7 +362,7 @@ namespace RestaurantManagementSystem.Controllers
                                 Status = "Success",
                                 ProcessingTimeMs = emailResult.ProcessingTimeMs,
                                 SentBy = GetCurrentUserId()
-                            });
+                            }, activeBranchId);
                         }
                         else
                         {
@@ -357,7 +381,8 @@ namespace RestaurantManagementSystem.Controllers
                                 fromName: mailConfig.FromName,
                                 smtpServer: mailConfig.SmtpServer,
                                 smtpPort: mailConfig.SmtpPort,
-                                emailType: "Custom Campaign"
+                                emailType: "Custom Campaign",
+                                branchId: activeBranchId
                             );
                             
                             await LogCampaignHistoryAsync(new EmailCampaignHistory
@@ -372,7 +397,7 @@ namespace RestaurantManagementSystem.Controllers
                                 Status = "Failed",
                                 ErrorMessage = emailResult.ErrorMessage,
                                 SentBy = GetCurrentUserId()
-                            });
+                            }, activeBranchId);
                         }
                     }
                     catch (Exception ex)
@@ -395,7 +420,8 @@ namespace RestaurantManagementSystem.Controllers
                                 fromName: mailConfig.FromName,
                                 smtpServer: mailConfig.SmtpServer,
                                 smtpPort: mailConfig.SmtpPort,
-                                emailType: "Custom Campaign"
+                                emailType: "Custom Campaign",
+                                branchId: activeBranchId
                             );
                         }
                         catch { /* Ignore logging errors */ }
@@ -421,7 +447,7 @@ namespace RestaurantManagementSystem.Controllers
 
         #region Helper Methods
 
-        private async Task<List<BirthdayGuestViewModel>> GetTodayBirthdaysAsync()
+        private async Task<List<BirthdayGuestViewModel>> GetTodayBirthdaysAsync(int? branchId)
         {
             var birthdays = new List<BirthdayGuestViewModel>();
 
@@ -429,7 +455,13 @@ namespace RestaurantManagementSystem.Controllers
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasFeedbackBranch = await HasColumnAsync(connection, "GuestFeedback", "BranchId");
+                var hasCampaignBranch = await HasColumnAsync(connection, "tbl_EmailCampaignHistory", "BranchId");
+
+                var guestBranchFilter = hasFeedbackBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+                var campaignBranchFilter = hasCampaignBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     SELECT 
                         gf.Id, 
                         gf.GuestName, 
@@ -444,6 +476,7 @@ namespace RestaurantManagementSystem.Controllers
                          AND CampaignType = 'Birthday' 
                          AND CAST(SentAt AS DATE) = CAST(GETDATE() AS DATE)
                          AND Status = 'Success'
+                         {campaignBranchFilter}
                          ORDER BY SentAt DESC) as LastSentDate
                     FROM (
                         SELECT 
@@ -457,11 +490,18 @@ namespace RestaurantManagementSystem.Controllers
                         AND GuestBirthDate IS NOT NULL
                         AND MONTH(GuestBirthDate) = MONTH(GETDATE())
                         AND DAY(GuestBirthDate) = DAY(GETDATE())
+                        {guestBranchFilter}
                         GROUP BY Email, GuestBirthDate
                     ) gf
                     ORDER BY gf.GuestName";
 
                 using (var command = new SqlCommand(query, connection))
+                {
+                    if (branchId.HasValue && (hasFeedbackBranch || hasCampaignBranch))
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
+                
                 using (var reader = await command.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
@@ -478,12 +518,13 @@ namespace RestaurantManagementSystem.Controllers
                         });
                     }
                 }
+                }
             }
 
             return birthdays;
         }
 
-        private async Task<List<AnniversaryGuestViewModel>> GetTodayAnniversariesAsync()
+        private async Task<List<AnniversaryGuestViewModel>> GetTodayAnniversariesAsync(int? branchId)
         {
             var anniversaries = new List<AnniversaryGuestViewModel>();
 
@@ -491,7 +532,13 @@ namespace RestaurantManagementSystem.Controllers
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasFeedbackBranch = await HasColumnAsync(connection, "GuestFeedback", "BranchId");
+                var hasCampaignBranch = await HasColumnAsync(connection, "tbl_EmailCampaignHistory", "BranchId");
+
+                var guestBranchFilter = hasFeedbackBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+                var campaignBranchFilter = hasCampaignBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     SELECT 
                         gf.Id, 
                         gf.GuestName, 
@@ -506,6 +553,7 @@ namespace RestaurantManagementSystem.Controllers
                          AND CampaignType = 'Anniversary' 
                          AND CAST(SentAt AS DATE) = CAST(GETDATE() AS DATE)
                          AND Status = 'Success'
+                         {campaignBranchFilter}
                          ORDER BY SentAt DESC) as LastSentDate
                     FROM (
                         SELECT 
@@ -519,11 +567,18 @@ namespace RestaurantManagementSystem.Controllers
                         AND AnniversaryDate IS NOT NULL
                         AND MONTH(AnniversaryDate) = MONTH(GETDATE())
                         AND DAY(AnniversaryDate) = DAY(GETDATE())
+                        {guestBranchFilter}
                         GROUP BY Email, AnniversaryDate
                     ) gf
                     ORDER BY gf.GuestName";
 
                 using (var command = new SqlCommand(query, connection))
+                {
+                    if (branchId.HasValue && (hasFeedbackBranch || hasCampaignBranch))
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
+                
                 using (var reader = await command.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
@@ -540,12 +595,13 @@ namespace RestaurantManagementSystem.Controllers
                         });
                     }
                 }
+                }
             }
 
             return anniversaries;
         }
 
-        private async Task<List<GuestEmailViewModel>> GetAllGuestsWithEmailAsync()
+        private async Task<List<GuestEmailViewModel>> GetAllGuestsWithEmailAsync(int? branchId)
         {
             var guests = new List<GuestEmailViewModel>();
 
@@ -553,7 +609,10 @@ namespace RestaurantManagementSystem.Controllers
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasFeedbackBranch = await HasColumnAsync(connection, "GuestFeedback", "BranchId");
+                var branchFilter = hasFeedbackBranch && branchId.HasValue ? "AND gf.BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     SELECT 
                         MIN(gf.Id) as Id,
                         MAX(gf.GuestName) as GuestName,
@@ -564,10 +623,17 @@ namespace RestaurantManagementSystem.Controllers
                     WHERE gf.Email IS NOT NULL 
                     AND gf.Email <> ''
                     AND gf.GuestName IS NOT NULL
+                    {branchFilter}
                     GROUP BY gf.Email
                     ORDER BY MAX(gf.GuestName)";
 
                 using (var command = new SqlCommand(query, connection))
+                {
+                    if (hasFeedbackBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
+                
                 using (var reader = await command.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
@@ -582,12 +648,13 @@ namespace RestaurantManagementSystem.Controllers
                         });
                     }
                 }
+                }
             }
 
             return guests;
         }
 
-        private async Task<List<EmailTemplateViewModel>> GetCustomTemplatesAsync()
+        private async Task<List<EmailTemplateViewModel>> GetCustomTemplatesAsync(int? branchId)
         {
             var templates = new List<EmailTemplateViewModel>();
 
@@ -595,14 +662,24 @@ namespace RestaurantManagementSystem.Controllers
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasTemplateBranch = await HasColumnAsync(connection, "tbl_EmailTemplates", "BranchId");
+                var branchFilter = hasTemplateBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     SELECT EmailTemplateID, TemplateName, TemplateType, Subject, BodyHtml, IsActive, IsDefault
                     FROM tbl_EmailTemplates
                     WHERE TemplateType IN ('Custom', 'Promotional')
                     AND IsActive = 1
+                    {branchFilter}
                     ORDER BY TemplateName";
 
                 using (var command = new SqlCommand(query, connection))
+                {
+                    if (hasTemplateBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
+                
                 using (var reader = await command.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
@@ -619,27 +696,36 @@ namespace RestaurantManagementSystem.Controllers
                         });
                     }
                 }
+                }
             }
 
             return templates;
         }
 
-        private async Task<EmailTemplate?> GetDefaultTemplateAsync(string templateType)
+        private async Task<EmailTemplate?> GetDefaultTemplateAsync(string templateType, int? branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasTemplateBranch = await HasColumnAsync(connection, "tbl_EmailTemplates", "BranchId");
+                var branchFilter = hasTemplateBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     SELECT TOP 1 EmailTemplateID, TemplateName, TemplateType, Subject, BodyHtml, IsActive, IsDefault
                     FROM tbl_EmailTemplates
                     WHERE TemplateType = @TemplateType
                     AND IsActive = 1
-                    AND IsDefault = 1";
+                    AND IsDefault = 1
+                    {branchFilter}";
 
                 using (var command = new SqlCommand(query, connection))
                 {
                     command.Parameters.AddWithValue("@TemplateType", templateType);
+                    if (hasTemplateBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
 
                     using (var reader = await command.ExecuteReaderAsync())
                     {
@@ -663,20 +749,28 @@ namespace RestaurantManagementSystem.Controllers
             return null;
         }
 
-        private async Task<EmailTemplate?> GetTemplateByIdAsync(int templateId)
+        private async Task<EmailTemplate?> GetTemplateByIdAsync(int templateId, int? branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasTemplateBranch = await HasColumnAsync(connection, "tbl_EmailTemplates", "BranchId");
+                var branchFilter = hasTemplateBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     SELECT EmailTemplateID, TemplateName, TemplateType, Subject, BodyHtml, IsActive, IsDefault
                     FROM tbl_EmailTemplates
-                    WHERE EmailTemplateID = @EmailTemplateID";
+                    WHERE EmailTemplateID = @EmailTemplateID
+                    {branchFilter}";
 
                 using (var command = new SqlCommand(query, connection))
                 {
                     command.Parameters.AddWithValue("@EmailTemplateID", templateId);
+                    if (hasTemplateBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
 
                     using (var reader = await command.ExecuteReaderAsync())
                     {
@@ -700,7 +794,7 @@ namespace RestaurantManagementSystem.Controllers
             return null;
         }
 
-        private async Task<List<GuestFeedback>> GetGuestsByIdsAsync(List<int> guestIds)
+        private async Task<List<GuestFeedback>> GetGuestsByIdsAsync(List<int> guestIds, int? branchId)
         {
             var guests = new List<GuestFeedback>();
 
@@ -708,13 +802,23 @@ namespace RestaurantManagementSystem.Controllers
             {
                 await connection.OpenAsync();
 
+                var hasFeedbackBranch = await HasColumnAsync(connection, "GuestFeedback", "BranchId");
+                var branchFilter = hasFeedbackBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
                 var ids = string.Join(",", guestIds);
                 var query = $@"
                     SELECT Id, GuestName, Email, GuestBirthDate, AnniversaryDate
                     FROM GuestFeedback
-                    WHERE Id IN ({ids})";
+                    WHERE Id IN ({ids})
+                    {branchFilter}";
 
                 using (var command = new SqlCommand(query, connection))
+                {
+                    if (hasFeedbackBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
+                
                 using (var reader = await command.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
@@ -728,6 +832,7 @@ namespace RestaurantManagementSystem.Controllers
                             AnniversaryDate = reader.IsDBNull(4) ? null : reader.GetDateTime(4)
                         });
                     }
+                }
                 }
             }
 
@@ -813,19 +918,30 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        private async Task<MailConfigurationViewModel?> GetMailConfigurationAsync()
+        private async Task<MailConfigurationViewModel?> GetMailConfigurationAsync(int? branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasMailBranch = await HasColumnAsync(connection, "tbl_MailConfiguration", "BranchId");
+                var branchFilter = hasMailBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     SELECT Id, SmtpServer, SmtpPort, SmtpUsername, SmtpPassword, EnableSSL, 
                            FromEmail, FromName, AdminNotificationEmail, IsActive 
                     FROM tbl_MailConfiguration
-                    WHERE IsActive = 1";
+                    WHERE IsActive = 1
+                    {branchFilter}
+                    ORDER BY Id DESC";
 
                 using (var command = new SqlCommand(query, connection))
+                {
+                    if (hasMailBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
+                
                 using (var reader = await command.ExecuteReaderAsync())
                 {
                     if (await reader.ReadAsync())
@@ -847,6 +963,7 @@ namespace RestaurantManagementSystem.Controllers
                             IsActive = reader.GetBoolean(9)
                         };
                     }
+                }
                 }
             }
 
@@ -882,7 +999,7 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        private async Task LogCampaignHistoryAsync(EmailCampaignHistory history)
+        private async Task LogCampaignHistoryAsync(EmailCampaignHistory history, int? branchId)
         {
             try
             {
@@ -890,14 +1007,23 @@ namespace RestaurantManagementSystem.Controllers
                 {
                     await connection.OpenAsync();
 
-                    var query = @"
-                        INSERT INTO tbl_EmailCampaignHistory (
-                            CampaignType, GuestId, GuestName, GuestEmail, EmailSubject, EmailBody,
-                            SentAt, Status, ErrorMessage, ProcessingTimeMs, SentBy
-                        ) VALUES (
-                            @CampaignType, @GuestId, @GuestName, @GuestEmail, @EmailSubject, @EmailBody,
-                            @SentAt, @Status, @ErrorMessage, @ProcessingTimeMs, @SentBy
-                        )";
+                    var hasCampaignBranch = await HasColumnAsync(connection, "tbl_EmailCampaignHistory", "BranchId");
+
+                    var query = hasCampaignBranch
+                        ? @"INSERT INTO tbl_EmailCampaignHistory (
+                                CampaignType, GuestId, GuestName, GuestEmail, EmailSubject, EmailBody,
+                                SentAt, Status, ErrorMessage, ProcessingTimeMs, SentBy, BranchId
+                           ) VALUES (
+                                @CampaignType, @GuestId, @GuestName, @GuestEmail, @EmailSubject, @EmailBody,
+                                @SentAt, @Status, @ErrorMessage, @ProcessingTimeMs, @SentBy, @BranchId
+                           )"
+                        : @"INSERT INTO tbl_EmailCampaignHistory (
+                                CampaignType, GuestId, GuestName, GuestEmail, EmailSubject, EmailBody,
+                                SentAt, Status, ErrorMessage, ProcessingTimeMs, SentBy
+                           ) VALUES (
+                                @CampaignType, @GuestId, @GuestName, @GuestEmail, @EmailSubject, @EmailBody,
+                                @SentAt, @Status, @ErrorMessage, @ProcessingTimeMs, @SentBy
+                           )";
 
                     using (var command = new SqlCommand(query, connection))
                     {
@@ -912,6 +1038,10 @@ namespace RestaurantManagementSystem.Controllers
                         command.Parameters.AddWithValue("@ErrorMessage", (object?)history.ErrorMessage ?? DBNull.Value);
                         command.Parameters.AddWithValue("@ProcessingTimeMs", (object?)history.ProcessingTimeMs ?? DBNull.Value);
                         command.Parameters.AddWithValue("@SentBy", (object?)history.SentBy ?? DBNull.Value);
+                        if (hasCampaignBranch)
+                        {
+                            command.Parameters.AddWithValue("@BranchId", (object?)branchId ?? DBNull.Value);
+                        }
 
                         await command.ExecuteNonQueryAsync();
                     }
@@ -951,7 +1081,8 @@ namespace RestaurantManagementSystem.Controllers
             string? fromName,
             string? smtpServer,
             int? smtpPort,
-            string? emailType = null)
+            string? emailType = null,
+            int? branchId = null)
         {
             try
             {
@@ -959,16 +1090,27 @@ namespace RestaurantManagementSystem.Controllers
                 {
                     await connection.OpenAsync();
 
-                    var query = @"
-                        INSERT INTO tbl_EmailLog (
-                            ToEmail, FromEmail, FromName, Subject, Body, Status, ErrorMessage,
-                            SentAt, ProcessingTimeMs, SmtpServer, SmtpPort, SmtpUsername,
-                            SmtpUseSsl, SmtpTimeout, EmailType, SentBy, SentFrom
-                        ) VALUES (
-                            @ToEmail, @FromEmail, @FromName, @Subject, @Body, @Status, @ErrorMessage,
-                            @SentAt, @ProcessingTimeMs, @SmtpServer, @SmtpPort, @SmtpUsername,
-                            @SmtpUseSsl, @SmtpTimeout, @EmailType, @SentBy, @SentFrom
-                        )";
+                    var hasEmailLogBranch = await HasColumnAsync(connection, "tbl_EmailLog", "BranchId");
+
+                    var query = hasEmailLogBranch
+                        ? @"INSERT INTO tbl_EmailLog (
+                                ToEmail, FromEmail, FromName, Subject, Body, Status, ErrorMessage,
+                                SentAt, ProcessingTimeMs, SmtpServer, SmtpPort, SmtpUsername,
+                                SmtpUseSsl, SmtpTimeout, EmailType, SentBy, SentFrom, BranchId
+                           ) VALUES (
+                                @ToEmail, @FromEmail, @FromName, @Subject, @Body, @Status, @ErrorMessage,
+                                @SentAt, @ProcessingTimeMs, @SmtpServer, @SmtpPort, @SmtpUsername,
+                                @SmtpUseSsl, @SmtpTimeout, @EmailType, @SentBy, @SentFrom, @BranchId
+                           )"
+                        : @"INSERT INTO tbl_EmailLog (
+                                ToEmail, FromEmail, FromName, Subject, Body, Status, ErrorMessage,
+                                SentAt, ProcessingTimeMs, SmtpServer, SmtpPort, SmtpUsername,
+                                SmtpUseSsl, SmtpTimeout, EmailType, SentBy, SentFrom
+                           ) VALUES (
+                                @ToEmail, @FromEmail, @FromName, @Subject, @Body, @Status, @ErrorMessage,
+                                @SentAt, @ProcessingTimeMs, @SmtpServer, @SmtpPort, @SmtpUsername,
+                                @SmtpUseSsl, @SmtpTimeout, @EmailType, @SentBy, @SentFrom
+                           )";
 
                     using (var command = new SqlCommand(query, connection))
                     {
@@ -989,6 +1131,10 @@ namespace RestaurantManagementSystem.Controllers
                         command.Parameters.AddWithValue("@EmailType", (object?)emailType ?? DBNull.Value);
                         command.Parameters.AddWithValue("@SentBy", (object?)GetCurrentUserId() ?? DBNull.Value);
                         command.Parameters.AddWithValue("@SentFrom", "Email Services");
+                        if (hasEmailLogBranch)
+                        {
+                            command.Parameters.AddWithValue("@BranchId", (object?)branchId ?? DBNull.Value);
+                        }
 
                         await command.ExecuteNonQueryAsync();
                     }
@@ -997,6 +1143,25 @@ namespace RestaurantManagementSystem.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error logging email to tbl_EmailLog");
+            }
+        }
+
+        private async Task<bool> HasColumnAsync(SqlConnection connection, string tableName, string columnName)
+        {
+            try
+            {
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = @TableName AND COLUMN_NAME = @ColumnName", connection);
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                var result = await cmd.ExecuteScalarAsync();
+                return Convert.ToInt32(result) > 0;
+            }
+            catch
+            {
+                return false;
             }
         }
 

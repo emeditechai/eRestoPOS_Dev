@@ -13,7 +13,8 @@ CREATE PROCEDURE usp_GetOrderReport
     @OrderType INT = NULL,
     @SearchTerm NVARCHAR(100) = NULL,
     @PageNumber INT = 1,
-    @PageSize INT = 50
+    @PageSize INT = 50,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -21,6 +22,7 @@ BEGIN
     -- Set default date range if not provided
     IF @FromDate IS NULL SET @FromDate = CAST(GETDATE() AS DATE)
     IF @ToDate IS NULL SET @ToDate = CAST(GETDATE() AS DATE)
+    DECLARE @HasOrdersBranch BIT = CASE WHEN COL_LENGTH('dbo.Orders', 'BranchId') IS NULL THEN 0 ELSE 1 END;
     
     DECLARE @Offset INT = (@PageNumber - 1) * @PageSize;
 
@@ -41,6 +43,7 @@ BEGIN
     WHERE 
         CAST(o.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
         AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         AND (@UserId IS NULL OR o.UserId = @UserId)
         AND (@Status IS NULL OR o.Status = @Status)
         AND (@OrderType IS NULL OR o.OrderType = @OrderType)
@@ -107,6 +110,7 @@ BEGIN
     WHERE 
         CAST(o.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
         AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         AND (@UserId IS NULL OR o.UserId = @UserId)
         AND (@Status IS NULL OR o.Status = @Status)
         AND (@OrderType IS NULL OR o.OrderType = @OrderType)
@@ -129,6 +133,7 @@ BEGIN
     WHERE 
         CAST(o.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
         AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         AND (@UserId IS NULL OR o.UserId = @UserId)
         AND (@Status IS NULL OR o.Status = @Status)
         AND (@OrderType IS NULL OR o.OrderType = @OrderType)
@@ -150,6 +155,7 @@ BEGIN
     FROM Users u
     INNER JOIN Orders o ON u.Id = o.UserId
     WHERE u.IsActive = 1
+            AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
             AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL
     ORDER BY u.FirstName, u.LastName;
 
@@ -162,6 +168,7 @@ BEGIN
     WHERE 
         CAST(o.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate
         AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL
+        AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
         AND (@UserId IS NULL OR o.UserId = @UserId)
         AND (@Status IS NULL OR o.Status = @Status)
         AND (@OrderType IS NULL OR o.OrderType = @OrderType)

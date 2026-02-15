@@ -268,7 +268,8 @@ IF OBJECT_ID('dbo.GetNextBOTNumber', 'P') IS NOT NULL
 GO
 
 CREATE PROCEDURE dbo.GetNextBOTNumber
-    @OutletCode VARCHAR(10) = 'OUT1'
+    @OutletCode VARCHAR(10) = 'OUT1',
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -279,8 +280,10 @@ BEGIN
     
     -- Get the last BOT number for current month
     SELECT TOP 1 @LastNumber = CAST(RIGHT(BOT_No, 4) AS INT)
-    FROM dbo.BOT_Header
+        FROM dbo.BOT_Header bh
+        INNER JOIN dbo.Orders o ON o.Id = bh.OrderId
     WHERE BOT_No LIKE @Prefix + '%'
+            AND ((@BranchId IS NULL AND o.BranchId IS NULL) OR o.BranchId = @BranchId)
     ORDER BY BOT_ID DESC;
     
     IF @LastNumber IS NULL

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -19,24 +20,55 @@ namespace RestaurantManagementSystem.Controllers
             _connectionString = configuration.GetConnectionString("DefaultConnection");
         }
 
-        // GET: /Feedback/Form
-        [HttpGet]
-        [AllowAnonymous]
-        public IActionResult Form()
+        private int? ResolveBranchId(int? branchId)
         {
-            var model = new GuestFeedback
+            if (branchId.HasValue && branchId.Value > 0)
             {
-                VisitDate = DateTime.Today,
-                OverallRating = 5
-            };
-            // Load restaurant header details for display on the form
+                return branchId.Value;
+            }
+
+            return User.GetActiveBranchId();
+        }
+
+        private async Task<bool> HasColumnAsync(SqlConnection connection, string tableName, string columnName)
+        {
+            try
+            {
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = @TableName AND COLUMN_NAME = @ColumnName", connection);
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                var result = await cmd.ExecuteScalarAsync();
+                return Convert.ToInt32(result) > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task LoadRestaurantHeaderAsync(int? branchId)
+        {
             try
             {
                 using var con = new SqlConnection(_connectionString);
-                con.Open();
-                using var cmd = new SqlCommand("SELECT TOP 1 RestaurantName, StreetAddress, City, State, Pincode, Email, Website FROM RestaurantSettings ORDER BY Id DESC", con);
-                using var reader = cmd.ExecuteReader();
-                if (reader.Read())
+                await con.OpenAsync();
+
+                var hasSettingsBranch = await HasColumnAsync(con, "RestaurantSettings", "BranchId");
+                var sql = hasSettingsBranch && branchId.HasValue
+                    ? "SELECT TOP 1 RestaurantName, StreetAddress, City, State, Pincode, Email, Website FROM RestaurantSettings WHERE BranchId = @BranchId ORDER BY Id DESC"
+                    : "SELECT TOP 1 RestaurantName, StreetAddress, City, State, Pincode, Email, Website FROM RestaurantSettings ORDER BY Id DESC";
+
+                using var cmd = new SqlCommand(sql, con);
+                if (hasSettingsBranch && branchId.HasValue)
+                {
+                    cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                }
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
                 {
                     ViewBag.Restaurant = new
                     {
@@ -53,7 +85,25 @@ namespace RestaurantManagementSystem.Controllers
                     };
                 }
             }
-            catch { /* non-blocking */ }
+            catch
+            {
+            }
+        }
+
+        // GET: /Feedback/Form
+        [HttpGet]
+        [AllowAnonymous]
+        public async Task<IActionResult> Form(int? branchId = null)
+        {
+            var activeBranchId = ResolveBranchId(branchId);
+            var model = new GuestFeedback
+            {
+                VisitDate = DateTime.Today,
+                OverallRating = 5
+            };
+
+            ViewBag.ActiveBranchId = activeBranchId;
+            await LoadRestaurantHeaderAsync(activeBranchId);
             return View(model);
         }
 
@@ -61,14 +111,23 @@ namespace RestaurantManagementSystem.Controllers
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AllowAnonymous]
-        public async Task<IActionResult> Submit(GuestFeedback model)
+        public async Task<IActionResult> Submit(GuestFeedback model, int? branchId = null)
         {
+            var activeBranchId = ResolveBranchId(branchId);
+            ViewBag.ActiveBranchId = activeBranchId;
+
+            if (!activeBranchId.HasValue)
+            {
+                ModelState.AddModelError(string.Empty, "No active branch selected. Please submit feedback from a valid branch link.");
+            }
+
             if (model.OverallRating < 1 || model.OverallRating > 5)
             {
                 ModelState.AddModelError("OverallRating", "Overall rating must be between 1 and 5.");
             }
             if (!ModelState.IsValid)
             {
+                await LoadRestaurantHeaderAsync(activeBranchId);
                 return View("Form", model);
             }
 
@@ -89,6 +148,7 @@ namespace RestaurantManagementSystem.Controllers
 
                 using var con = new SqlConnection(_connectionString);
                 await con.OpenAsync();
+                var hasFeedbackBranchColumn = await HasColumnAsync(con, "GuestFeedback", "BranchId");
 
                 // Discover available parameters on the SP to maintain backward compatibility
                 var availableParams = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -134,16 +194,27 @@ namespace RestaurantManagementSystem.Controllers
                 if (availableParams.Contains("Phone")) cmd.Parameters.AddWithValue("@Phone", (object?)model.Phone ?? DBNull.Value);
                 if (availableParams.Contains("GuestBirthDate")) cmd.Parameters.AddWithValue("@GuestBirthDate", (object?)model.GuestBirthDate ?? DBNull.Value);
                 if (availableParams.Contains("AnniversaryDate")) cmd.Parameters.AddWithValue("@AnniversaryDate", (object?)model.AnniversaryDate ?? DBNull.Value);
+                if (activeBranchId.HasValue && availableParams.Contains("BranchId")) cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
 
                 Console.WriteLine($"Executing SP with {cmd.Parameters.Count} parameters");
                 var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+
+                if (activeBranchId.HasValue && hasFeedbackBranchColumn && !availableParams.Contains("BranchId"))
+                {
+                    using var updateCmd = new SqlCommand("UPDATE GuestFeedback SET BranchId = @BranchId WHERE Id = @Id", con);
+                    updateCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    updateCmd.Parameters.AddWithValue("@Id", newId);
+                    await updateCmd.ExecuteNonQueryAsync();
+                }
+
                 Console.WriteLine($"✓ Feedback saved successfully with ID: {newId}");
                 TempData["FeedbackSuccess"] = "Thank you! Your feedback has been submitted.";
-                return RedirectToAction("ThankYou", new { id = newId });
+                return RedirectToAction("ThankYou", new { id = newId, branchId = activeBranchId });
             }
             catch (Exception ex)
             {
                 ModelState.AddModelError(string.Empty, $"Error submitting feedback: {ex.Message}");
+                await LoadRestaurantHeaderAsync(activeBranchId);
                 return View("Form", model);
             }
         }
@@ -151,28 +222,54 @@ namespace RestaurantManagementSystem.Controllers
         // GET: /Feedback/ThankYou
         [HttpGet]
         [AllowAnonymous]
-        public IActionResult ThankYou(int id)
+        public IActionResult ThankYou(int id, int? branchId = null)
         {
             ViewBag.FeedbackId = id;
+            ViewBag.ActiveBranchId = ResolveBranchId(branchId);
             return View();
         }
 
         // GET: /Feedback/Summary
         [HttpGet]
-        public async Task<IActionResult> Summary(DateTime? from, DateTime? to)
+        [Authorize]
+        public async Task<IActionResult> Summary(DateTime? from, DateTime? to, int? branchId = null)
         {
+            var activeBranchId = ResolveBranchId(branchId);
+            if (!activeBranchId.HasValue)
+            {
+                TempData["FeedbackError"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
+            ViewBag.ActiveBranchId = activeBranchId;
+            ViewBag.ActiveBranchName = User.GetActiveBranchName();
+
             var summary = new GuestFeedbackSummary();
             var latest = new List<GuestFeedback>();
             try
             {
                 using var con = new SqlConnection(_connectionString);
                 await con.OpenAsync();
+
+                var hasFeedbackBranchColumn = await HasColumnAsync(con, "GuestFeedback", "BranchId");
+
                 using var cmd = new SqlCommand("usp_GetGuestFeedbackSummary", con)
                 {
                     CommandType = CommandType.StoredProcedure
                 };
                 cmd.Parameters.AddWithValue("@FromDate", (object?)from?.Date ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ToDate", (object?)to?.Date ?? DBNull.Value);
+
+                var summarySpHasBranchParam = false;
+                using (var pCmd = new SqlCommand("SELECT COUNT(1) FROM sys.parameters WHERE object_id = OBJECT_ID('dbo.usp_GetGuestFeedbackSummary') AND name = '@BranchId'", con))
+                {
+                    summarySpHasBranchParam = Convert.ToInt32(await pCmd.ExecuteScalarAsync()) > 0;
+                }
+                if (summarySpHasBranchParam)
+                {
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                }
+
                 using var reader = await cmd.ExecuteReaderAsync();
                 if (await reader.ReadAsync())
                 {
@@ -230,7 +327,16 @@ namespace RestaurantManagementSystem.Controllers
                 else
                 {
                     // Fallback for older DBs where the SP returns only a single result set (aggregates)
-                    using var cmdLatest = new SqlCommand("SELECT TOP 50 Id, VisitDate, OverallRating, FoodRating, ServiceRating, CleanlinessRating, StaffRating, Tags, Comments, GuestName, GuestBirthDate, AnniversaryDate, CreatedAt FROM GuestFeedback ORDER BY CreatedAt DESC", con);
+                    var latestSql = hasFeedbackBranchColumn
+                        ? "SELECT TOP 50 Id, VisitDate, OverallRating, FoodRating, ServiceRating, CleanlinessRating, StaffRating, Tags, Comments, GuestName, GuestBirthDate, AnniversaryDate, CreatedAt FROM GuestFeedback WHERE BranchId = @BranchId ORDER BY CreatedAt DESC"
+                        : "SELECT TOP 50 Id, VisitDate, OverallRating, FoodRating, ServiceRating, CleanlinessRating, StaffRating, Tags, Comments, GuestName, GuestBirthDate, AnniversaryDate, CreatedAt FROM GuestFeedback ORDER BY CreatedAt DESC";
+
+                    using var cmdLatest = new SqlCommand(latestSql, con);
+                    if (hasFeedbackBranchColumn)
+                    {
+                        cmdLatest.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
+
                     using var r2 = await cmdLatest.ExecuteReaderAsync();
                     while (await r2.ReadAsync())
                     {
@@ -257,7 +363,16 @@ namespace RestaurantManagementSystem.Controllers
                 // If aggregates indicate data but the latest list is empty (e.g., due to SP filter differences), load a best-effort latest list.
                 if (latest.Count == 0 && summary.TotalFeedback > 0)
                 {
-                    using var cmdLatest2 = new SqlCommand("SELECT TOP 50 Id, VisitDate, OverallRating, FoodRating, ServiceRating, CleanlinessRating, StaffRating, AmbienceRating, ValueRating, SpeedRating, Tags, Comments, GuestName, GuestBirthDate, AnniversaryDate, Location, IsFirstVisit, CreatedAt FROM GuestFeedback ORDER BY CreatedAt DESC", con);
+                    var latestSql2 = hasFeedbackBranchColumn
+                        ? "SELECT TOP 50 Id, VisitDate, OverallRating, FoodRating, ServiceRating, CleanlinessRating, StaffRating, AmbienceRating, ValueRating, SpeedRating, Tags, Comments, GuestName, GuestBirthDate, AnniversaryDate, Location, IsFirstVisit, CreatedAt FROM GuestFeedback WHERE BranchId = @BranchId ORDER BY CreatedAt DESC"
+                        : "SELECT TOP 50 Id, VisitDate, OverallRating, FoodRating, ServiceRating, CleanlinessRating, StaffRating, AmbienceRating, ValueRating, SpeedRating, Tags, Comments, GuestName, GuestBirthDate, AnniversaryDate, Location, IsFirstVisit, CreatedAt FROM GuestFeedback ORDER BY CreatedAt DESC";
+
+                    using var cmdLatest2 = new SqlCommand(latestSql2, con);
+                    if (hasFeedbackBranchColumn)
+                    {
+                        cmdLatest2.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    }
+
                     using var r3 = await cmdLatest2.ExecuteReaderAsync();
                     while (await r3.ReadAsync())
                     {

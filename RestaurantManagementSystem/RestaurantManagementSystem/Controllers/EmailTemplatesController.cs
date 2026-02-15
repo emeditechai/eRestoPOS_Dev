@@ -4,6 +4,7 @@ using Microsoft.Data.SqlClient;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Filters;
 using RestaurantManagementSystem.Models.Authorization;
+using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -30,7 +31,14 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
-                var templates = await GetAllTemplatesAsync();
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction("Index", "Home");
+                }
+
+                var templates = await GetAllTemplatesAsync(activeBranchId);
                 return View(templates);
             }
             catch (Exception ex)
@@ -44,6 +52,12 @@ namespace RestaurantManagementSystem.Controllers
         // GET: EmailTemplates/Create
         public IActionResult Create()
         {
+            if (!User.GetActiveBranchId().HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             return View(new EmailTemplate());
         }
 
@@ -54,9 +68,16 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction("Index", "Home");
+                }
+
                 if (ModelState.IsValid)
                 {
-                    await CreateTemplateAsync(template);
+                    await CreateTemplateAsync(template, activeBranchId);
                     TempData["SuccessMessage"] = "Email template created successfully!";
                     return RedirectToAction(nameof(Index));
                 }
@@ -75,7 +96,14 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
-                var template = await GetTemplateByIdAsync(id);
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction("Index", "Home");
+                }
+
+                var template = await GetTemplateByIdAsync(id, activeBranchId);
                 if (template == null)
                 {
                     TempData["ErrorMessage"] = "Template not found";
@@ -98,6 +126,13 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction("Index", "Home");
+                }
+
                 if (id != template.EmailTemplateID)
                 {
                     return NotFound();
@@ -105,7 +140,7 @@ namespace RestaurantManagementSystem.Controllers
 
                 if (ModelState.IsValid)
                 {
-                    await UpdateTemplateAsync(template);
+                    await UpdateTemplateAsync(template, activeBranchId);
                     TempData["SuccessMessage"] = "Email template updated successfully!";
                     return RedirectToAction(nameof(Index));
                 }
@@ -126,7 +161,14 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
-                await DeleteTemplateAsync(id);
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction("Index", "Home");
+                }
+
+                await DeleteTemplateAsync(id, activeBranchId);
                 TempData["SuccessMessage"] = "Email template deleted successfully!";
                 return RedirectToAction(nameof(Index));
             }
@@ -144,7 +186,13 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
-                await SetDefaultTemplateAsync(id, templateType);
+                var activeBranchId = User.GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return Json(new { success = false, message = "No active branch selected" });
+                }
+
+                await SetDefaultTemplateAsync(id, templateType, activeBranchId);
                 return Json(new { success = true, message = "Default template set successfully" });
             }
             catch (Exception ex)
@@ -156,7 +204,7 @@ namespace RestaurantManagementSystem.Controllers
 
         #region Helper Methods
 
-        private async Task<List<EmailTemplate>> GetAllTemplatesAsync()
+        private async Task<List<EmailTemplate>> GetAllTemplatesAsync(int? branchId)
         {
             var templates = new List<EmailTemplate>();
 
@@ -164,13 +212,23 @@ namespace RestaurantManagementSystem.Controllers
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasTemplateBranch = await HasColumnAsync(connection, "tbl_EmailTemplates", "BranchId");
+                var branchFilter = hasTemplateBranch && branchId.HasValue ? "WHERE BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     SELECT EmailTemplateID, TemplateName, TemplateType, Subject, BodyHtml, 
                            IsActive, IsDefault, CreatedAt, UpdatedAt
                     FROM tbl_EmailTemplates
+                    {branchFilter}
                     ORDER BY TemplateType, TemplateName";
 
                 using (var command = new SqlCommand(query, connection))
+                {
+                    if (hasTemplateBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
+                
                 using (var reader = await command.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
@@ -189,26 +247,35 @@ namespace RestaurantManagementSystem.Controllers
                         });
                     }
                 }
+                }
             }
 
             return templates;
         }
 
-        private async Task<EmailTemplate?> GetTemplateByIdAsync(int id)
+        private async Task<EmailTemplate?> GetTemplateByIdAsync(int id, int? branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasTemplateBranch = await HasColumnAsync(connection, "tbl_EmailTemplates", "BranchId");
+                var branchFilter = hasTemplateBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     SELECT EmailTemplateID, TemplateName, TemplateType, Subject, BodyHtml, 
                            IsActive, IsDefault
                     FROM tbl_EmailTemplates
-                    WHERE EmailTemplateID = @Id";
+                    WHERE EmailTemplateID = @Id
+                    {branchFilter}";
 
                 using (var command = new SqlCommand(query, connection))
                 {
                     command.Parameters.AddWithValue("@Id", id);
+                    if (hasTemplateBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
 
                     using (var reader = await command.ExecuteReaderAsync())
                     {
@@ -232,20 +299,29 @@ namespace RestaurantManagementSystem.Controllers
             return null;
         }
 
-        private async Task CreateTemplateAsync(EmailTemplate template)
+        private async Task CreateTemplateAsync(EmailTemplate template, int? branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
-                var query = @"
-                    INSERT INTO tbl_EmailTemplates (
-                        TemplateName, TemplateType, Subject, BodyHtml, 
-                        IsActive, IsDefault, CreatedBy, CreatedAt
-                    ) VALUES (
-                        @TemplateName, @TemplateType, @Subject, @BodyHtml,
-                        @IsActive, @IsDefault, @CreatedBy, GETDATE()
-                    )";
+                var hasTemplateBranch = await HasColumnAsync(connection, "tbl_EmailTemplates", "BranchId");
+
+                var query = hasTemplateBranch
+                    ? @"INSERT INTO tbl_EmailTemplates (
+                            TemplateName, TemplateType, Subject, BodyHtml,
+                            IsActive, IsDefault, CreatedBy, CreatedAt, BranchId
+                        ) VALUES (
+                            @TemplateName, @TemplateType, @Subject, @BodyHtml,
+                            @IsActive, @IsDefault, @CreatedBy, GETDATE(), @BranchId
+                        )"
+                    : @"INSERT INTO tbl_EmailTemplates (
+                            TemplateName, TemplateType, Subject, BodyHtml,
+                            IsActive, IsDefault, CreatedBy, CreatedAt
+                        ) VALUES (
+                            @TemplateName, @TemplateType, @Subject, @BodyHtml,
+                            @IsActive, @IsDefault, @CreatedBy, GETDATE()
+                        )";
 
                 using (var command = new SqlCommand(query, connection))
                 {
@@ -256,19 +332,26 @@ namespace RestaurantManagementSystem.Controllers
                     command.Parameters.AddWithValue("@IsActive", template.IsActive);
                     command.Parameters.AddWithValue("@IsDefault", template.IsDefault);
                     command.Parameters.AddWithValue("@CreatedBy", (object?)GetCurrentUserId() ?? DBNull.Value);
+                    if (hasTemplateBranch)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", (object?)branchId ?? DBNull.Value);
+                    }
 
                     await command.ExecuteNonQueryAsync();
                 }
             }
         }
 
-        private async Task UpdateTemplateAsync(EmailTemplate template)
+        private async Task UpdateTemplateAsync(EmailTemplate template, int? branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
-                var query = @"
+                var hasTemplateBranch = await HasColumnAsync(connection, "tbl_EmailTemplates", "BranchId");
+                var branchFilter = hasTemplateBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $@"
                     UPDATE tbl_EmailTemplates
                     SET TemplateName = @TemplateName,
                         TemplateType = @TemplateType,
@@ -278,7 +361,8 @@ namespace RestaurantManagementSystem.Controllers
                         IsDefault = @IsDefault,
                         UpdatedBy = @UpdatedBy,
                         UpdatedAt = GETDATE()
-                    WHERE EmailTemplateID = @Id";
+                    WHERE EmailTemplateID = @Id
+                    {branchFilter}";
 
                 using (var command = new SqlCommand(query, connection))
                 {
@@ -290,57 +374,100 @@ namespace RestaurantManagementSystem.Controllers
                     command.Parameters.AddWithValue("@IsActive", template.IsActive);
                     command.Parameters.AddWithValue("@IsDefault", template.IsDefault);
                     command.Parameters.AddWithValue("@UpdatedBy", (object?)GetCurrentUserId() ?? DBNull.Value);
+                    if (hasTemplateBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
 
                     await command.ExecuteNonQueryAsync();
                 }
             }
         }
 
-        private async Task DeleteTemplateAsync(int id)
+        private async Task DeleteTemplateAsync(int id, int? branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
-                var query = "DELETE FROM tbl_EmailTemplates WHERE EmailTemplateID = @Id";
+                var hasTemplateBranch = await HasColumnAsync(connection, "tbl_EmailTemplates", "BranchId");
+                var branchFilter = hasTemplateBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
+                var query = $"DELETE FROM tbl_EmailTemplates WHERE EmailTemplateID = @Id {branchFilter}";
 
                 using (var command = new SqlCommand(query, connection))
                 {
                     command.Parameters.AddWithValue("@Id", id);
+                    if (hasTemplateBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
                     await command.ExecuteNonQueryAsync();
                 }
             }
         }
 
-        private async Task SetDefaultTemplateAsync(int id, string templateType)
+        private async Task SetDefaultTemplateAsync(int id, string templateType, int? branchId)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
 
+                var hasTemplateBranch = await HasColumnAsync(connection, "tbl_EmailTemplates", "BranchId");
+                var branchFilter = hasTemplateBranch && branchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
+
                 // First, remove default from all templates of this type
-                var query1 = @"
+                var query1 = $@"
                     UPDATE tbl_EmailTemplates
                     SET IsDefault = 0
-                    WHERE TemplateType = @TemplateType";
+                    WHERE TemplateType = @TemplateType
+                    {branchFilter}";
 
                 using (var command = new SqlCommand(query1, connection))
                 {
                     command.Parameters.AddWithValue("@TemplateType", templateType);
+                    if (hasTemplateBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
                     await command.ExecuteNonQueryAsync();
                 }
 
                 // Then set this template as default
-                var query2 = @"
+                var query2 = $@"
                     UPDATE tbl_EmailTemplates
                     SET IsDefault = 1
-                    WHERE EmailTemplateID = @Id";
+                    WHERE EmailTemplateID = @Id
+                    {branchFilter}";
 
                 using (var command = new SqlCommand(query2, connection))
                 {
                     command.Parameters.AddWithValue("@Id", id);
+                    if (hasTemplateBranch && branchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    }
                     await command.ExecuteNonQueryAsync();
                 }
+            }
+        }
+
+        private async Task<bool> HasColumnAsync(SqlConnection connection, string tableName, string columnName)
+        {
+            try
+            {
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = @TableName AND COLUMN_NAME = @ColumnName", connection);
+                cmd.Parameters.AddWithValue("@TableName", tableName);
+                cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                var result = await cmd.ExecuteScalarAsync();
+                return Convert.ToInt32(result) > 0;
+            }
+            catch
+            {
+                return false;
             }
         }
 

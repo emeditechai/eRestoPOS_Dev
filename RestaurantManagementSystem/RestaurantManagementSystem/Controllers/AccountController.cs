@@ -331,7 +331,8 @@ namespace RestaurantManagementSystem.Controllers
                 var subject = "Reset your password";
                                 var body = BuildPasswordResetEmailHtml(resetUrl);
 
-                var sendResult = await _emailSender.SendAsync(recipient, subject, body, emailType: "PasswordReset", sentFrom: "Account");
+                var userBranchId = await ResolveUserBranchIdAsync(user.Value.Id);
+                var sendResult = await _emailSender.SendAsync(recipient, subject, body, emailType: "PasswordReset", sentFrom: "Account", branchId: userBranchId);
                 if (!sendResult.Success)
                 {
                     _logger?.LogWarning("Password reset email send failed for {Email}: {Error}", recipient, sendResult.ErrorMessage);
@@ -539,7 +540,8 @@ ORDER BY Id ASC";
                 var subject = "Reset your password";
                 var body = BuildPasswordResetEmailHtml(resetUrl, isTestEmail: true);
 
-                var sendResult = await _emailSender.SendAsync(user.Email, subject, body, emailType: "PasswordReset", sentFrom: "Account-Test");
+                var userBranchId = await ResolveUserBranchIdAsync(user.Id);
+                var sendResult = await _emailSender.SendAsync(user.Email, subject, body, emailType: "PasswordReset", sentFrom: "Account-Test", branchId: userBranchId);
 
                 return Ok(new
                 {
@@ -570,6 +572,63 @@ ORDER BY Id ASC";
 
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             return exp > now;
+        }
+
+        private async Task<int?> ResolveUserBranchIdAsync(int userId)
+        {
+            try
+            {
+                await using var connection = _db.Database.GetDbConnection();
+                if (connection.State != ConnectionState.Open)
+                {
+                    await connection.OpenAsync();
+                }
+
+                await using (var ubCmd = connection.CreateCommand())
+                {
+                    ubCmd.CommandText = @"
+SELECT TOP (1) ub.BranchId
+FROM dbo.UserBranches ub
+WHERE ub.UserId = @UserId
+  AND ISNULL(CAST(ub.IsActive AS bit), 1) = 1
+ORDER BY ISNULL(CAST(ub.IsDefault AS bit), 0) DESC, ub.Id ASC";
+                    var p = ubCmd.CreateParameter();
+                    p.ParameterName = "@UserId";
+                    p.Value = userId;
+                    ubCmd.Parameters.Add(p);
+
+                    var ubBranch = await ubCmd.ExecuteScalarAsync();
+                    if (ubBranch != null && ubBranch != DBNull.Value)
+                    {
+                        return Convert.ToInt32(ubBranch);
+                    }
+                }
+
+                await using (var usersBranchCmd = connection.CreateCommand())
+                {
+                    usersBranchCmd.CommandText = @"
+IF COL_LENGTH('dbo.Users', 'BranchId') IS NULL
+    SELECT CAST(NULL AS INT)
+ELSE
+    SELECT TOP (1) BranchId FROM dbo.Users WHERE Id = @UserId";
+                    var p = usersBranchCmd.CreateParameter();
+                    p.ParameterName = "@UserId";
+                    p.Value = userId;
+                    usersBranchCmd.Parameters.Add(p);
+
+                    var usersBranch = await usersBranchCmd.ExecuteScalarAsync();
+                    if (usersBranch != null && usersBranch != DBNull.Value)
+                    {
+                        return Convert.ToInt32(usersBranch);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Unable to resolve branch for user {UserId}", userId);
+            }
+
+            return null;
         }
 
                 private string BuildPasswordResetEmailHtml(string resetUrl, bool isTestEmail = false)

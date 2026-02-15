@@ -359,12 +359,55 @@ BEGIN
         BEGIN
             DECLARE @Today VARCHAR(8) = CONVERT(VARCHAR(8), GETDATE(), 112);
             DECLARE @OrderCount INT;
+            DECLARE @HasOrdersBranch BIT = CASE WHEN COL_LENGTH('dbo.Orders', 'BranchId') IS NULL THEN 0 ELSE 1 END;
+            DECLARE @OrderBranchId INT = NULL;
+            DECLARE @OrderPrefix NVARCHAR(20) = 'ORD';
 
-            SELECT @OrderCount = ISNULL(MAX(CAST(RIGHT(OrderNumber, 4) AS INT)), 0) + 1
-            FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
-            WHERE OrderNumber LIKE 'ORD-' + @Today + '-%';
+            IF @HasOrdersBranch = 1
+            BEGIN
+                DECLARE @BranchSql NVARCHAR(MAX) = N'
+                    SELECT @OrderBranchIdOut = BranchId
+                    FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+                    WHERE Id = @OrderIdIn;';
 
-            SET @OrderNumber = 'ORD-' + @Today + '-' + RIGHT('0000' + CAST(@OrderCount AS VARCHAR(4)), 4);
+                EXEC sp_executesql
+                    @BranchSql,
+                    N'@OrderIdIn INT, @OrderBranchIdOut INT OUTPUT',
+                    @OrderIdIn = @OrderId,
+                    @OrderBranchIdOut = @OrderBranchId OUTPUT;
+
+                IF @OrderBranchId IS NOT NULL
+                BEGIN
+                    SELECT TOP 1 @OrderPrefix = ISNULL(NULLIF(LTRIM(RTRIM(BranchCode)), ''), 'ORD')
+                    FROM dbo.Branches
+                    WHERE BranchId = @OrderBranchId;
+                END
+            END
+
+            IF @HasOrdersBranch = 1 AND @OrderBranchId IS NOT NULL
+            BEGIN
+                DECLARE @CountSql NVARCHAR(MAX) = N'
+                    SELECT @OrderCountOut = ISNULL(MAX(CAST(RIGHT(OrderNumber, 4) AS INT)), 0) + 1
+                    FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+                    WHERE OrderNumber LIKE @PrefixIn + ''-'' + @TodayIn + ''-%''
+                      AND BranchId = @BranchIdIn;';
+
+                EXEC sp_executesql
+                    @CountSql,
+                    N'@TodayIn VARCHAR(8), @PrefixIn NVARCHAR(20), @BranchIdIn INT, @OrderCountOut INT OUTPUT',
+                    @TodayIn = @Today,
+                    @PrefixIn = @OrderPrefix,
+                    @BranchIdIn = @OrderBranchId,
+                    @OrderCountOut = @OrderCount OUTPUT;
+            END
+            ELSE
+            BEGIN
+                SELECT @OrderCount = ISNULL(MAX(CAST(RIGHT(OrderNumber, 4) AS INT)), 0) + 1
+                FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+                WHERE OrderNumber LIKE @OrderPrefix + '-' + @Today + '-%';
+            END
+
+            SET @OrderNumber = @OrderPrefix + '-' + @Today + '-' + RIGHT('0000' + CAST(@OrderCount AS VARCHAR(4)), 4);
 
             UPDATE dbo.Orders
             SET OrderNumber = @OrderNumber,
@@ -471,6 +514,7 @@ BEGIN
     DECLARE @Message NVARCHAR(200);
     DECLARE @TicketNumber NVARCHAR(20);
     DECLARE @KitchenTicketId INT;
+    DECLARE @OrderBranchId INT;
     
     -- Check if order exists
     IF NOT EXISTS (SELECT 1 FROM [Orders] WHERE [Id] = @OrderId)
@@ -479,11 +523,20 @@ BEGIN
         RETURN;
     END
     
-    -- Generate unique ticket number
-    SET @TicketNumber = 'KOT-' + CONVERT(NVARCHAR(8), GETDATE(), 112) + '-' + 
-                        RIGHT('0000' + CAST((SELECT ISNULL(MAX(CAST(RIGHT(TicketNumber, 4) AS INT)), 0) + 1 
-                                            FROM KitchenTickets 
-                                            WHERE LEFT(TicketNumber, 12) = 'KOT-' + CONVERT(NVARCHAR(8), GETDATE(), 112)) AS NVARCHAR(4)), 4);
+    SELECT @OrderBranchId = BranchId
+    FROM [Orders]
+    WHERE [Id] = @OrderId;
+
+    -- Generate unique ticket number per day and per branch
+    SELECT @TicketNumber =
+        'KOT-' + CONVERT(NVARCHAR(8), GETDATE(), 112) + '-' +
+        RIGHT('0000' + CAST(
+            ISNULL(MAX(TRY_CAST(RIGHT(kt.TicketNumber, 4) AS INT)), 0) + 1
+        AS NVARCHAR(4)), 4)
+    FROM KitchenTickets kt WITH (UPDLOCK, HOLDLOCK)
+    INNER JOIN [Orders] o2 ON o2.[Id] = kt.[OrderId]
+    WHERE LEFT(kt.TicketNumber, 12) = 'KOT-' + CONVERT(NVARCHAR(8), GETDATE(), 112)
+      AND ((@OrderBranchId IS NULL AND o2.BranchId IS NULL) OR o2.BranchId = @OrderBranchId);
     
     BEGIN TRANSACTION;
     

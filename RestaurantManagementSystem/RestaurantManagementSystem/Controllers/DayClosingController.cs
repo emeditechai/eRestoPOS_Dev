@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Services;
+using RestaurantManagementSystem.Utilities;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -18,6 +19,17 @@ namespace RestaurantManagementSystem.Controllers
             _dayClosingService = dayClosingService;
         }
 
+        private int? GetActiveBranchId()
+        {
+            return User.GetActiveBranchId();
+        }
+
+        private IActionResult RedirectNoBranch()
+        {
+            TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+            return RedirectToAction("Index", "Home");
+        }
+
         /// <summary>
         /// Day Closing Dashboard - Main entry point
         /// </summary>
@@ -26,6 +38,12 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return RedirectNoBranch();
+                }
+
                 var businessDate = date ?? DateTime.Today;
                 
                 var model = new DayClosingDashboardViewModel
@@ -34,10 +52,10 @@ namespace RestaurantManagementSystem.Controllers
                 };
 
                 // Get cashier closing details
-                model.CashierClosings = await _dayClosingService.GetDayClosingSummaryAsync(businessDate);
+                model.CashierClosings = await _dayClosingService.GetDayClosingSummaryAsync(businessDate, activeBranchId);
 
                 // Get lock status
-                model.LockStatus = await _dayClosingService.GetDayLockStatusAsync(businessDate);
+                model.LockStatus = await _dayClosingService.GetDayLockStatusAsync(businessDate, activeBranchId);
 
                 // Calculate summary
                 model.Summary = new DaySummary
@@ -83,12 +101,18 @@ namespace RestaurantManagementSystem.Controllers
         [Authorize(Roles = "Administrator,Manager")]
         public async Task<IActionResult> OpenFloat(DateTime? date)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return RedirectNoBranch();
+            }
+
             var businessDate = date ?? DateTime.Today;
             
             var model = new OpenFloatViewModel
             {
                 BusinessDate = businessDate,
-                AvailableCashiers = await _dayClosingService.GetAvailableCashiersAsync(businessDate)
+                AvailableCashiers = await _dayClosingService.GetAvailableCashiersAsync(businessDate, activeBranchId)
             };
 
             return View(model);
@@ -102,9 +126,15 @@ namespace RestaurantManagementSystem.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> OpenFloat(OpenFloatViewModel model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return RedirectNoBranch();
+            }
+
             if (!ModelState.IsValid)
             {
-                model.AvailableCashiers = await _dayClosingService.GetAvailableCashiersAsync(model.BusinessDate);
+                model.AvailableCashiers = await _dayClosingService.GetAvailableCashiersAsync(model.BusinessDate, activeBranchId);
                 return View(model);
             }
 
@@ -115,7 +145,8 @@ namespace RestaurantManagementSystem.Controllers
                     model.BusinessDate,
                     model.CashierId,
                     model.OpeningFloat,
-                    username
+                    username,
+                    activeBranchId
                 );
 
                 if (result.Success)
@@ -126,14 +157,14 @@ namespace RestaurantManagementSystem.Controllers
                 else
                 {
                     TempData["ErrorMessage"] = result.Message;
-                    model.AvailableCashiers = await _dayClosingService.GetAvailableCashiersAsync(model.BusinessDate);
+                    model.AvailableCashiers = await _dayClosingService.GetAvailableCashiersAsync(model.BusinessDate, activeBranchId);
                     return View(model);
                 }
             }
             catch (Exception ex)
             {
                 TempData["ErrorMessage"] = $"Error initializing opening float: {ex.Message}";
-                model.AvailableCashiers = await _dayClosingService.GetAvailableCashiersAsync(model.BusinessDate);
+                model.AvailableCashiers = await _dayClosingService.GetAvailableCashiersAsync(model.BusinessDate, activeBranchId);
                 return View(model);
             }
         }
@@ -144,11 +175,17 @@ namespace RestaurantManagementSystem.Controllers
         [HttpGet]
         public async Task<IActionResult> DeclareCash(int cashierId, DateTime? date)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return RedirectNoBranch();
+            }
+
             var businessDate = date ?? DateTime.Today;
             
             try
             {
-                var closings = await _dayClosingService.GetDayClosingSummaryAsync(businessDate);
+                var closings = await _dayClosingService.GetDayClosingSummaryAsync(businessDate, activeBranchId);
                 var cashierClosing = closings.FirstOrDefault(c => c.CashierId == cashierId);
 
                 if (cashierClosing == null)
@@ -191,6 +228,12 @@ namespace RestaurantManagementSystem.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeclareCash(DeclaredCashViewModel model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return RedirectNoBranch();
+            }
+
             if (!ModelState.IsValid)
             {
                 return View(model);
@@ -203,7 +246,8 @@ namespace RestaurantManagementSystem.Controllers
                     model.BusinessDate,
                     model.CashierId,
                     model.DeclaredAmount,
-                    username
+                    username,
+                    activeBranchId
                 );
 
                 if (result.Success)
@@ -239,11 +283,17 @@ namespace RestaurantManagementSystem.Controllers
         [Authorize(Roles = "Administrator,Manager")]
         public async Task<IActionResult> ApproveVariance(int closeId, DateTime? date)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return RedirectNoBranch();
+            }
+
             var businessDate = date ?? DateTime.Today;
             
             try
             {
-                var closings = await _dayClosingService.GetDayClosingSummaryAsync(businessDate);
+                var closings = await _dayClosingService.GetDayClosingSummaryAsync(businessDate, activeBranchId);
                 var cashierClosing = closings.FirstOrDefault(c => c.Id == closeId);
 
                 if (cashierClosing == null)
@@ -281,6 +331,12 @@ namespace RestaurantManagementSystem.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ApproveVariance(VarianceApprovalViewModel model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return RedirectNoBranch();
+            }
+
             if (!ModelState.IsValid)
             {
                 return View(model);
@@ -295,7 +351,8 @@ namespace RestaurantManagementSystem.Controllers
                     model.CloseId,
                     username,
                     model.ApprovalComment,
-                    approved
+                    approved,
+                    activeBranchId
                 );
 
                 if (result.Success)
@@ -326,8 +383,14 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return RedirectNoBranch();
+                }
+
                 var username = User.Identity?.Name ?? "System";
-                var result = await _dayClosingService.LockDayAsync(businessDate, username, remarks);
+                var result = await _dayClosingService.LockDayAsync(businessDate, username, remarks, activeBranchId);
 
                 if (result.Success)
                 {
@@ -354,12 +417,18 @@ namespace RestaurantManagementSystem.Controllers
         [Authorize(Roles = "Administrator,Manager")]
         public async Task<IActionResult> EODReport(DateTime? date)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return RedirectNoBranch();
+            }
+
             var businessDate = date ?? DateTime.Today;
             
             try
             {
                 var username = User.Identity?.Name ?? "System";
-                var model = await _dayClosingService.GenerateEODReportAsync(businessDate, username);
+                var model = await _dayClosingService.GenerateEODReportAsync(businessDate, username, activeBranchId);
                 
                 return View(model);
             }
@@ -377,12 +446,18 @@ namespace RestaurantManagementSystem.Controllers
         [Authorize(Roles = "Administrator,Manager")]
         public async Task<IActionResult> PrintEOD(DateTime? date)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return RedirectNoBranch();
+            }
+
             var businessDate = date ?? DateTime.Today;
             
             try
             {
                 var username = User.Identity?.Name ?? "System";
-                var model = await _dayClosingService.GenerateEODReportAsync(businessDate, username);
+                var model = await _dayClosingService.GenerateEODReportAsync(businessDate, username, activeBranchId);
                 
                 return View(model);
             }
@@ -402,7 +477,13 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
-                await _dayClosingService.UpdateCashierSystemAmountsAsync(businessDate);
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    return RedirectNoBranch();
+                }
+
+                await _dayClosingService.UpdateCashierSystemAmountsAsync(businessDate, activeBranchId);
                 TempData["SuccessMessage"] = "System amounts refreshed successfully.";
             }
             catch (Exception ex)

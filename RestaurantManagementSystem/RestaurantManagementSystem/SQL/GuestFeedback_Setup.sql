@@ -23,6 +23,7 @@ BEGIN
         [Phone] NVARCHAR(30) NULL,
         [GuestBirthDate] DATE NULL,
         [AnniversaryDate] DATE NULL,
+        [BranchId] INT NULL,
         [CreatedAt] DATETIME NOT NULL DEFAULT GETDATE()
     );
     PRINT 'GuestFeedback table created.';
@@ -47,6 +48,8 @@ BEGIN
         ALTER TABLE GuestFeedback ADD [GuestBirthDate] DATE NULL;
     IF COL_LENGTH('GuestFeedback','AnniversaryDate') IS NULL
         ALTER TABLE GuestFeedback ADD [AnniversaryDate] DATE NULL;
+    IF COL_LENGTH('GuestFeedback','BranchId') IS NULL
+        ALTER TABLE GuestFeedback ADD [BranchId] INT NULL;
 END
 GO
 
@@ -73,7 +76,8 @@ CREATE PROCEDURE [dbo].[usp_SubmitGuestFeedback]
     @Email NVARCHAR(150) = NULL,
     @Phone NVARCHAR(30) = NULL,
     @GuestBirthDate DATE = NULL,
-    @AnniversaryDate DATE = NULL
+    @AnniversaryDate DATE = NULL,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -86,12 +90,12 @@ BEGIN
         VisitDate, OverallRating, FoodRating, ServiceRating, CleanlinessRating, StaffRating,
         AmbienceRating, ValueRating, SpeedRating,
         Location, IsFirstVisit, SurveyJson,
-        Tags, Comments, GuestName, Email, Phone, GuestBirthDate, AnniversaryDate)
+        Tags, Comments, GuestName, Email, Phone, GuestBirthDate, AnniversaryDate, BranchId)
     VALUES(
         ISNULL(@VisitDate, CAST(GETDATE() AS DATE)), @OverallRating, @FoodRating, @ServiceRating, @CleanlinessRating, @StaffRating,
         @AmbienceRating, @ValueRating, @SpeedRating,
         @Location, @IsFirstVisit, @SurveyJson,
-        @Tags, @Comments, @GuestName, @Email, @Phone, @GuestBirthDate, @AnniversaryDate);
+        @Tags, @Comments, @GuestName, @Email, @Phone, @GuestBirthDate, @AnniversaryDate, @BranchId);
     SELECT SCOPE_IDENTITY() AS NewId;
 END
 GO
@@ -102,12 +106,14 @@ IF OBJECT_ID('usp_GetGuestFeedbackSummary','P') IS NOT NULL
 GO
 CREATE PROCEDURE [dbo].[usp_GetGuestFeedbackSummary]
     @FromDate DATE = NULL,
-    @ToDate DATE = NULL
+    @ToDate DATE = NULL,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
     DECLARE @Start DATE = ISNULL(@FromDate, DATEADD(DAY,-30,CAST(GETDATE() AS DATE)));
     DECLARE @End DATE = ISNULL(@ToDate, CAST(GETDATE() AS DATE));
+    DECLARE @HasFeedbackBranch BIT = CASE WHEN COL_LENGTH('dbo.GuestFeedback', 'BranchId') IS NULL THEN 0 ELSE 1 END;
 
     -- Aggregated ratings
     SELECT 
@@ -121,7 +127,8 @@ BEGIN
         AvgValue = ROUND(AVG(CAST(ValueRating AS FLOAT)),2),
         AvgSpeed = ROUND(AVG(CAST(SpeedRating AS FLOAT)),2)
     FROM GuestFeedback
-    WHERE VisitDate BETWEEN @Start AND @End;
+        WHERE VisitDate BETWEEN @Start AND @End
+            AND (@BranchId IS NULL OR @HasFeedbackBranch = 0 OR BranchId = @BranchId);
 
     -- Latest 50 entries
     SELECT TOP 50 Id, VisitDate, OverallRating, FoodRating, ServiceRating, CleanlinessRating, StaffRating,
@@ -130,6 +137,7 @@ BEGIN
         Tags, Comments, GuestName, GuestBirthDate, AnniversaryDate, CreatedAt
     FROM GuestFeedback
     WHERE VisitDate BETWEEN @Start AND @End
+            AND (@BranchId IS NULL OR @HasFeedbackBranch = 0 OR BranchId = @BranchId)
     ORDER BY CreatedAt DESC;
 END
 GO

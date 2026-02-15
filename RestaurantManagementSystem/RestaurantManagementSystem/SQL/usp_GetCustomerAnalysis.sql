@@ -18,23 +18,26 @@ GO
 
 CREATE PROCEDURE dbo.usp_GetCustomerAnalysis
     @FromDate DATE = NULL,
-    @ToDate DATE = NULL
+    @ToDate DATE = NULL,
+    @BranchId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
 
     DECLARE @Start DATETIME = COALESCE(CAST(@FromDate AS DATETIME), DATEADD(day, -30, CAST(GETDATE() AS DATE)));
     DECLARE @End DATETIME = DATEADD(day, 1, COALESCE(CAST(@ToDate AS DATETIME), CAST(GETDATE() AS DATE)));
+    DECLARE @HasOrdersBranch BIT = CASE WHEN COL_LENGTH('dbo.Orders', 'BranchId') IS NULL THEN 0 ELSE 1 END;
 
     -- 1) Summary
     SELECT 
-        (SELECT COUNT(DISTINCT CustomerPhone) FROM Orders o WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End) AS TotalCustomers,
-        (SELECT COUNT(DISTINCT CustomerPhone) FROM Orders o WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End AND o.CreatedAt >= DATEADD(day, -30, @Start)) AS NewCustomers,
+                (SELECT COUNT(DISTINCT CustomerPhone) FROM Orders o WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)) AS TotalCustomers,
+                (SELECT COUNT(DISTINCT CustomerPhone) FROM Orders o WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End AND o.CreatedAt >= DATEADD(day, -30, @Start) AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)) AS NewCustomers,
         0 AS ReturningCustomers,
         0.0 AS AverageVisitsPerCustomer,
         ISNULL(SUM(o.TotalAmount),0) AS TotalRevenue
     FROM Orders o
-    WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End;
+        WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
+            AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId);
 
     -- 2) Top Customers
     -- Use dynamic SQL so the procedure can be created even if the Orders.TableName column does not exist.
@@ -53,13 +56,14 @@ BEGIN
                 SUM(o.TotalAmount) AS Revenue,
                 SUM(o.TotalAmount) AS LTV
             FROM Orders o
-            WHERE o.CreatedAt >= @StartParam AND o.CreatedAt < @EndParam
+                        WHERE o.CreatedAt >= @StartParam AND o.CreatedAt < @EndParam
+                            AND (@BranchIdParam IS NULL OR @HasOrdersBranchParam = 0 OR o.BranchId = @BranchIdParam)
             GROUP BY o.CustomerName, o.TableName, o.CustomerPhone
             ORDER BY Visits DESC;';
 
         EXEC sp_executesql @sqlWithTableName,
-            N'@StartParam DATETIME, @EndParam DATETIME',
-            @StartParam = @Start, @EndParam = @End;
+                        N'@StartParam DATETIME, @EndParam DATETIME, @BranchIdParam INT, @HasOrdersBranchParam BIT',
+                        @StartParam = @Start, @EndParam = @End, @BranchIdParam = @BranchId, @HasOrdersBranchParam = @HasOrdersBranch;
     END
     ELSE
     BEGIN
@@ -73,13 +77,14 @@ BEGIN
                 SUM(o.TotalAmount) AS Revenue,
                 SUM(o.TotalAmount) AS LTV
             FROM Orders o
-            WHERE o.CreatedAt >= @StartParam AND o.CreatedAt < @EndParam
+                        WHERE o.CreatedAt >= @StartParam AND o.CreatedAt < @EndParam
+                            AND (@BranchIdParam IS NULL OR @HasOrdersBranchParam = 0 OR o.BranchId = @BranchIdParam)
             GROUP BY o.CustomerName, o.CustomerPhone
             ORDER BY Visits DESC;';
 
         EXEC sp_executesql @sqlNoTableName,
-            N'@StartParam DATETIME, @EndParam DATETIME',
-            @StartParam = @Start, @EndParam = @End;
+                        N'@StartParam DATETIME, @EndParam DATETIME, @BranchIdParam INT, @HasOrdersBranchParam BIT',
+                        @StartParam = @Start, @EndParam = @End, @BranchIdParam = @BranchId, @HasOrdersBranchParam = @HasOrdersBranch;
     END
 
     -- 3) Visit Frequency (by week)
@@ -89,20 +94,21 @@ BEGIN
         SUM(o.TotalAmount) AS Revenue
     FROM Orders o
     WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
+            AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId)
     GROUP BY DATEADD(week, DATEDIFF(week, 0, o.CreatedAt), 0)
     ORDER BY PeriodLabel;
 
     -- 4) Loyalty buckets
     SELECT '1 Visit' AS Bucket, COUNT(*) AS CustomerCount FROM (
-        SELECT CustomerPhone, COUNT(*) AS Visits FROM Orders o WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End GROUP BY CustomerPhone HAVING COUNT(*) = 1
+        SELECT CustomerPhone, COUNT(*) AS Visits FROM Orders o WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId) GROUP BY CustomerPhone HAVING COUNT(*) = 1
     ) t
     UNION ALL
     SELECT '2-3 Visits', COUNT(*) FROM (
-        SELECT CustomerPhone, COUNT(*) AS Visits FROM Orders o WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End GROUP BY CustomerPhone HAVING COUNT(*) BETWEEN 2 AND 3
+        SELECT CustomerPhone, COUNT(*) AS Visits FROM Orders o WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId) GROUP BY CustomerPhone HAVING COUNT(*) BETWEEN 2 AND 3
     ) t2
     UNION ALL
     SELECT '4+ Visits', COUNT(*) FROM (
-        SELECT CustomerPhone, COUNT(*) AS Visits FROM Orders o WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End GROUP BY CustomerPhone HAVING COUNT(*) >= 4
+        SELECT CustomerPhone, COUNT(*) AS Visits FROM Orders o WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId) GROUP BY CustomerPhone HAVING COUNT(*) >= 4
     ) t3;
 
     -- 5) Demographics (best-effort: gender if available)
@@ -113,13 +119,14 @@ BEGIN
                    COUNT(DISTINCT CASE WHEN u.Id IS NOT NULL THEN CAST(u.Id AS NVARCHAR(100)) ELSE ISNULL(o.CustomerPhone,'''') END) AS Count
             FROM Orders o
             LEFT JOIN Users u ON o.UserId = u.Id
-            WHERE o.CreatedAt >= @StartParam AND o.CreatedAt < @EndParam
+                        WHERE o.CreatedAt >= @StartParam AND o.CreatedAt < @EndParam
+                            AND (@BranchIdParam IS NULL OR @HasOrdersBranchParam = 0 OR o.BranchId = @BranchIdParam)
             GROUP BY ISNULL(u.Gender, ''Unknown'')
             ORDER BY Category;';
 
         EXEC sp_executesql @demSql,
-            N'@StartParam DATETIME, @EndParam DATETIME',
-            @StartParam = @Start, @EndParam = @End;
+                        N'@StartParam DATETIME, @EndParam DATETIME, @BranchIdParam INT, @HasOrdersBranchParam BIT',
+                        @StartParam = @Start, @EndParam = @End, @BranchIdParam = @BranchId, @HasOrdersBranchParam = @HasOrdersBranch;
     END
     ELSE
     BEGIN
@@ -127,7 +134,8 @@ BEGIN
                COUNT(DISTINCT CASE WHEN u.Id IS NOT NULL THEN CAST(u.Id AS NVARCHAR(100)) ELSE ISNULL(o.CustomerPhone,'') END) AS Count
         FROM Orders o
         LEFT JOIN Users u ON o.UserId = u.Id
-        WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End;
+                WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
+                    AND (@BranchId IS NULL OR @HasOrdersBranch = 0 OR o.BranchId = @BranchId);
     END
 END
 GO
