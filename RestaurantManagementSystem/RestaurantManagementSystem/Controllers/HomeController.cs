@@ -238,6 +238,7 @@ namespace RestaurantManagementSystem.Controllers
                     DECLARE @hasOrdersBranch bit = CASE WHEN COL_LENGTH('dbo.Orders','BranchId') IS NULL THEN 0 ELSE 1 END;
                     DECLARE @hasTablesBranch bit = CASE WHEN COL_LENGTH('dbo.Tables','BranchId') IS NULL THEN 0 ELSE 1 END;
                     DECLARE @hasResBranch bit = CASE WHEN OBJECT_ID('dbo.Reservations','U') IS NOT NULL AND COL_LENGTH('dbo.Reservations','BranchId') IS NOT NULL THEN 1 ELSE 0 END;
+                    DECLARE @hasResTableId bit = CASE WHEN OBJECT_ID('dbo.Reservations','U') IS NOT NULL AND COL_LENGTH('dbo.Reservations','TableId') IS NOT NULL THEN 1 ELSE 0 END;
 
                     SELECT
                         ISNULL(SUM(
@@ -260,8 +261,18 @@ namespace RestaurantManagementSystem.Controllers
                             SELECT COUNT(1)
                             FROM dbo.Reservations r
                             WHERE CAST(r.ReservationDate AS date) >= CAST(GETDATE() AS date)
-                              AND ISNULL(r.Status, '') NOT IN ('Cancelled', 'Completed')
-                              AND (@hasResBranch = 0 OR r.BranchId = @BranchId)
+                              AND ISNULL(r.Status, -1) NOT IN (3, 4) -- 3=Completed, 4=Cancelled
+                              AND (
+                                  (@hasResBranch = 1 AND r.BranchId = @BranchId)
+                                  OR
+                                  (@hasResBranch = 0 AND @hasResTableId = 1 AND @hasTablesBranch = 1 AND EXISTS (
+                                      SELECT 1 FROM dbo.Tables tRes WHERE tRes.Id = r.TableId AND tRes.BranchId = @BranchId
+                                  ))
+                                  OR
+                                  (@hasResBranch = 0 AND @hasResTableId = 0)
+                                  OR
+                                  (@hasResBranch = 0 AND @hasTablesBranch = 0)
+                              )
                         ), 0) AS UpcomingReservations
                     FROM dbo.Orders o
                     WHERE (@CanViewAll = 1 OR o.UserId = @UserId)
