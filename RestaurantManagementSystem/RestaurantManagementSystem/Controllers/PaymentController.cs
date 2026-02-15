@@ -1407,6 +1407,33 @@ END", connection))
                                             }
                                         }
                                         catch { /* don't block the happy path if this fails */ }
+
+                                        // Ensure auto bill email is also triggered when completion happens
+                                        // via the final safety completion path (common in POS/AJAX flow).
+                                        // Existing helper enforces branch-wise auto-send setting and de-duplicates.
+                                        try
+                                        {
+                                            bool isOrderCompletedNow = false;
+                                            using (var statusCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                                SELECT CASE WHEN Status = 3 THEN 1 ELSE 0 END
+                                                FROM Orders
+                                                WHERE Id = @OrderId", connection))
+                                            {
+                                                statusCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
+                                                var statusObj = statusCmd.ExecuteScalar();
+                                                isOrderCompletedNow = statusObj != null && statusObj != DBNull.Value && Convert.ToInt32(statusObj) == 1;
+                                            }
+
+                                            if (isOrderCompletedNow)
+                                            {
+                                                await SendAutoBillEmailAsync(model.OrderId, connection);
+                                            }
+                                        }
+                                        catch (Exception emailEx)
+                                        {
+                                            _logger?.LogError(emailEx, "Failed to send auto bill email after final completion check for order {OrderId}", model.OrderId);
+                                        }
+
                                         if (wantsJson)
                                         {
                                             return Ok(new { success = true, message = "Payment processed successfully.", orderId = model.OrderId });

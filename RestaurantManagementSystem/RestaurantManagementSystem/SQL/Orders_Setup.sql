@@ -108,6 +108,7 @@ BEGIN
         [UserId] INT NULL, -- Server or user who created the order
         [CustomerName] NVARCHAR(100) NULL,
         [CustomerPhone] NVARCHAR(20) NULL,
+        [Customeremailid] NVARCHAR(100) NULL,
         [Subtotal] DECIMAL(10, 2) NOT NULL DEFAULT 0,
         [TaxAmount] DECIMAL(10, 2) NOT NULL DEFAULT 0,
         [TipAmount] DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -129,6 +130,16 @@ BEGIN
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'BranchId' AND Object_ID = OBJECT_ID(N'dbo.Orders'))
     BEGIN
         ALTER TABLE dbo.Orders ADD BranchId INT NULL;
+    END
+END
+GO
+
+-- Ensure existing databases get Customeremailid on Orders if it's missing
+IF EXISTS (SELECT * FROM sys.tables WHERE name = 'Orders')
+BEGIN
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'Customeremailid' AND Object_ID = OBJECT_ID(N'dbo.Orders'))
+    BEGIN
+        ALTER TABLE dbo.Orders ADD Customeremailid NVARCHAR(100) NULL;
     END
 END
 GO
@@ -206,6 +217,26 @@ BEGIN
 END
 GO
 
+-- Ensure existing databases have UpdatedAt on OrderItems if it's missing
+IF EXISTS (SELECT * FROM sys.tables WHERE name = 'OrderItems')
+BEGIN
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'UpdatedAt' AND Object_ID = OBJECT_ID(N'dbo.OrderItems'))
+    BEGIN
+        ALTER TABLE dbo.OrderItems ADD UpdatedAt DATETIME NULL;
+    END
+END
+GO
+
+-- Ensure existing databases have UpdatedAt on KitchenTickets if it's missing
+IF EXISTS (SELECT * FROM sys.tables WHERE name = 'KitchenTickets')
+BEGIN
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'UpdatedAt' AND Object_ID = OBJECT_ID(N'dbo.KitchenTickets'))
+    BEGIN
+        ALTER TABLE dbo.KitchenTickets ADD UpdatedAt DATETIME NULL;
+    END
+END
+GO
+
 -- Create stored procedure for creating a new order
 IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'usp_CreateOrder')
     DROP PROCEDURE usp_CreateOrder
@@ -217,6 +248,7 @@ CREATE PROCEDURE [dbo].[usp_CreateOrder]
     @UserId INT,
     @CustomerName NVARCHAR(100) = NULL,
     @CustomerPhone NVARCHAR(20) = NULL,
+    @CustomerEmailId NVARCHAR(100) = NULL,
     @SpecialInstructions NVARCHAR(500) = NULL,
     @OrderByUserId INT = NULL,
     @OrderByUserName NVARCHAR(200) = NULL
@@ -243,6 +275,7 @@ BEGIN
             [UserId],
             [CustomerName],
             [CustomerPhone],
+            [Customeremailid],
             [SpecialInstructions],
             [Order_by_UserID],
             [Order_by_UserName],
@@ -256,6 +289,7 @@ BEGIN
             @UserId,
             @CustomerName,
             @CustomerPhone,
+            @CustomerEmailId,
             @SpecialInstructions,
             @OrderByUserId,
             @OrderByUserName,
@@ -312,6 +346,7 @@ BEGIN
     DECLARE @OrderItemId INT;
     DECLARE @Message NVARCHAR(200);
     DECLARE @OrderNumber NVARCHAR(20);
+    DECLARE @GlobalBillNo NVARCHAR(50);
     
     -- Check if order exists
     IF NOT EXISTS (SELECT 1 FROM [Orders] WHERE [Id] = @OrderId)
@@ -351,7 +386,8 @@ BEGIN
     
     BEGIN TRY
         -- Assign OrderNumber on first item add (schema uses NOT NULL; blank means "not assigned yet")
-        SELECT @OrderNumber = o.OrderNumber
+         SELECT @OrderNumber = o.OrderNumber,
+             @GlobalBillNo = CASE WHEN COL_LENGTH('dbo.Orders','GlobalBillNo') IS NOT NULL THEN o.GlobalBillNo ELSE NULL END
         FROM dbo.Orders o WITH (UPDLOCK, HOLDLOCK)
         WHERE o.Id = @OrderId;
 
@@ -415,6 +451,28 @@ BEGIN
             WHERE Id = @OrderId;
         END
 
+        IF (COL_LENGTH('dbo.Orders','GlobalBillNo') IS NOT NULL
+            AND (@GlobalBillNo IS NULL OR LTRIM(RTRIM(@GlobalBillNo)) = '')
+            AND @OrderNumber IS NOT NULL AND LTRIM(RTRIM(@OrderNumber)) <> '')
+        BEGIN
+            DECLARE @NowDate DATE = CAST(GETDATE() AS DATE);
+            DECLARE @FyStartYear INT = CASE WHEN MONTH(@NowDate) >= 4 THEN YEAR(@NowDate) ELSE YEAR(@NowDate) - 1 END;
+            DECLARE @FyEndYear INT = @FyStartYear + 1;
+            DECLARE @FyCode VARCHAR(4) = RIGHT(CAST(@FyStartYear AS VARCHAR(4)), 2) + RIGHT(CAST(@FyEndYear AS VARCHAR(4)), 2);
+            DECLARE @NextSeq INT;
+
+            SELECT @NextSeq = ISNULL(MAX(TRY_CAST(RIGHT(GlobalBillNo, 6) AS INT)), 0) + 1
+            FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+            WHERE GlobalBillNo LIKE 'INV-' + @FyCode + '-%';
+
+            SET @GlobalBillNo = 'INV-' + @FyCode + '-' + RIGHT('000000' + CAST(@NextSeq AS VARCHAR(6)), 6);
+
+            UPDATE dbo.Orders
+            SET GlobalBillNo = @GlobalBillNo,
+                UpdatedAt = GETDATE()
+            WHERE Id = @OrderId;
+        END
+
         -- Add order item
         INSERT INTO [OrderItems] (
             [OrderId],
@@ -456,7 +514,7 @@ BEGIN
             -- Update order item subtotal to include modifier prices
             UPDATE oi
             SET oi.[Subtotal] = oi.[Subtotal] + (
-                SELECT ISNULL(SUM(oim.[Price] * oi.[Quantity]), 0)
+                SELECT ISNULL(SUM(oim.[Price]), 0) * oi.[Quantity]
                 FROM [OrderItemModifiers] oim
                 WHERE oim.[OrderItemId] = oi.[Id]
             )

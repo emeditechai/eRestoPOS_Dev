@@ -1,6 +1,16 @@
 -- Update usp_CreateOrder stored procedure to accept CustomerEmailId parameter
 -- Safe implementation: Adds email support to order creation
 
+-- Ensure Orders.Customeremailid exists in existing databases
+IF OBJECT_ID('dbo.Orders', 'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.Orders', 'Customeremailid') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Orders ADD Customeremailid NVARCHAR(100) NULL;
+    END
+END
+GO
+
 -- Check if the stored procedure exists
 IF OBJECT_ID('usp_CreateOrder', 'P') IS NOT NULL
 BEGIN
@@ -17,7 +27,7 @@ CREATE PROCEDURE [dbo].[usp_CreateOrder]
     @CustomerEmailId NVARCHAR(100) = NULL,
     @SpecialInstructions NVARCHAR(500) = NULL,
     @OrderByUserId INT = NULL,
-    @OrderByUserName NVARCHAR(100) = NULL
+    @OrderByUserName NVARCHAR(200) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
