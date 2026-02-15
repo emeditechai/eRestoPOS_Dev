@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.Extensions.Configuration;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.Utilities;
 using RestaurantManagementSystem.ViewModels;
 
 namespace RestaurantManagementSystem.Controllers
@@ -23,9 +24,45 @@ namespace RestaurantManagementSystem.Controllers
             _connectionString = _configuration.GetConnectionString("DefaultConnection");
         }
 
+        private int? GetActiveBranchId()
+        {
+            return User.GetActiveBranchId();
+        }
+
+        private bool HasColumn(string tableName, string columnName)
+        {
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        SELECT COUNT(1)
+                        FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_NAME = @TableName AND COLUMN_NAME = @ColumnName", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@TableName", tableName);
+                        cmd.Parameters.AddWithValue("@ColumnName", columnName);
+                        return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         // GET: Kitchen/Dashboard
         public IActionResult Dashboard(int? stationId)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             var viewModel = new KitchenDashboardViewModel();
             
             using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
@@ -49,11 +86,11 @@ namespace RestaurantManagementSystem.Controllers
                 }
                 
                 // Get tickets by status and station
-                viewModel.NewTickets = GetTicketsByStatus(connection, 0, stationId, selectedStationName);
-                viewModel.InProgressTickets = GetTicketsByStatus(connection, 1, stationId, selectedStationName);
-                viewModel.ReadyTickets = GetTicketsByStatus(connection, 2, stationId, selectedStationName);
+                viewModel.NewTickets = GetTicketsByStatus(connection, 0, stationId, selectedStationName, activeBranchId.Value);
+                viewModel.InProgressTickets = GetTicketsByStatus(connection, 1, stationId, selectedStationName, activeBranchId.Value);
+                viewModel.ReadyTickets = GetTicketsByStatus(connection, 2, stationId, selectedStationName, activeBranchId.Value);
                 // Delivered tickets (today only)
-                var deliveredAll = GetTicketsByStatus(connection, 3, stationId, selectedStationName);
+                var deliveredAll = GetTicketsByStatus(connection, 3, stationId, selectedStationName, activeBranchId.Value);
                 var today = DateTime.Today;
                 // Normalize CompletedAt to local date and also accept UTC-stored dates
                 viewModel.DeliveredTickets = deliveredAll
@@ -66,7 +103,7 @@ namespace RestaurantManagementSystem.Controllers
                     .ToList();
                 
                 // Get dashboard statistics
-                viewModel.Stats = GetKitchenStats(connection, stationId);
+                viewModel.Stats = GetKitchenStats(connection, stationId, activeBranchId.Value);
 
                 // Safe alignment: if filtering by a specific station and stats came back empty
                 // but we do have tickets in the lists (due to fallback filtering), override counts
@@ -89,6 +126,13 @@ namespace RestaurantManagementSystem.Controllers
         // GET: Kitchen/Tickets
         public IActionResult Tickets(KitchenStationFilterViewModel filter)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             var viewModel = new KitchenTicketsViewModel
             {
                 Filter = filter ?? new KitchenStationFilterViewModel()
@@ -102,10 +146,10 @@ namespace RestaurantManagementSystem.Controllers
                 viewModel.Filter.Stations = GetKitchenStations(connection);
                 
                 // Get tickets based on filter
-                viewModel.Tickets = GetFilteredTickets(connection, filter);
+                viewModel.Tickets = GetFilteredTickets(connection, filter, activeBranchId.Value);
                 
                 // Get dashboard statistics
-                viewModel.Stats = GetKitchenStats(connection, filter.StationId);
+                viewModel.Stats = GetKitchenStats(connection, filter.StationId, activeBranchId.Value);
             }
             
             return View(viewModel);
@@ -116,11 +160,18 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction(nameof(Tickets));
+                }
+
                 var tickets = new List<KitchenTicket>();
                 using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
-                    tickets = GetFilteredTickets(connection, filter);
+                    tickets = GetFilteredTickets(connection, filter, activeBranchId.Value);
                 }
 
                 var csv = "TicketNumber,OrderNumber,TableName,StationName,Status,CreatedAt,WaitMinutes\n";
@@ -145,13 +196,20 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                    return RedirectToAction(nameof(Tickets));
+                }
+
                 var viewModel = new KitchenTicketsViewModel { Filter = filter ?? new KitchenStationFilterViewModel() };
                 using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
                     viewModel.Filter.Stations = GetKitchenStations(connection);
-                    viewModel.Tickets = GetFilteredTickets(connection, filter);
-                    viewModel.Stats = GetKitchenStats(connection, filter?.StationId);
+                    viewModel.Tickets = GetFilteredTickets(connection, filter, activeBranchId.Value);
+                    viewModel.Stats = GetKitchenStats(connection, filter?.StationId, activeBranchId.Value);
                 }
 
                 return View("Print", viewModel);
@@ -166,6 +224,18 @@ namespace RestaurantManagementSystem.Controllers
         // GET: Kitchen/TicketDetails/{id}
         public IActionResult TicketDetails(int id)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
+            if (!IsKitchenTicketInActiveBranch(id, activeBranchId.Value))
+            {
+                return NotFound();
+            }
+
             var viewModel = new KitchenTicketDetailsViewModel();
             
             using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
@@ -295,6 +365,18 @@ namespace RestaurantManagementSystem.Controllers
         [HttpPostAttribute]
         public IActionResult UpdateTicketStatus(KitchenStatusUpdateModel model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
+            if (!IsKitchenTicketInActiveBranch(model.TicketId, activeBranchId.Value))
+            {
+                return NotFound();
+            }
+
             using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
@@ -316,6 +398,18 @@ namespace RestaurantManagementSystem.Controllers
         [HttpPostAttribute]
         public IActionResult UpdateItemStatus(KitchenItemStatusUpdateModel model, int ticketId)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
+            if (!IsKitchenTicketInActiveBranch(ticketId, activeBranchId.Value))
+            {
+                return NotFound();
+            }
+
             using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
@@ -694,23 +788,32 @@ namespace RestaurantManagementSystem.Controllers
         // GET: Kitchen/MarkAllReady/{stationId?}
         public IActionResult MarkAllReady(int? stationId)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
             using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
-                
-                using (var command = new Microsoft.Data.SqlClient.SqlCommand("MarkAllTicketsReady", connection))
+
+                using (var command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    DECLARE @hasOrdersBranch bit = CASE WHEN COL_LENGTH('dbo.Orders','BranchId') IS NULL THEN 0 ELSE 1 END;
+
+                    UPDATE kt
+                    SET kt.Status = 2,
+                        kt.CompletedAt = GETDATE()
+                    FROM dbo.KitchenTickets kt
+                    INNER JOIN dbo.Orders o ON o.Id = kt.OrderId
+                    WHERE kt.Status IN (0, 1)
+                      AND ISNULL(kt.KitchenStation, '') <> 'BAR'
+                      AND (@StationId IS NULL OR kt.KitchenStationId = @StationId OR kt.StationId = @StationId)
+                      AND (@hasOrdersBranch = 0 OR o.BranchId = @BranchId);", connection))
                 {
-                    command.CommandType = CommandType.StoredProcedure;
-                    
-                    if (stationId.HasValue && stationId.Value > 0)
-                    {
-                        command.Parameters.AddWithValue("@StationId", stationId.Value);
-                    }
-                    else
-                    {
-                        command.Parameters.AddWithValue("@StationId", DBNull.Value);
-                    }
-                    
+                    command.Parameters.AddWithValue("@StationId", stationId.HasValue && stationId.Value > 0 ? stationId.Value : (object)DBNull.Value);
+                    command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     command.ExecuteNonQuery();
                 }
             }
@@ -760,7 +863,7 @@ namespace RestaurantManagementSystem.Controllers
             return deduped;
         }
         
-        private List<KitchenTicket> GetTicketsByStatus(Microsoft.Data.SqlClient.SqlConnection connection, int status, int? stationId, string stationNameFallback = null)
+        private List<KitchenTicket> GetTicketsByStatus(Microsoft.Data.SqlClient.SqlConnection connection, int status, int? stationId, string stationNameFallback = null, int? branchId = null)
         {
             var tickets = new List<KitchenTicket>();
 
@@ -836,6 +939,11 @@ namespace RestaurantManagementSystem.Controllers
                             && !string.Equals((t?.StationName ?? string.Empty).Trim(), "BAR", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
+            if (branchId.HasValue)
+            {
+                tickets = FilterTicketsByBranch(connection, tickets, branchId.Value);
+            }
+
             return tickets;
         }
 
@@ -869,7 +977,7 @@ namespace RestaurantManagementSystem.Controllers
             return set;
         }
         
-        private List<KitchenTicket> GetFilteredTickets(Microsoft.Data.SqlClient.SqlConnection connection, KitchenStationFilterViewModel filter)
+        private List<KitchenTicket> GetFilteredTickets(Microsoft.Data.SqlClient.SqlConnection connection, KitchenStationFilterViewModel filter, int? branchId = null)
         {
             var tickets = new List<KitchenTicket>();
             
@@ -946,6 +1054,11 @@ namespace RestaurantManagementSystem.Controllers
                         }
                     }
                 }
+            }
+
+            if (branchId.HasValue)
+            {
+                tickets = FilterTicketsByBranch(connection, tickets, branchId.Value);
             }
             
             return tickets;
@@ -1033,22 +1146,57 @@ namespace RestaurantManagementSystem.Controllers
             return null;
         }
         
-        private KitchenDashboardStats GetKitchenStats(Microsoft.Data.SqlClient.SqlConnection connection, int? stationId)
+        private KitchenDashboardStats GetKitchenStats(Microsoft.Data.SqlClient.SqlConnection connection, int? stationId, int? branchId = null)
         {
             var stats = new KitchenDashboardStats();
-            
-            using (var command = new Microsoft.Data.SqlClient.SqlCommand("GetKitchenDashboardStats", connection))
+
+            if (!branchId.HasValue)
             {
-                command.CommandType = CommandType.StoredProcedure;
-                
-                if (stationId.HasValue && stationId.Value > 0)
+                return stats;
+            }
+
+            var hasKitchenStationId = HasColumn("KitchenTickets", "KitchenStationId");
+            var hasLegacyStationId = HasColumn("KitchenTickets", "StationId");
+
+            var stationFilter = string.Empty;
+            if (stationId.HasValue && stationId.Value > 0)
+            {
+                if (hasKitchenStationId && hasLegacyStationId)
+                {
+                    stationFilter = " AND (kt.KitchenStationId = @StationId OR kt.StationId = @StationId)";
+                }
+                else if (hasKitchenStationId)
+                {
+                    stationFilter = " AND kt.KitchenStationId = @StationId";
+                }
+                else if (hasLegacyStationId)
+                {
+                    stationFilter = " AND kt.StationId = @StationId";
+                }
+            }
+
+            var statsSql = @"
+                DECLARE @hasOrdersBranch bit = CASE WHEN COL_LENGTH('dbo.Orders','BranchId') IS NULL THEN 0 ELSE 1 END;
+
+                SELECT
+                    SUM(CASE WHEN kt.Status = 0 THEN 1 ELSE 0 END) AS NewTicketsCount,
+                    SUM(CASE WHEN kt.Status = 1 THEN 1 ELSE 0 END) AS InProgressTicketsCount,
+                    SUM(CASE WHEN kt.Status = 2 THEN 1 ELSE 0 END) AS ReadyTicketsCount,
+                    CAST(0 AS INT) AS PendingItemsCount,
+                    CAST(0 AS INT) AS ReadyItemsCount,
+                    AVG(CASE WHEN kt.Status = 3 AND kt.CompletedAt IS NOT NULL THEN DATEDIFF(MINUTE, kt.CreatedAt, kt.CompletedAt) END) AS AvgPrepTimeMinutes
+                FROM dbo.KitchenTickets kt
+                INNER JOIN dbo.Orders o ON o.Id = kt.OrderId
+                WHERE ISNULL(kt.KitchenStation, '') <> 'BAR'" + stationFilter + @"
+                  AND (@hasOrdersBranch = 0 OR o.BranchId = @BranchId);";
+            
+            using (var command = new Microsoft.Data.SqlClient.SqlCommand(statsSql, connection))
+            {
+                if (stationId.HasValue && stationId.Value > 0 && !string.IsNullOrEmpty(stationFilter))
                 {
                     command.Parameters.AddWithValue("@StationId", stationId.Value);
                 }
-                else
-                {
-                    command.Parameters.AddWithValue("@StationId", DBNull.Value);
-                }
+                command.Parameters.AddWithValue("@BranchId", branchId.Value);
                 
                 using (var reader = command.ExecuteReader())
                 {
@@ -1069,13 +1217,30 @@ namespace RestaurantManagementSystem.Controllers
                 SELECT kt.Status, COUNT(kti.Id) as ItemCount
                 FROM KitchenTickets kt
                 INNER JOIN KitchenTicketItems kti ON kt.Id = kti.KitchenTicketId
-                WHERE kt.Status IN (0, 1, 2) 
-                  AND kt.KitchenStation != 'BAR'";
+                                INNER JOIN Orders o ON o.Id = kt.OrderId
+                                WHERE kt.Status IN (0, 1, 2) 
+                                    AND ISNULL(kt.KitchenStation,'') != 'BAR'";
             
             if (stationId.HasValue && stationId.Value > 0)
             {
-                itemCountSql += " AND kt.StationId = @StationId";
+                if (hasKitchenStationId && hasLegacyStationId)
+                {
+                    itemCountSql += " AND (kt.KitchenStationId = @StationId OR kt.StationId = @StationId)";
+                }
+                else if (hasKitchenStationId)
+                {
+                    itemCountSql += " AND kt.KitchenStationId = @StationId";
+                }
+                else if (hasLegacyStationId)
+                {
+                    itemCountSql += " AND kt.StationId = @StationId";
+                }
             }
+
+                        if (HasColumn("Orders", "BranchId"))
+                        {
+                                itemCountSql += " AND o.BranchId = @BranchId";
+                        }
             
             itemCountSql += " GROUP BY kt.Status";
             
@@ -1084,6 +1249,10 @@ namespace RestaurantManagementSystem.Controllers
                 if (stationId.HasValue && stationId.Value > 0)
                 {
                     itemCmd.Parameters.AddWithValue("@StationId", stationId.Value);
+                }
+                if (HasColumn("Orders", "BranchId"))
+                {
+                    itemCmd.Parameters.AddWithValue("@BranchId", branchId.Value);
                 }
                 
                 using (var itemReader = itemCmd.ExecuteReader())
@@ -1110,6 +1279,83 @@ namespace RestaurantManagementSystem.Controllers
             }
             
             return stats;
+        }
+
+        private List<KitchenTicket> FilterTicketsByBranch(Microsoft.Data.SqlClient.SqlConnection connection, List<KitchenTicket> tickets, int branchId)
+        {
+            if (tickets == null || tickets.Count == 0)
+            {
+                return tickets ?? new List<KitchenTicket>();
+            }
+
+            if (!HasColumn("Orders", "BranchId"))
+            {
+                return tickets;
+            }
+
+            try
+            {
+                var orderIds = tickets.Select(t => t.OrderId).Distinct().ToList();
+                if (orderIds.Count == 0)
+                {
+                    return new List<KitchenTicket>();
+                }
+
+                var allowedOrderIds = new HashSet<int>();
+                var sql = $@"
+                    SELECT Id
+                    FROM dbo.Orders
+                    WHERE BranchId = @BranchId
+                      AND Id IN ({string.Join(",", orderIds)});";
+
+                using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(sql, connection))
+                {
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            allowedOrderIds.Add(Convert.ToInt32(reader[0]));
+                        }
+                    }
+                }
+
+                return tickets.Where(t => allowedOrderIds.Contains(t.OrderId)).ToList();
+            }
+            catch
+            {
+                return tickets;
+            }
+        }
+
+        private bool IsKitchenTicketInActiveBranch(int ticketId, int branchId)
+        {
+            try
+            {
+                if (!HasColumn("Orders", "BranchId"))
+                {
+                    return true;
+                }
+
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        SELECT COUNT(1)
+                        FROM dbo.KitchenTickets kt
+                        INNER JOIN dbo.Orders o ON o.Id = kt.OrderId
+                        WHERE kt.Id = @TicketId AND o.BranchId = @BranchId", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@TicketId", ticketId);
+                        cmd.Parameters.AddWithValue("@BranchId", branchId);
+                        return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private int GetCurrentUserId()

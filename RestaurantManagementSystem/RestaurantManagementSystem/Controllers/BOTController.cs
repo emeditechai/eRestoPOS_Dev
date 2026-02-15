@@ -52,6 +52,34 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
+        private bool IsBOTTicketInActiveBranch(int ticketId, int branchId)
+        {
+            try
+            {
+                if (!HasColumn("Orders", "BranchId"))
+                {
+                    return true;
+                }
+
+                using var connection = new SqlConnection(_connectionString);
+                connection.Open();
+                using var cmd = new SqlCommand(@"
+                    SELECT COUNT(1)
+                    FROM KitchenTickets kt
+                    INNER JOIN Orders o ON o.Id = kt.OrderId
+                    WHERE kt.Id = @TicketId
+                      AND kt.KitchenStation = 'BAR'
+                      AND o.BranchId = @BranchId", connection);
+                cmd.Parameters.AddWithValue("@TicketId", ticketId);
+                cmd.Parameters.AddWithValue("@BranchId", branchId);
+                return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         /// <summary>
         /// BOT Dashboard - Shows BAR tickets organized by status (similar to Kitchen Dashboard)
         /// </summary>
@@ -305,6 +333,18 @@ namespace RestaurantManagementSystem.Controllers
         [HttpPost]
         public IActionResult UpdateTicketStatus(BOTStatusUpdateModel model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
+            if (!IsBOTTicketInActiveBranch(model.TicketId, activeBranchId.Value))
+            {
+                return NotFound();
+            }
+
             using (var connection = new SqlConnection(_connectionString))
             {
                 connection.Open();
