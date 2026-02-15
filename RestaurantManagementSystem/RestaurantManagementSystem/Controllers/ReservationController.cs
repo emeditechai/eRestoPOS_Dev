@@ -31,6 +31,27 @@ namespace RestaurantManagementSystem.Controllers
         // GET: Reservations Dashboard
         public IActionResult Dashboard()
         {
+            var activeBranchId = GetActiveBranchId();
+            ViewBag.ActiveBranchId = activeBranchId;
+
+            if (!activeBranchId.HasValue)
+            {
+                ViewBag.ErrorMessage = "Please select an active branch first.";
+                ViewBag.TodaysReservations = new List<Reservation>();
+                ViewBag.TomorrowsReservations = new List<Reservation>();
+                ViewBag.Waitlist = new List<WaitlistEntry>();
+                ViewBag.Tables = new List<Table>();
+                ViewBag.TotalTables = 0;
+                ViewBag.AvailableTables = 0;
+                ViewBag.OccupiedTables = 0;
+                ViewBag.ReservedTables = 0;
+                ViewBag.WaitlistCount = 0;
+                ViewBag.TodaysReservationCount = 0;
+                ViewBag.PendingArrivals = 0;
+                ViewBag.SeatedGuests = 0;
+                return View();
+            }
+
             // Get today's date
             DateTime today = DateTime.Today;
 
@@ -68,6 +89,14 @@ namespace RestaurantManagementSystem.Controllers
         {
             try
             {
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
+                {
+                    TempData["ErrorMessage"] = "Please select an active branch first.";
+                    ViewBag.SelectedDate = date ?? DateTime.Today;
+                    return View(new List<Reservation>());
+                }
+
                 // If no date is provided, use today's date
                 date ??= DateTime.Today;
 
@@ -169,6 +198,13 @@ namespace RestaurantManagementSystem.Controllers
         [HttpPostAttribute]
         public IActionResult SaveReservation(Reservation model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch first.";
+                return RedirectToAction("List");
+            }
+
             if (!ModelState.IsValid)
             {
                 ViewBag.Tables = GetAvailableTables(model.ReservationDateTime, model.PartySize, model.TableId);
@@ -183,9 +219,18 @@ namespace RestaurantManagementSystem.Controllers
                 // Check if updating and Id exists
                 if (model.Id > 0)
                 {
-                    using (var checkCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT COUNT(*) FROM Reservations WHERE Id = @Id", con))
+                    using (var checkCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        SELECT COUNT(*)
+                        FROM Reservations r
+                        WHERE r.Id = @Id
+                          AND (
+                              (COL_LENGTH('dbo.Reservations', 'BranchId') IS NOT NULL AND r.BranchId = @BranchId)
+                              OR
+                              (COL_LENGTH('dbo.Reservations', 'BranchId') IS NULL)
+                          )", con))
                     {
                         checkCmd.Parameters.AddWithValue("@Id", model.Id);
+                        checkCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         int count = (int)checkCmd.ExecuteScalar();
                         if (count == 0)
                         {
@@ -199,6 +244,7 @@ namespace RestaurantManagementSystem.Controllers
                 {
                     cmd.CommandType = CommandType.StoredProcedure;
                     cmd.Parameters.AddWithValue("@Id", model.Id == 0 ? 0 : model.Id);
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     cmd.Parameters.AddWithValue("@GuestName", model.GuestName);
                     cmd.Parameters.AddWithValue("@PhoneNumber", model.PhoneNumber);
                     cmd.Parameters.AddWithValue("@EmailAddress", model.EmailAddress ?? (object)DBNull.Value);
@@ -391,6 +437,14 @@ namespace RestaurantManagementSystem.Controllers
         // GET: Waitlist Management
         public IActionResult Waitlist()
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                ViewBag.ErrorMessage = "Please select an active branch first.";
+                ViewBag.AvailableTables = new List<Table>();
+                return View(new List<WaitlistEntry>());
+            }
+
             var waitlist = GetActiveWaitlist();
             
             // Check if an error occurred while loading waitlist data
@@ -430,6 +484,13 @@ namespace RestaurantManagementSystem.Controllers
         [HttpPostAttribute]
         public IActionResult SaveWaitlist(WaitlistEntry model)
         {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select an active branch first.";
+                return RedirectToAction("Waitlist");
+            }
+
             if (!ModelState.IsValid)
             {
                 return View("WaitlistForm", model);
@@ -444,6 +505,7 @@ namespace RestaurantManagementSystem.Controllers
                 {
                     cmd.CommandType = CommandType.StoredProcedure;
                     cmd.Parameters.AddWithValue("@Id", model.Id == 0 ? 0 : model.Id);
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     cmd.Parameters.AddWithValue("@GuestName", model.GuestName);
                     cmd.Parameters.AddWithValue("@PhoneNumber", model.PhoneNumber);
                     cmd.Parameters.AddWithValue("@PartySize", model.PartySize);
@@ -470,6 +532,13 @@ namespace RestaurantManagementSystem.Controllers
         [HttpPostAttribute]
         public IActionResult UpdateWaitlistStatus(int id, WaitlistStatus status)
         {
+            var waitlistEntry = GetWaitlistEntryById(id);
+            if (waitlistEntry == null)
+            {
+                TempData["ErrorMessage"] = "Waitlist entry not found for the active branch.";
+                return RedirectToAction("Waitlist");
+            }
+
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 con.Open();
@@ -565,6 +634,13 @@ namespace RestaurantManagementSystem.Controllers
         [HttpPostAttribute]
         public IActionResult RemoveFromWaitlist(int id)
         {
+            var waitlistEntry = GetWaitlistEntryById(id);
+            if (waitlistEntry == null)
+            {
+                TempData["ErrorMessage"] = "Waitlist entry not found for the active branch.";
+                return RedirectToAction("Waitlist");
+            }
+
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 con.Open();
@@ -1391,6 +1467,12 @@ END
         private List<Reservation> GetReservationsByDate(DateTime date)
         {
             var reservations = new List<Reservation>();
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return reservations;
+            }
+
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 try
@@ -1445,16 +1527,35 @@ END
                            FROM Reservations r
                            LEFT JOIN Tables t ON r.TableId = t.Id
                            WHERE CONVERT(date, r.ReservationDate) = @Date
+                             AND (
+                                 (COL_LENGTH('dbo.Reservations', 'BranchId') IS NOT NULL AND r.BranchId = @BranchId)
+                                 OR
+                                 (COL_LENGTH('dbo.Reservations', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NOT NULL AND EXISTS (
+                                     SELECT 1 FROM dbo.Tables tScope WHERE tScope.Id = r.TableId AND tScope.BranchId = @BranchId
+                                 ))
+                                 OR
+                                 (COL_LENGTH('dbo.Reservations', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NULL)
+                             )
                            ORDER BY r.ReservationTime"
                         : @"SELECT r.*, t.TableNumber
                            FROM Reservations r
                            LEFT JOIN Tables t ON r.TableId = t.Id
                            WHERE CONVERT(date, r.ReservationDate) = @Date
+                             AND (
+                                 (COL_LENGTH('dbo.Reservations', 'BranchId') IS NOT NULL AND r.BranchId = @BranchId)
+                                 OR
+                                 (COL_LENGTH('dbo.Reservations', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NOT NULL AND EXISTS (
+                                     SELECT 1 FROM dbo.Tables tScope WHERE tScope.Id = r.TableId AND tScope.BranchId = @BranchId
+                                 ))
+                                 OR
+                                 (COL_LENGTH('dbo.Reservations', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NULL)
+                             )
                            ORDER BY r.ReservationTime";
 
                     using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(sql, con))
                     {
                         cmd.Parameters.AddWithValue("@Date", date.Date);
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         using (var reader = cmd.ExecuteReader())
                         {
                             while (reader.Read())
@@ -1588,6 +1689,12 @@ END
         private Reservation GetReservationById(int id)
         {
             Reservation reservation = null;
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return null;
+            }
+
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 con.Open();
@@ -1598,9 +1705,19 @@ END
                     t.TableNumber
                     FROM Reservations r
                     LEFT JOIN Tables t ON r.TableId = t.Id
-                    WHERE r.Id = @Id", con))
+                    WHERE r.Id = @Id
+                      AND (
+                          (COL_LENGTH('dbo.Reservations', 'BranchId') IS NOT NULL AND r.BranchId = @BranchId)
+                          OR
+                          (COL_LENGTH('dbo.Reservations', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NOT NULL AND EXISTS (
+                              SELECT 1 FROM dbo.Tables tScope WHERE tScope.Id = r.TableId AND tScope.BranchId = @BranchId
+                          ))
+                          OR
+                          (COL_LENGTH('dbo.Reservations', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NULL)
+                      )", con))
                 {
                     cmd.Parameters.AddWithValue("@Id", id);
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     using (var reader = cmd.ExecuteReader())
                     {
                         if (reader.Read())
@@ -1633,6 +1750,12 @@ END
         private List<WaitlistEntry> GetActiveWaitlist()
         {
             var waitlist = new List<WaitlistEntry>();
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return waitlist;
+            }
+
             try
             {
                 using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
@@ -1653,8 +1776,18 @@ END
                         FROM Waitlist w
                         LEFT JOIN Tables t ON w.TableId = t.Id
                         WHERE w.Status IN (0, 1) -- Only Waiting and Notified statuses
+                          AND (
+                              (COL_LENGTH('dbo.Waitlist', 'BranchId') IS NOT NULL AND w.BranchId = @BranchId)
+                              OR
+                              (COL_LENGTH('dbo.Waitlist', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NOT NULL AND EXISTS (
+                                  SELECT 1 FROM dbo.Tables tScope WHERE tScope.Id = w.TableId AND tScope.BranchId = @BranchId
+                              ))
+                              OR
+                              (COL_LENGTH('dbo.Waitlist', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NULL)
+                          )
                         ORDER BY w.AddedAt", con))
                     {
+                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                         // Set command timeout to 30 seconds
                         cmd.CommandTimeout = 30;
                         
@@ -1752,6 +1885,12 @@ END
         private WaitlistEntry GetWaitlistEntryById(int id)
         {
             WaitlistEntry entry = null;
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return null;
+            }
+
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
             {
                 con.Open();
@@ -1762,9 +1901,19 @@ END
                     t.TableNumber
                     FROM Waitlist w
                     LEFT JOIN Tables t ON w.TableId = t.Id
-                    WHERE w.Id = @Id", con))
+                    WHERE w.Id = @Id
+                      AND (
+                          (COL_LENGTH('dbo.Waitlist', 'BranchId') IS NOT NULL AND w.BranchId = @BranchId)
+                          OR
+                          (COL_LENGTH('dbo.Waitlist', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NOT NULL AND EXISTS (
+                              SELECT 1 FROM dbo.Tables tScope WHERE tScope.Id = w.TableId AND tScope.BranchId = @BranchId
+                          ))
+                          OR
+                          (COL_LENGTH('dbo.Waitlist', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NULL)
+                      )", con))
                 {
                     cmd.Parameters.AddWithValue("@Id", id);
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                     using (var reader = cmd.ExecuteReader())
                     {
                         if (reader.Read())

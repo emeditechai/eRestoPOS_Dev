@@ -5,6 +5,7 @@ IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Tables')
 BEGIN
     CREATE TABLE [dbo].[Tables] (
         [Id] INT IDENTITY(1,1) PRIMARY KEY,
+        [BranchId] INT NULL,
         [TableNumber] NVARCHAR(20) NOT NULL,
         [Capacity] INT NOT NULL,
         [Section] NVARCHAR(50) NULL,
@@ -28,11 +29,22 @@ BEGIN
 END
 GO
 
+-- Ensure existing databases get BranchId on Tables if it's missing
+IF EXISTS (SELECT * FROM sys.tables WHERE name = 'Tables')
+BEGIN
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'BranchId' AND Object_ID = OBJECT_ID(N'dbo.Tables'))
+    BEGIN
+        ALTER TABLE dbo.Tables ADD BranchId INT NULL;
+    END
+END
+GO
+
 -- Create Reservations Table
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Reservations')
 BEGIN
     CREATE TABLE [dbo].[Reservations] (
         [Id] INT IDENTITY(1,1) PRIMARY KEY,
+        [BranchId] INT NULL,
         [GuestName] NVARCHAR(100) NOT NULL,
         [PhoneNumber] NVARCHAR(20) NOT NULL,
         [EmailAddress] NVARCHAR(100) NULL,
@@ -63,11 +75,22 @@ BEGIN
 END
 GO
 
+-- Ensure existing databases get BranchId on Reservations if it's missing
+IF EXISTS (SELECT * FROM sys.tables WHERE name = 'Reservations')
+BEGIN
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'BranchId' AND Object_ID = OBJECT_ID(N'dbo.Reservations'))
+    BEGIN
+        ALTER TABLE dbo.Reservations ADD BranchId INT NULL;
+    END
+END
+GO
+
 -- Create Waitlist Table
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Waitlist')
 BEGIN
     CREATE TABLE [dbo].[Waitlist] (
         [Id] INT IDENTITY(1,1) PRIMARY KEY,
+        [BranchId] INT NULL,
         [GuestName] NVARCHAR(100) NOT NULL,
         [PhoneNumber] NVARCHAR(20) NOT NULL,
         [PartySize] INT NOT NULL,
@@ -90,6 +113,16 @@ BEGIN
 END
 GO
 
+-- Ensure existing databases get BranchId on Waitlist if it's missing
+IF EXISTS (SELECT * FROM sys.tables WHERE name = 'Waitlist')
+BEGIN
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'BranchId' AND Object_ID = OBJECT_ID(N'dbo.Waitlist'))
+    BEGIN
+        ALTER TABLE dbo.Waitlist ADD BranchId INT NULL;
+    END
+END
+GO
+
 -- Create stored procedure for reservation management
 IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'usp_UpsertReservation')
     DROP PROCEDURE usp_UpsertReservation
@@ -97,6 +130,7 @@ GO
 
 CREATE PROCEDURE [dbo].[usp_UpsertReservation]
     @Id INT,
+    @BranchId INT = NULL,
     @GuestName NVARCHAR(100),
     @PhoneNumber NVARCHAR(20),
     @EmailAddress NVARCHAR(100) = NULL,
@@ -117,7 +151,12 @@ BEGIN
     -- Check if the table exists and is available
     IF @TableId IS NOT NULL
     BEGIN
-        IF NOT EXISTS (SELECT 1 FROM [Tables] WHERE [Id] = @TableId)
+        IF NOT EXISTS (
+            SELECT 1
+            FROM [Tables]
+            WHERE [Id] = @TableId
+              AND (COL_LENGTH('dbo.Tables', 'BranchId') IS NULL OR @BranchId IS NULL OR [BranchId] = @BranchId)
+        )
         BEGIN
             SET @ErrorMsg = 'Table does not exist.';
         END
@@ -129,6 +168,7 @@ BEGIN
             AND CONVERT(date, [ReservationDate]) = @ReservationDate
             AND DATEADD(HOUR, -1, @ReservationTime) < [ReservationTime]
             AND DATEADD(HOUR, 1, @ReservationTime) > [ReservationTime]
+            AND (COL_LENGTH('dbo.Reservations', 'BranchId') IS NULL OR @BranchId IS NULL OR [BranchId] = @BranchId)
         )
         BEGIN
             SET @ErrorMsg = 'Table is already reserved for this time.';
@@ -147,6 +187,7 @@ BEGIN
     BEGIN
         -- Insert new reservation
         INSERT INTO [Reservations] (
+            [BranchId],
             [GuestName], 
             [PhoneNumber], 
             [EmailAddress], 
@@ -161,6 +202,7 @@ BEGIN
             [UpdatedAt]
         )
         VALUES (
+            @BranchId,
             @GuestName, 
             @PhoneNumber, 
             @EmailAddress, 
@@ -182,6 +224,7 @@ BEGIN
         -- Update existing reservation
         UPDATE [Reservations]
         SET 
+            [BranchId] = ISNULL(@BranchId, [BranchId]),
             [GuestName] = @GuestName,
             [PhoneNumber] = @PhoneNumber,
             [EmailAddress] = @EmailAddress,
@@ -193,7 +236,8 @@ BEGIN
             [TableId] = @TableId,
             [Status] = @Status,
             [UpdatedAt] = GETDATE()
-        WHERE [Id] = @Id;
+                WHERE [Id] = @Id
+                    AND (COL_LENGTH('dbo.Reservations', 'BranchId') IS NULL OR @BranchId IS NULL OR [BranchId] = @BranchId);
         
         SET @Message = 'Reservation updated successfully.';
     END
@@ -209,6 +253,7 @@ GO
 
 CREATE PROCEDURE [dbo].[usp_UpsertWaitlist]
     @Id INT,
+    @BranchId INT = NULL,
     @GuestName NVARCHAR(100),
     @PhoneNumber NVARCHAR(20),
     @PartySize INT,
@@ -227,6 +272,7 @@ BEGIN
     BEGIN
         -- Insert new waitlist entry
         INSERT INTO [Waitlist] (
+            [BranchId],
             [GuestName], 
             [PhoneNumber], 
             [PartySize], 
@@ -237,6 +283,7 @@ BEGIN
             [AddedAt]
         )
         VALUES (
+            @BranchId,
             @GuestName, 
             @PhoneNumber, 
             @PartySize, 
@@ -254,6 +301,7 @@ BEGIN
         -- Update existing waitlist entry
         UPDATE [Waitlist]
         SET 
+                        [BranchId] = ISNULL(@BranchId, [BranchId]),
             [GuestName] = @GuestName,
             [PhoneNumber] = @PhoneNumber,
             [PartySize] = @PartySize,
@@ -261,7 +309,8 @@ BEGIN
             [NotifyWhenReady] = @NotifyWhenReady,
             [Notes] = @Notes,
             [Status] = @Status
-        WHERE [Id] = @Id;
+                WHERE [Id] = @Id
+                    AND (COL_LENGTH('dbo.Waitlist', 'BranchId') IS NULL OR @BranchId IS NULL OR [BranchId] = @BranchId);
         
         SET @Message = 'Waitlist entry updated successfully.';
     END
