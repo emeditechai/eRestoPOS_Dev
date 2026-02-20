@@ -10,6 +10,9 @@ namespace RestaurantManagementSystem.ViewModels
     {
         public int Id { get; set; }
 
+        [Display(Name = "Branch")]
+        public int? BranchId { get; set; }
+
         [Required(ErrorMessage = "PLU Code is required")]
         [Display(Name = "PLU Code")]
         [StringLength(20, ErrorMessage = "PLU Code cannot exceed 20 characters")]

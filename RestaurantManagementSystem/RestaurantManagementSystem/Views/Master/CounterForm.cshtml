@@ -10,6 +10,28 @@
     <input type="hidden" asp-for="Id" />
 
     <div class="mb-3">
+        <label asp-for="BranchId" class="form-label">Branch</label>
+        <select asp-for="BranchId" class="form-select" asp-items="ViewBag.Branches" disabled="@((Model.Id > 0 || ViewBag.IsMainBranch != true) ? "disabled" : null)">
+            <option value="">-- Select Branch --</option>
+        </select>
+        <small class="text-muted d-block mt-1">
+            @if (Model.Id > 0)
+            {
+                @:Branch cannot be changed in edit mode.
+            }
+            else if (ViewBag.IsMainBranch == true)
+            {
+                @:Main branch can create counter for selected branch.
+            }
+            else
+            {
+                @:Counter will be created for your login branch.
+            }
+        </small>
+        <span asp-validation-for="BranchId" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
         <label asp-for="CounterCode" class="form-label"></label>
         <input asp-for="CounterCode" class="form-control" autocomplete="off" />
         <span asp-validation-for="CounterCode" class="text-danger"></span>
@@ -41,6 +63,7 @@
                 $('#CounterCode').prop('disabled', true);
                 $('#CounterName').prop('disabled', true);
                 $('#IsActive').prop('disabled', true);
+                $('#BranchId').prop('disabled', true);
                 $('button[type=submit]').prop('disabled', true).addClass('disabled');
             }
         });

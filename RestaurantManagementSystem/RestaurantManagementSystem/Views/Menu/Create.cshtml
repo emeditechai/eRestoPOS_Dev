@@ -8,26 +8,38 @@
     <div class="row">
         <div class="col-md-12">
             <div class="card">
-                <div class="card-header">
-                    <h4>Create Menu Item</h4>
-                    <div class="float-right">
-                        <a asp-action="Index" class="btn btn-secondary">
-                            <i class="fa fa-arrow-left"></i> Back to List
-                        </a>
+                <form asp-action="Create" method="post" enctype="multipart/form-data">
+                <div class="card-header bg-light py-3 px-4">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-lg-4 col-md-12">
+                            <h4 class="mb-0 fw-semibold">Create Menu Item</h4>
+                        </div>
+                        <div class="col-lg-5 col-md-8">
+                            <label asp-for="BranchId" class="form-label small mb-1 fw-semibold">Branch</label>
+                            <select asp-for="BranchId" class="form-select form-select-sm" asp-items="ViewBag.Branches" disabled="@(ViewBag.IsBranchSelectionEnabled == true ? null : "disabled")">
+                                <option value="">-- Select Branch --</option>
+                            </select>
+                            <small class="text-muted d-block mt-1">@(ViewBag.IsBranchSelectionEnabled == true ? "Main branch can manage menu for selected branch." : "Menu will be managed for your login branch.")</small>
+                            <span asp-validation-for="BranchId" class="text-danger small"></span>
+                        </div>
+                        <div class="col-lg-3 col-md-4 text-md-end">
+                            <a asp-action="Index" class="btn btn-secondary w-100 d-md-inline-block">
+                                <i class="fa fa-arrow-left"></i> Back to List
+                            </a>
+                        </div>
                     </div>
                 </div>
-                <div class="card-body">
-                    <form asp-action="Create" method="post" enctype="multipart/form-data">
-                        <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                <div class="card-body px-4 py-3">
+                    <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
                         
-                        <ul class="nav nav-tabs nav-fill mb-3" id="menuItemTabs" role="tablist">
+                    <ul class="nav nav-tabs nav-fill mb-4" id="menuItemTabs" role="tablist">
                             <li class="nav-item" role="presentation">
                                 <button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab" aria-controls="general" aria-selected="true">
                                     <i class="fas fa-info-circle me-1"></i> General
                                 </button>
                             </li>
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="allergens-tab" data-bs-toggle="tab" data-bs-target="#allergens" type="button" role="tab" aria-controls="allergens" aria-selected="false">
+                                <button class="nav-link d-none" id="allergens-tab" data-bs-toggle="tab" data-bs-target="#allergens" type="button" role="tab" aria-controls="allergens" aria-selected="false">
                                     <i class="fas fa-exclamation-triangle me-1"></i> Allergens
                                 </button>
                             </li>
@@ -38,7 +50,7 @@
                             </li>
                         </ul>
                         
-                        <div class="tab-content py-3" id="menuItemTabsContent">
+                        <div class="tab-content pt-2 pb-1" id="menuItemTabsContent">
                             <!-- General Tab -->
                             <div class="tab-pane fade show active" id="general" role="tabpanel" aria-labelledby="general-tab">
                                 <div class="row">
@@ -56,7 +68,6 @@
                                             <div class="invalid-feedback">Please select an item group.</div>
                                             <span asp-validation-for="MenuItemGroupId" class="text-danger small"></span>
                                         </div>
-                                        
                                         <div class="form-group mb-2">
                                             <label asp-for="Name" class="form-label small mb-1">Item Name</label>
                                             <input asp-for="Name" class="form-control form-control-sm" placeholder="Enter item name" />
@@ -209,8 +220,8 @@
                                         </div>
                                         
                                         <div class="mt-3 d-flex justify-content-end">
-                                            <button type="button" class="btn btn-sm btn-primary" id="goToAllergensTab">
-                                                Next: Allergens <i class="fas fa-arrow-right ms-1"></i>
+                                            <button type="button" class="btn btn-sm btn-primary" id="goToModifiersTabFromGeneral">
+                                                Next: Modifiers <i class="fas fa-arrow-right ms-1"></i>
                                             </button>
                                         </div>
                                     </div>
@@ -218,7 +229,7 @@
                             </div>
                             
                             <!-- Allergens Tab -->
-                            <div class="tab-pane fade" id="allergens" role="tabpanel" aria-labelledby="allergens-tab">
+                            <div class="tab-pane fade d-none" id="allergens" role="tabpanel" aria-labelledby="allergens-tab">
                                 <div class="row g-2">
                                     @if (ViewBag.Allergens != null)
                                     {
@@ -297,7 +308,7 @@
                                 </div>
                                 
                                 <div class="mt-3 d-flex justify-content-between">
-                                    <button type="button" class="btn btn-sm btn-secondary" id="goToAllergensTab">
+                                    <button type="button" class="btn btn-sm btn-secondary" id="goToGeneralTabFromModifiers">
                                         <i class="fas fa-arrow-left me-1"></i> Previous
                                     </button>
                                     <button type="submit" class="btn btn-success">
@@ -315,8 +326,8 @@
                                 <i class="fa fa-save me-1"></i> Create Menu Item
                             </button>
                         </div>
-                    </form>
                 </div>
+                </form>
             </div>
         </div>
     </div>
@@ -373,16 +384,12 @@
             // Ingredients feature removed
             
             // Tab navigation buttons
-            $("#goToGeneralTab").click(function() {
-                document.getElementById('general-tab').click();
-            });
-            
-            $("#goToAllergensTab").click(function() {
-                document.getElementById('allergens-tab').click();
-            });
-            
-            $("#goToModifiersTab").click(function() {
+            $("#goToModifiersTabFromGeneral").click(function() {
                 document.getElementById('modifiers-tab').click();
+            });
+
+            $("#goToGeneralTabFromModifiers").click(function() {
+                document.getElementById('general-tab').click();
             });
             
             // Toggle price fields for modifiers

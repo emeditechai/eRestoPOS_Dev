@@ -82,6 +82,82 @@ WHERE BranchId = @BranchId
             }
         }
 
+        private bool IsActiveBranch(Microsoft.Data.SqlClient.SqlConnection connection, int branchId)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT COUNT(1)
+FROM dbo.Branches
+WHERE BranchId = @BranchId
+  AND ISNULL(IsActive, 1) = 1", connection))
+            {
+                cmd.Parameters.AddWithValue("@BranchId", branchId);
+                return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+            }
+        }
+
+        private bool TryGetMenuFormBranchContext(out int activeBranchId, out bool isMainBranch)
+        {
+            activeBranchId = 0;
+            isMainBranch = false;
+
+            var activeBranchIdNullable = GetActiveBranchId();
+            if (!activeBranchIdNullable.HasValue)
+            {
+                return false;
+            }
+
+            activeBranchId = activeBranchIdNullable.Value;
+
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    isMainBranch = IsActiveBranchMain(connection, activeBranchId);
+                }
+            }
+            catch
+            {
+                isMainBranch = false;
+            }
+
+            return true;
+        }
+
+        private int ResolveTargetBranchIdForMenuForm(MenuItemViewModel model, int activeBranchId, bool isMainBranch)
+        {
+            var targetBranchId = activeBranchId;
+
+            if (isMainBranch && model.BranchId.HasValue)
+            {
+                targetBranchId = model.BranchId.Value;
+            }
+
+            model.BranchId = targetBranchId;
+
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    if (!IsActiveBranch(connection, targetBranchId))
+                    {
+                        ModelState.AddModelError("BranchId", "Selected branch is invalid or inactive.");
+                        model.BranchId = activeBranchId;
+                        return activeBranchId;
+                    }
+                }
+            }
+            catch
+            {
+                ModelState.AddModelError("BranchId", "Unable to validate selected branch.");
+                model.BranchId = activeBranchId;
+                return activeBranchId;
+            }
+
+            return targetBranchId;
+        }
+
         private void EnsureMenuItemsBranchColumnExists(Microsoft.Data.SqlClient.SqlConnection connection)
         {
             using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -389,22 +465,19 @@ END
         // GET: Menu/Create
         public IActionResult Create()
         {
-            if (!GetActiveBranchId().HasValue)
+            if (!TryGetMenuFormBranchContext(out var activeBranchId, out var isMainBranch))
             {
                 TempData["ErrorMessage"] = "Please select an active branch first.";
                 return RedirectToAction(nameof(Index));
             }
 
-            ViewBag.Categories = GetCategorySelectList();
-            ViewBag.SubCategories = GetSubCategorySelectList(); // Empty list initially
-            ViewBag.Allergens = GetAllAllergens();
-            // Ingredients tab removed; do not populate ViewBag.Ingredients
-            ViewBag.Modifiers = GetAllModifiers();
-            ViewBag.KitchenStations = GetKitchenStationSelectList();
-            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
-            ViewBag.UOMs = GetUOMSelectList();
+            PopulateMenuFormViewBags(null, activeBranchId, isMainBranch);
             
-            return View(new MenuItemViewModel { PreparationTimeMinutes = 1 });
+            return View(new MenuItemViewModel
+            {
+                PreparationTimeMinutes = 1,
+                BranchId = activeBranchId
+            });
         }
 
         // POST: Menu/Create
@@ -412,10 +485,26 @@ END
         [ValidateAntiForgeryTokenAttribute]
         public IActionResult Create(MenuItemViewModel model)
         {
-            if (!GetActiveBranchId().HasValue)
+            if (!TryGetMenuFormBranchContext(out var activeBranchId, out var isMainBranch))
             {
                 ModelState.AddModelError("", "Please select an active branch first.");
             }
+
+            if (activeBranchId > 0)
+            {
+                if (!isMainBranch)
+                {
+                    model.BranchId = activeBranchId;
+                }
+                else if (!model.BranchId.HasValue)
+                {
+                    model.BranchId = activeBranchId;
+                }
+            }
+
+            var targetBranchId = activeBranchId > 0
+                ? ResolveTargetBranchIdForMenuForm(model, activeBranchId, isMainBranch)
+                : 0;
 
             if (ModelState.IsValid)
             {
@@ -437,13 +526,7 @@ END
                                 if (count == 0)
                                 {
                                     ModelState.AddModelError("SubCategoryId", $"Selected SubCategory (ID: {model.SubCategoryId}) does not exist or is not active.");
-                                    
-                                    // Repopulate ViewBag data for redisplay
-                                    ViewBag.Categories = GetCategorySelectList();
-                                    ViewBag.SubCategories = GetSubCategorySelectList(); // Empty list initially
-                                    ViewBag.Allergens = GetAllAllergens();
-                                    ViewBag.Modifiers = GetAllModifiers();
-                                    ViewBag.KitchenStations = GetKitchenStationSelectList();
+                                    PopulateMenuFormViewBags(model.CategoryId, activeBranchId, isMainBranch);
                                     
                                     return View(model);
                                 }
@@ -465,14 +548,7 @@ END
                                 if (count == 0)
                                 {
                                     ModelState.AddModelError("MenuItemGroupId", $"Selected Item Group (ID: {model.MenuItemGroupId}) does not exist or is not active.");
-
-                                    // Repopulate and return
-                                    ViewBag.Categories = GetCategorySelectList();
-                                    ViewBag.SubCategories = GetSubCategorySelectList();
-                                    ViewBag.Allergens = GetAllAllergens();
-                                    ViewBag.Modifiers = GetAllModifiers();
-                                    ViewBag.KitchenStations = GetKitchenStationSelectList();
-                                    ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+                                    PopulateMenuFormViewBags(model.CategoryId, activeBranchId, isMainBranch);
                                     return View(model);
                                 }
                             }
@@ -483,16 +559,10 @@ END
                     if (!string.IsNullOrWhiteSpace(model.PLUCode))
                     {
                         model.PLUCode = NormalizePluCode(model.PLUCode);
-                        var activeBranchId = GetActiveBranchId();
-                        if (!activeBranchId.HasValue)
+                        if (targetBranchId <= 0)
                         {
                             ModelState.AddModelError("", "Please select an active branch first.");
-                            ViewBag.Categories = GetCategorySelectList();
-                            ViewBag.SubCategories = GetSubCategorySelectList(model.CategoryId);
-                            ViewBag.Allergens = GetAllAllergens();
-                            ViewBag.Modifiers = GetAllModifiers();
-                            ViewBag.KitchenStations = GetKitchenStationSelectList();
-                            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+                            PopulateMenuFormViewBags(model.CategoryId, activeBranchId, isMainBranch);
                             return View(model);
                         }
 
@@ -503,18 +573,14 @@ END
                             using (var dupCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT COUNT(*) FROM dbo.MenuItems WHERE UPPER(LTRIM(RTRIM(ISNULL(PLUCode,'')))) = @PLU AND BranchId = @BranchId", dupConn))
                             {
                                 dupCmd.Parameters.AddWithValue("@PLU", model.PLUCode);
-                                dupCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                                dupCmd.Parameters.AddWithValue("@BranchId", targetBranchId);
                                 int existing = (int)dupCmd.ExecuteScalar();
                                 if (existing > 0)
                                 {
                                     ModelState.AddModelError("PLUCode", "PLU Code already exists. Please choose a unique PLU Code.");
 
                                     // Repopulate ViewBag data for redisplay
-                                    ViewBag.Categories = GetCategorySelectList();
-                                    ViewBag.SubCategories = GetSubCategorySelectList(model.CategoryId);
-                                    ViewBag.Allergens = GetAllAllergens();
-                                    ViewBag.Modifiers = GetAllModifiers();
-                                    ViewBag.KitchenStations = GetKitchenStationSelectList();
+                                    PopulateMenuFormViewBags(model.CategoryId, activeBranchId, isMainBranch);
 
                                     return View(model);
                                 }
@@ -554,7 +620,7 @@ END
                     }
 
                     // Create menu item
-                    int menuItemId = CreateMenuItem(model);
+                    int menuItemId = CreateMenuItem(model, targetBranchId);
 
                     // Add allergens
                     if (model.SelectedAllergens != null && model.SelectedAllergens.Any())
@@ -585,13 +651,10 @@ END
                 model.PreparationTimeMinutes = 1;
             }
 
-            ViewBag.Categories = GetCategorySelectList();
-            ViewBag.SubCategories = GetSubCategorySelectList(model.CategoryId);
-            ViewBag.Allergens = GetAllAllergens();
-            // Ingredients tab removed; do not populate ViewBag.Ingredients
-            ViewBag.Modifiers = GetAllModifiers();
-            ViewBag.KitchenStations = GetKitchenStationSelectList();
-            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+            if (activeBranchId > 0)
+            {
+                PopulateMenuFormViewBags(model.CategoryId, activeBranchId, isMainBranch);
+            }
             
             return View(model);
         }
@@ -599,7 +662,7 @@ END
         // GET: Menu/Edit/5
         public IActionResult Edit(int id)
         {
-            if (!GetActiveBranchId().HasValue)
+            if (!TryGetMenuFormBranchContext(out var activeBranchId, out var isMainBranch))
             {
                 TempData["ErrorMessage"] = "Please select an active branch first.";
                 return RedirectToAction(nameof(Index));
@@ -615,6 +678,7 @@ END
             var viewModel = new MenuItemViewModel
             {
                 Id = menuItem.Id,
+                BranchId = menuItem.BranchId ?? activeBranchId,
                 PLUCode = menuItem.PLUCode,
                 Name = menuItem.Name,
                 Description = menuItem.Description,
@@ -677,11 +741,13 @@ END
             
             ViewBag.SubCategories = subCategories;
             ViewBag.Allergens = GetAllAllergens();
-            // Ingredients tab removed; do not populate ViewBag.Ingredients
             ViewBag.Modifiers = GetAllModifiers();
             ViewBag.KitchenStations = GetKitchenStationSelectList();
             ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
             ViewBag.UOMs = GetUOMSelectList();
+            ViewBag.Branches = GetBranchSelectList();
+            ViewBag.IsBranchSelectionEnabled = isMainBranch;
+            ViewBag.ActiveBranchId = activeBranchId;
             
             return View(viewModel);
         }
@@ -691,10 +757,26 @@ END
         [ValidateAntiForgeryTokenAttribute]
         public IActionResult Edit(int id, MenuItemViewModel model)
         {
-            if (!GetActiveBranchId().HasValue)
+            if (!TryGetMenuFormBranchContext(out var activeBranchId, out var isMainBranch))
             {
                 ModelState.AddModelError("", "Please select an active branch first.");
             }
+
+            if (activeBranchId > 0)
+            {
+                if (!isMainBranch)
+                {
+                    model.BranchId = activeBranchId;
+                }
+                else if (!model.BranchId.HasValue)
+                {
+                    model.BranchId = activeBranchId;
+                }
+            }
+
+            var targetBranchId = activeBranchId > 0
+                ? ResolveTargetBranchIdForMenuForm(model, activeBranchId, isMainBranch)
+                : 0;
 
             if (id != model.Id)
             {
@@ -721,13 +803,7 @@ END
                                 if (count == 0)
                                 {
                                     ModelState.AddModelError("SubCategoryId", $"Selected SubCategory (ID: {model.SubCategoryId}) does not exist or is not active.");
-                                    
-                                    // Repopulate ViewBag data for redisplay
-                                    ViewBag.Categories = GetCategorySelectList();
-                                    ViewBag.SubCategories = GetSubCategorySelectList(model.CategoryId);
-                                    ViewBag.Allergens = GetAllAllergens();
-                                    ViewBag.Modifiers = GetAllModifiers();
-                                    ViewBag.KitchenStations = GetKitchenStationSelectList();
+                                    PopulateMenuFormViewBags(model.CategoryId, activeBranchId, isMainBranch);
                                     
                                     return View(model);
                                 }
@@ -749,14 +825,7 @@ END
                                 if (count == 0)
                                 {
                                     ModelState.AddModelError("MenuItemGroupId", $"Selected Item Group (ID: {model.MenuItemGroupId}) does not exist or is not active.");
-
-                                    // Repopulate ViewBag data for redisplay
-                                    ViewBag.Categories = GetCategorySelectList();
-                                    ViewBag.SubCategories = GetSubCategorySelectList(model.CategoryId);
-                                    ViewBag.Allergens = GetAllAllergens();
-                                    ViewBag.Modifiers = GetAllModifiers();
-                                    ViewBag.KitchenStations = GetKitchenStationSelectList();
-                                    ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+                                    PopulateMenuFormViewBags(model.CategoryId, activeBranchId, isMainBranch);
 
                                     return View(model);
                                 }
@@ -768,16 +837,10 @@ END
                     if (!string.IsNullOrWhiteSpace(model.PLUCode))
                     {
                         model.PLUCode = NormalizePluCode(model.PLUCode);
-                        var activeBranchId = GetActiveBranchId();
-                        if (!activeBranchId.HasValue)
+                        if (targetBranchId <= 0)
                         {
                             ModelState.AddModelError("", "Please select an active branch first.");
-                            ViewBag.Categories = GetCategorySelectList();
-                            ViewBag.SubCategories = GetSubCategorySelectList(model.CategoryId);
-                            ViewBag.Allergens = GetAllAllergens();
-                            ViewBag.Modifiers = GetAllModifiers();
-                            ViewBag.KitchenStations = GetKitchenStationSelectList();
-                            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+                            PopulateMenuFormViewBags(model.CategoryId, activeBranchId, isMainBranch);
                             return View(model);
                         }
 
@@ -789,19 +852,14 @@ END
                             {
                                 dupCmd.Parameters.AddWithValue("@PLU", model.PLUCode);
                                 dupCmd.Parameters.AddWithValue("@Id", id);
-                                dupCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                                dupCmd.Parameters.AddWithValue("@BranchId", targetBranchId);
                                 int existing = (int)dupCmd.ExecuteScalar();
                                 if (existing > 0)
                                 {
                                     ModelState.AddModelError("PLUCode", "PLU Code already exists on another menu item. Please choose a unique PLU Code.");
 
                                     // Repopulate ViewBag data for redisplay
-                                    ViewBag.Categories = GetCategorySelectList();
-                                    ViewBag.SubCategories = GetSubCategorySelectList(model.CategoryId);
-                                    ViewBag.Allergens = GetAllAllergens();
-                                    ViewBag.Modifiers = GetAllModifiers();
-                                    ViewBag.KitchenStations = GetKitchenStationSelectList();
-                                    ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+                                    PopulateMenuFormViewBags(model.CategoryId, activeBranchId, isMainBranch);
 
                                     return View(model);
                                 }
@@ -848,7 +906,7 @@ END
                     }
 
                     // Update menu item
-                    UpdateMenuItem(model);
+                    UpdateMenuItem(model, activeBranchId, targetBranchId);
 
                     // Update allergens (remove all and add selected)
                     RemoveMenuItemAllergens(id);
@@ -876,13 +934,10 @@ END
             }
 
             // If we got this far, something failed, redisplay form
-            ViewBag.Categories = GetCategorySelectList();
-            ViewBag.SubCategories = GetSubCategorySelectList(model.CategoryId);
-            ViewBag.Allergens = GetAllAllergens();
-            // Ingredients tab removed; do not populate ViewBag.Ingredients
-            ViewBag.Modifiers = GetAllModifiers();
-            ViewBag.KitchenStations = GetKitchenStationSelectList();
-            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+            if (activeBranchId > 0)
+            {
+                PopulateMenuFormViewBags(model.CategoryId, activeBranchId, isMainBranch);
+            }
             
             return View(model);
         }
@@ -1324,6 +1379,7 @@ END
                     query = $@"
                         SELECT 
                             m.[Id], 
+                            m.[BranchId],
                             m.[PLUCode], 
                             m.[Name], 
                             m.[Description], 
@@ -1364,6 +1420,7 @@ END
                     query = $@"
                         SELECT 
                             m.[Id], 
+                            m.[BranchId],
                             m.[PLUCode], 
                             m.[Name], 
                             m.[Description], 
@@ -1407,6 +1464,7 @@ END
                             menuItem = new MenuItem
                             {
                                 Id = SafeGetInt(reader, "Id"),
+                                BranchId = SafeGetNullableInt(reader, "BranchId"),
                                 PLUCode = SafeGetString(reader, "PLUCode") ?? string.Empty,
                                 Name = SafeGetString(reader, "Name") ?? string.Empty,
                                 Description = SafeGetString(reader, "Description") ?? string.Empty,
@@ -1514,13 +1572,12 @@ END
             return menuItem;
         }
 
-        private int CreateMenuItem(MenuItemViewModel model)
+        private int CreateMenuItem(MenuItemViewModel model, int targetBranchId)
         {
             int menuItemId = 0;
-            var activeBranchId = GetActiveBranchId();
-            if (!activeBranchId.HasValue)
+            if (targetBranchId <= 0)
             {
-                throw new InvalidOperationException("Active branch is required.");
+                throw new InvalidOperationException("Target branch is required.");
             }
             
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
@@ -1600,7 +1657,7 @@ END
                 
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(insertQuery, connection))
                 {
-                    command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    command.Parameters.AddWithValue("@BranchId", targetBranchId);
                     command.Parameters.AddWithValue("@PLUCode", model.PLUCode);
                     command.Parameters.AddWithValue("@Name", model.Name);
                     command.Parameters.AddWithValue("@Description", model.Description);
@@ -1874,12 +1931,16 @@ END
             }
         }
 
-        private void UpdateMenuItem(MenuItemViewModel model)
+        private void UpdateMenuItem(MenuItemViewModel model, int currentBranchId, int targetBranchId)
         {
-            var activeBranchId = GetActiveBranchId();
-            if (!activeBranchId.HasValue)
+            if (currentBranchId <= 0)
             {
                 throw new InvalidOperationException("Active branch is required.");
+            }
+
+            if (targetBranchId <= 0)
+            {
+                throw new InvalidOperationException("Target branch is required.");
             }
 
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
@@ -1928,13 +1989,15 @@ END
                         KitchenStationId = @KitchenStationId,
                         GSTPercentage = @GSTPercentage,
                         IsGstApplicable = @IsGstApplicable,
+                        BranchId = @TargetBranchId,
                         NotAvailable = @NotAvailable{groupUpdate}{uomUpdate}
                     WHERE Id = @Id AND BranchId = @BranchId";
                 
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(updateQuery, connection))
                 {
                     command.Parameters.AddWithValue("@Id", model.Id);
-                    command.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    command.Parameters.AddWithValue("@BranchId", currentBranchId);
+                    command.Parameters.AddWithValue("@TargetBranchId", targetBranchId);
                     command.Parameters.AddWithValue("@PLUCode", model.PLUCode ?? string.Empty);
                     command.Parameters.AddWithValue("@Name", model.Name);
                     command.Parameters.AddWithValue("@Description", model.Description);
@@ -2623,6 +2686,63 @@ END
                 }
             }
         }
+
+        private void PopulateMenuFormViewBags(int? categoryId, int activeBranchId, bool isMainBranch)
+        {
+            ViewBag.Categories = GetCategorySelectList();
+            ViewBag.SubCategories = GetSubCategorySelectList(categoryId);
+            ViewBag.Allergens = GetAllAllergens();
+            ViewBag.Modifiers = GetAllModifiers();
+            ViewBag.KitchenStations = GetKitchenStationSelectList();
+            ViewBag.MenuItemGroups = GetMenuItemGroupSelectList();
+            ViewBag.UOMs = GetUOMSelectList();
+            ViewBag.Branches = GetBranchSelectList();
+            ViewBag.IsBranchSelectionEnabled = isMainBranch;
+            ViewBag.ActiveBranchId = activeBranchId;
+        }
+
+        private List<SelectListItem> GetBranchSelectList()
+        {
+            var branches = new List<SelectListItem>();
+
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+
+                    using (var command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        SELECT BranchId, BranchCode, BranchName
+                        FROM dbo.Branches
+                        WHERE ISNULL(IsActive, 1) = 1
+                        ORDER BY ISNULL(Is_MainBranch, 0) DESC, BranchName", connection))
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            var branchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+                            var branchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+                            var displayName = string.IsNullOrWhiteSpace(branchCode)
+                                ? branchName
+                                : $"{branchCode} - {branchName}";
+
+                            branches.Add(new SelectListItem
+                            {
+                                Value = reader.GetInt32(0).ToString(),
+                                Text = displayName
+                            });
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                return new List<SelectListItem>();
+            }
+
+            return branches;
+        }
+
         private List<SelectListItem> GetCategorySelectList()
         {
             var categories = new List<SelectListItem>();

@@ -15,27 +15,27 @@
     </ol>
 
     <div class="settings-card mb-4">
-        <div class="card-header">
+        <div class="card-header bg-light py-3 px-4">
             <i class="fas fa-edit me-1"></i>
             Update Restaurant Configuration
         </div>
-        <div class="card-body p-4">
+        <div class="card-body px-4 py-3">
             <form asp-action="Edit" enctype="multipart/form-data" class="settings-form">
                 <input type="hidden" asp-for="Id" />
                 <input type="hidden" asp-for="LogoPath" />
                 <input type="hidden" asp-for="CreatedAt" />
                 <input type="hidden" asp-for="UpdatedAt" />
 
-                <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
                 
                 <div class="row mb-4">
                     <div class="col-md-12">
                         <div class="settings-card">
-                            <div class="card-header">
+                            <div class="card-header bg-light py-3 px-4">
                                 <i class="fas fa-building me-1"></i>
                                 Basic Information
                             </div>
-                            <div class="card-body">
+                            <div class="card-body px-4 py-3">
                                 <div class="row mb-3">
                                     <div class="col-md-6">
                                         <div class="form-group">
@@ -67,11 +67,11 @@
                 <div class="row mb-4">
                     <div class="col-md-6">
                         <div class="settings-card h-100">
-                            <div class="card-header">
+                            <div class="card-header bg-light py-3 px-4">
                                 <i class="fas fa-map-marker-alt me-1"></i>
                                 Address Information
                             </div>
-                            <div class="card-body">
+                            <div class="card-body px-4 py-3">
                                 <div class="form-group mb-3">
                                     <label asp-for="StreetAddress" class="control-label"></label>
                                     <input asp-for="StreetAddress" class="form-control" placeholder="Street address, building number" />
@@ -117,11 +117,11 @@
                     
                     <div class="col-md-6">
                         <div class="settings-card h-100">
-                            <div class="card-header">
+                            <div class="card-header bg-light py-3 px-4">
                                 <i class="fas fa-address-card me-1"></i>
                                 Contact Information
                             </div>
-                            <div class="card-body">
+                            <div class="card-body px-4 py-3">
                                 <div class="form-group mb-3">
                                     <label asp-for="PhoneNumber" class="control-label"></label>
                                     <div class="input-group">
@@ -156,11 +156,11 @@
                 <div class="row mb-4">
                     <div class="col-md-12">
                         <div class="settings-card">
-                            <div class="card-header">
+                            <div class="card-header bg-light py-3 px-4">
                                 <i class="fas fa-receipt me-1"></i>
                                 Tax & Currency Settings
                             </div>
-                            <div class="card-body">
+                            <div class="card-body px-4 py-3">
                                 <div class="row">
                                     <div class="col-md-4">
                                         <div class="form-group mb-3">
@@ -231,11 +231,11 @@
                 <div class="row mb-4">
                     <div class="col-md-12">
                         <div class="settings-card">
-                            <div class="card-header">
+                            <div class="card-header bg-light py-3 px-4">
                                 <i class="fas fa-cogs me-1"></i>
                                 Parameter Setup
                             </div>
-                            <div class="card-body">
+                            <div class="card-body px-4 py-3">
                                 <div class="row mb-3">
                                     <div class="col-md-4">
                                         <div class="form-group mb-3">

@@ -7,6 +7,7 @@ using Microsoft.Data.SqlClient;
 using System;
 using System.Linq;
 using RestaurantManagementSystem.Utilities;
+using Microsoft.AspNetCore.Mvc.Rendering;
 
 namespace RestaurantManagementSystem.Controllers
 {
@@ -205,14 +206,23 @@ namespace RestaurantManagementSystem.Controllers
                 }
 
                 EnsureCountersTableExists();
+                EnsureBranchesTableExists();
                 var model = new CounterMaster();
+                var isMainBranch = IsMainBranchActiveSession();
 
                 if (id.HasValue && id.Value > 0)
                 {
                     model = ReadCounterById(id.Value, activeBranchId.Value) ?? model;
                 }
+                else
+                {
+                    model.BranchId = activeBranchId.Value;
+                }
 
                 ViewBag.IsView = isView;
+                ViewBag.IsMainBranch = isMainBranch;
+                ViewBag.Branches = GetActiveBranchSelectList();
+                ViewBag.ActiveBranchId = activeBranchId.Value;
                 return View(model);
             }
             catch (Exception ex)
@@ -236,6 +246,22 @@ namespace RestaurantManagementSystem.Controllers
                 }
 
                 EnsureCountersTableExists();
+                EnsureBranchesTableExists();
+
+                var isMainBranch = IsMainBranchActiveSession();
+
+                var targetBranchId = activeBranchId.Value;
+                if (model.Id == 0 && isMainBranch && model.BranchId.HasValue)
+                {
+                    targetBranchId = model.BranchId.Value;
+                }
+
+                model.BranchId = targetBranchId;
+
+                if (!IsBranchActive(targetBranchId))
+                {
+                    ModelState.AddModelError(nameof(CounterMaster.BranchId), "Selected branch is invalid or inactive.");
+                }
 
                 model.CounterCode = (model.CounterCode ?? string.Empty).Trim();
                 model.CounterName = (model.CounterName ?? string.Empty).Trim();
@@ -253,7 +279,8 @@ namespace RestaurantManagementSystem.Controllers
 
                 if (!string.IsNullOrWhiteSpace(model.CounterCode))
                 {
-                    var duplicate = CounterCodeExists(model.CounterCode, model.Id, activeBranchId.Value);
+                    var duplicateBranchId = model.Id > 0 ? activeBranchId.Value : targetBranchId;
+                    var duplicate = CounterCodeExists(model.CounterCode, model.Id, duplicateBranchId);
                     if (duplicate)
                     {
                         ModelState.AddModelError(nameof(CounterMaster.CounterCode), "Counter Code already exists.");
@@ -263,6 +290,9 @@ namespace RestaurantManagementSystem.Controllers
                 if (!ModelState.IsValid)
                 {
                     ViewBag.IsView = isView;
+                    ViewBag.IsMainBranch = isMainBranch;
+                    ViewBag.Branches = GetActiveBranchSelectList();
+                    ViewBag.ActiveBranchId = activeBranchId.Value;
                     return View(model);
                 }
 
@@ -273,7 +303,7 @@ namespace RestaurantManagementSystem.Controllers
                 }
                 else
                 {
-                    var inserted = InsertCounter(model, activeBranchId.Value);
+                    var inserted = InsertCounter(model, targetBranchId);
                     TempData["ResultMessage"] = inserted ? "Counter added successfully." : "Counter add failed.";
                 }
 
@@ -283,6 +313,9 @@ namespace RestaurantManagementSystem.Controllers
             {
                 TempData["ResultMessage"] = $"Failed to save counter: {ex.Message}";
                 ViewBag.IsView = isView;
+                ViewBag.IsMainBranch = IsMainBranchActiveSession();
+                ViewBag.Branches = GetActiveBranchSelectList();
+                ViewBag.ActiveBranchId = User.GetActiveBranchId() ?? 0;
                 return View(model);
             }
         }
@@ -515,6 +548,58 @@ WHERE Id = @Id AND BranchId = @BranchId
                     return cmd.ExecuteNonQuery() > 0;
                 }
             }
+        }
+
+        private bool IsBranchActive(int branchId)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+SELECT COUNT(1)
+FROM dbo.Branches
+WHERE BranchId = @BranchId
+  AND ISNULL(IsActive, 1) = 1", connection))
+                {
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
+                    return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+                }
+            }
+        }
+
+        private List<SelectListItem> GetActiveBranchSelectList()
+        {
+            var items = new List<SelectListItem>();
+
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var cmd = new SqlCommand(@"
+SELECT BranchId, BranchCode, BranchName
+FROM dbo.Branches
+WHERE ISNULL(IsActive, 1) = 1
+ORDER BY ISNULL(Is_MainBranch, 0) DESC, BranchCode, BranchName", connection))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        var branchId = reader.GetInt32(0);
+                        var branchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+                        var branchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+                        var text = string.IsNullOrWhiteSpace(branchCode)
+                            ? branchName
+                            : $"{branchCode} - {branchName}";
+
+                        items.Add(new SelectListItem
+                        {
+                            Value = branchId.ToString(),
+                            Text = text
+                        });
+                    }
+                }
+            }
+
+            return items;
         }
 
         private void EnsureIngredientsBranchColumnExists()

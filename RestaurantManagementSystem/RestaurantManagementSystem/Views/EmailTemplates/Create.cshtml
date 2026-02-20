@@ -19,12 +19,16 @@
     <div class="row">
         <div class="col-lg-8">
             <div class="card shadow-sm">
-                <div class="card-body">
+                <div class="card-header bg-light py-3 px-4">
+                    <h5 class="card-title mb-0">Template Information</h5>
+                </div>
+                <div class="card-body px-4 py-3">
                     <form asp-action="@(isEdit ? "Edit" : "Create")" method="post">
                         @if (isEdit)
                         {
                             <input type="hidden" asp-for="EmailTemplateID" />
                         }
+                        <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
                         
                         <div class="mb-3">
                             <label asp-for="TemplateName" class="form-label">Template Name <span class="text-danger">*</span></label>

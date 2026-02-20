@@ -35,10 +35,10 @@
     }
 
     <div class="card shadow-sm">
-        <div class="card-header bg-primary text-white py-2">
+        <div class="card-header bg-primary text-white py-3 px-4">
             <h5 class="mb-0">Create Recipe</h5>
         </div>
-        <div class="card-body">
+        <div class="card-body px-4 py-3">
             <form asp-action="Create" method="post">
                 <input type="hidden" asp-for="MenuItemId" value="@(menuItem?.Id ?? 0)" />
                 
