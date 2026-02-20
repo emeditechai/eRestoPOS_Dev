@@ -5,6 +5,7 @@
     var activeRoleName = User?.FindFirst("ActiveRoleName")?.Value ?? "Not Selected";
     var hasMultipleRoles = User?.FindFirst("HasMultipleRoles")?.Value == "true";
     var activeBranchName = User?.FindFirst("ActiveBranchName")?.Value ?? "Not Selected";
+    var activeBranchIsMain = User?.FindFirst("ActiveBranchIsMain")?.Value == "true";
     var hasMultipleBranches = User?.FindFirst("HasMultipleBranches")?.Value == "true";
     var preferredName = User?.FindFirst(ClaimTypes.GivenName)?.Value;
     var lastName = User?.FindFirst(ClaimTypes.Surname)?.Value;
@@ -68,6 +69,7 @@
                 <span class="dropdown-item-text py-1">
                     <small class="text-muted text-uppercase">Active Branch</small><br />
                     <span class="fw-semibold" data-active-branch-label>@activeBranchName</span>
+                    <span class="badge bg-light text-primary ms-2 @(activeBranchIsMain ? string.Empty : "d-none")" style="font-size: 0.72rem; vertical-align: middle;" data-active-branch-main-badge>Main Branch</span>
                 </span>
             </li>
             @if (hasMultipleRoles)

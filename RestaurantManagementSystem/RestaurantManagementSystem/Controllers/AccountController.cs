@@ -857,6 +857,7 @@ ELSE
                 BranchId = branch.BranchId,
                 BranchCode = branch.BranchCode,
                 BranchName = branch.BranchName,
+                IsMainBranch = branch.Is_MainBranch,
                 IsActive = activeBranchId.HasValue && activeBranchId.Value == branch.BranchId
             }).ToList();
 
