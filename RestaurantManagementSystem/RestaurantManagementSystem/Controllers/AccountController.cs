@@ -197,6 +197,24 @@ namespace RestaurantManagementSystem.Controllers
             await _authService.SignOutUserAsync();
             return RedirectToAction("Login");
         }
+
+        [HttpGet]
+        [AllowAnonymous]
+        public IActionResult SessionStatus()
+        {
+            return Json(new
+            {
+                isAuthenticated = User?.Identity?.IsAuthenticated == true
+            });
+        }
+
+        [HttpGet]
+        [AllowAnonymous]
+        public async Task<IActionResult> SessionTimeoutLogout()
+        {
+            await _authService.SignOutUserAsync();
+            return View("LogoutHandler");
+        }
         
         [HttpGetAttribute]
         [AllowAnonymousAttribute]

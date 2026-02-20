@@ -1660,6 +1660,89 @@
         });
     </script>
     <script>
+        // Session timeout handling:
+        // - Poll auth status in background
+        // - If expired, redirect to logout handler on next user interaction anywhere on the page
+        (function () {
+            const sessionTokenMeta = document.querySelector('meta[name="session-token"]');
+            if (!sessionTokenMeta) {
+                return;
+            }
+
+            let isSessionExpired = false;
+            let isRedirecting = false;
+            let isChecking = false;
+
+            function redirectToTimeoutLogout() {
+                if (isRedirecting) {
+                    return;
+                }
+
+                isRedirecting = true;
+                window.location.href = '/Account/SessionTimeoutLogout';
+            }
+
+            async function checkSessionStatus() {
+                if (isChecking || isRedirecting) {
+                    return;
+                }
+
+                isChecking = true;
+
+                try {
+                    const response = await fetch('/Account/SessionStatus', {
+                        method: 'GET',
+                        credentials: 'same-origin',
+                        cache: 'no-store',
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        return;
+                    }
+
+                    const data = await response.json();
+                    if (data && data.isAuthenticated === false) {
+                        isSessionExpired = true;
+                    }
+                } catch (error) {
+                    console.debug('Session status check failed', error);
+                } finally {
+                    isChecking = false;
+                }
+            }
+
+            function handleInteraction(event) {
+                if (!isSessionExpired) {
+                    return;
+                }
+
+                if (event && typeof event.preventDefault === 'function') {
+                    event.preventDefault();
+                }
+
+                if (event && typeof event.stopPropagation === 'function') {
+                    event.stopPropagation();
+                }
+
+                redirectToTimeoutLogout();
+            }
+
+            document.addEventListener('click', handleInteraction, true);
+            document.addEventListener('touchstart', handleInteraction, true);
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    handleInteraction(event);
+                }
+            }, true);
+
+            checkSessionStatus();
+            setInterval(checkSessionStatus, 30000);
+        })();
+    </script>
+    <script>
         // If a session token meta is present, fetch public IP and POST to server to update session record
         (function() {
             try {
