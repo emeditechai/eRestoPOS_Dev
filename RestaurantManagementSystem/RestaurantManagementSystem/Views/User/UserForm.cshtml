@@ -3,6 +3,8 @@
 @{
     ViewData["Title"] = Model.Id == 0 ? "Create User" : ((ViewBag.IsView ?? false) ? "View User" : "Edit User");
     bool isView = ViewBag.IsView ?? false;
+    bool canAssignMultipleBranches = (ViewBag.CanAssignMultipleBranches as bool?) ?? true;
+    int? activeBranchId = ViewBag.ActiveBranchId as int?;
     string selectedBranchRolesJson = ViewBag.SelectedBranchRoles as string ?? "{}";
 }
 
@@ -188,13 +190,27 @@
                                         }
                                         else
                                         {
-                                            <select id="selectedBranches" name="selectedBranches" class="form-select" multiple style="height: 100px;">
-                                                @foreach (var branch in ViewBag.AllBranches)
-                                                {
-                                                    <option value="@branch.BranchId" data-branch-label="@(string.IsNullOrWhiteSpace(branch.BranchCode) ? branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}")" selected="@(Model.SelectedBranchIds?.Contains(branch.BranchId) ?? false)">@(string.IsNullOrWhiteSpace(branch.BranchCode) ? branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}")</option>
-                                                }
-                                            </select>
-                                            <small class="text-muted">Hold Ctrl/Cmd to select multiple branches</small>
+                                            <div class="dropdown" data-bs-auto-close="outside">
+                                                <button class="btn btn-outline-secondary w-100 text-start d-flex justify-content-between align-items-center" type="button" id="selectedBranchesDropdownBtn" data-bs-toggle="dropdown" aria-expanded="false">
+                                                    <span id="selectedBranchesSummary">Select branch access</span>
+                                                    <i class="bi bi-chevron-down"></i>
+                                                </button>
+                                                <div class="dropdown-menu w-100 p-2 multi-select-dropdown-menu" id="selectedBranchesDropdownMenu">
+                                                    @foreach (var branch in ViewBag.AllBranches)
+                                                    {
+                                                        var branchLabel = string.IsNullOrWhiteSpace(branch.BranchCode) ? branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}";
+                                                        var isChecked = Model.SelectedBranchIds?.Contains(branch.BranchId) ?? false;
+                                                        var isNonMainCreateLocked = !canAssignMultipleBranches && Model.Id == 0;
+                                                        var isAllowedForNonMainCreate = activeBranchId.HasValue && activeBranchId.Value == branch.BranchId;
+                                                        <div class="form-check mb-1">
+                                                            <input class="form-check-input branch-checkbox" type="checkbox" id="branch_@branch.BranchId" value="@branch.BranchId" data-branch-label="@branchLabel" checked="@isChecked" disabled="@(isNonMainCreateLocked && !isAllowedForNonMainCreate)">
+                                                            <label class="form-check-label small" for="branch_@branch.BranchId">@branchLabel</label>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                            <div id="selectedBranchesHiddenContainer"></div>
+                                            <small class="text-muted">@(canAssignMultipleBranches ? "Select one or more branches from the dropdown" : "Non-main branch can create user only for active branch")</small>
                                         }
                                         <span asp-validation-for="SelectedBranchIds" class="text-danger small"></span>
                                     </div>
@@ -202,7 +218,22 @@
                                         <label asp-for="SelectedRoleIds" class="form-label small fw-semibold mb-1">
                                             Branch-wise Roles
                                         </label>
-                                        <div id="branchRoleAssignmentsContainer" class="border rounded p-2" style="min-height: 100px; background: #fafbfc;"></div>
+                                        @if (isView)
+                                        {
+                                            <select id="branchRoleMulti" class="form-select" multiple style="height: 160px;" disabled>
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <div class="dropdown" data-bs-auto-close="outside">
+                                                <button class="btn btn-outline-secondary w-100 text-start d-flex justify-content-between align-items-center" type="button" id="branchRolesDropdownBtn" data-bs-toggle="dropdown" aria-expanded="false">
+                                                    <span id="branchRolesSummary">Select branch access first</span>
+                                                    <i class="bi bi-chevron-down"></i>
+                                                </button>
+                                                <div class="dropdown-menu w-100 p-2 multi-select-dropdown-menu" id="branchRolesDropdownMenu"></div>
+                                            </div>
+                                        }
+                                        <small class="text-muted">Select role(s) for each selected branch</small>
                                         @if (isView && Model.SelectedRoleIds != null)
                                         {
                                             foreach (var roleId in Model.SelectedRoleIds)
@@ -358,6 +389,34 @@
         .is-valid {
             border-color: #28a745 !important;
         }
+
+        .multi-select-dropdown-menu {
+            max-height: 260px;
+            overflow-y: auto;
+        }
+
+        .multi-select-dropdown-menu .form-check {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding-left: 0;
+        }
+
+        .multi-select-dropdown-menu .form-check-input {
+            float: none;
+            margin: 0;
+            position: static;
+            flex-shrink: 0;
+        }
+
+        .multi-select-dropdown-menu .form-check-label {
+            margin-bottom: 0;
+            cursor: pointer;
+        }
+
+        .btn.is-invalid {
+            border-color: #dc3545 !important;
+        }
         
         .invalid-feedback {
             display: block;
@@ -371,6 +430,8 @@
             const form = $('#userForm');
             const isEditMode = @(Model.Id != 0 ? "true" : "false");
             const isViewMode = @(isView ? "true" : "false");
+            const canAssignMultipleBranches = @(canAssignMultipleBranches ? "true" : "false");
+            const activeBranchId = @((activeBranchId.HasValue ? activeBranchId.Value.ToString() : "null"));
             const allRoles = [
                 @foreach (var role in ViewBag.AllRoles)
                 {
@@ -380,12 +441,57 @@
             let selectedBranchRoles = @Html.Raw(selectedBranchRolesJson);
 
             function getSelectedBranchIds() {
+                if (!isViewMode) {
+                    return $('.branch-checkbox:checked').map(function() {
+                        return parseInt($(this).val(), 10);
+                    }).get().filter(v => !isNaN(v));
+                }
+
                 return ($('#selectedBranches').val() || []).map(v => parseInt(v, 10)).filter(v => !isNaN(v));
             }
 
             function getBranchLabel(branchId) {
+                if (!isViewMode) {
+                    const checkbox = $('.branch-checkbox[value="' + branchId + '"]');
+                    return checkbox.data('branch-label') || ('Branch ' + branchId);
+                }
+
                 const option = $('#selectedBranches option[value="' + branchId + '"]');
                 return option.data('branch-label') || option.text() || ('Branch ' + branchId);
+            }
+
+            function syncSelectedBranchesHidden() {
+                if (isViewMode) {
+                    return;
+                }
+
+                const container = $('#selectedBranchesHiddenContainer');
+                container.empty();
+
+                getSelectedBranchIds().forEach(function(branchId) {
+                    container.append('<input type="hidden" name="selectedBranches" value="' + branchId + '">');
+                });
+            }
+
+            function updateSelectedBranchesSummary() {
+                if (isViewMode) {
+                    return;
+                }
+
+                const selectedBranchIds = getSelectedBranchIds();
+                const summary = $('#selectedBranchesSummary');
+
+                if (selectedBranchIds.length === 0) {
+                    summary.text('Select branch access');
+                    return;
+                }
+
+                if (selectedBranchIds.length <= 2) {
+                    summary.text(selectedBranchIds.map(getBranchLabel).join(', '));
+                    return;
+                }
+
+                summary.text(selectedBranchIds.length + ' branches selected');
             }
 
             function ensureBranchRoleDefaults(selectedBranchIds) {
@@ -407,54 +513,134 @@
                 const selectedBranchIds = getSelectedBranchIds();
                 ensureBranchRoleDefaults(selectedBranchIds);
 
-                const container = $('#branchRoleAssignmentsContainer');
-                container.empty();
+                if (isViewMode) {
+                    const roleMulti = $('#branchRoleMulti');
+                    roleMulti.empty();
 
-                if (selectedBranchIds.length === 0) {
-                    container.append('<small class="text-muted">Select one or more branches to assign roles.</small>');
+                    if (selectedBranchIds.length === 0) {
+                        roleMulti.append('<option value="" disabled>No branch assignments</option>');
+                        roleMulti.prop('disabled', true);
+                        return;
+                    }
+
+                    selectedBranchIds.forEach(function(branchId) {
+                        const branchLabel = getBranchLabel(branchId);
+                        const selectedRolesForBranch = (selectedBranchRoles[branchId] || []).map(x => parseInt(x, 10));
+                        const optgroup = $('<optgroup></optgroup>').attr('label', branchLabel);
+
+                        allRoles.forEach(function(role) {
+                            if (selectedRolesForBranch.includes(parseInt(role.id, 10))) {
+                                optgroup.append($('<option></option>').val(branchId + '|' + role.id).text(role.name).attr('selected', 'selected'));
+                            }
+                        });
+
+                        roleMulti.append(optgroup);
+                    });
+
+                    roleMulti.prop('disabled', true);
                     return;
                 }
 
-                selectedBranchIds.forEach(function(branchId) {
+                const roleMenu = $('#branchRolesDropdownMenu');
+                const roleSummary = $('#branchRolesSummary');
+                const roleButton = $('#branchRolesDropdownBtn');
+                roleMenu.empty();
+
+                if (selectedBranchIds.length === 0) {
+                    roleMenu.append('<div class="dropdown-item-text text-muted small">Select one or more branches first</div>');
+                    roleSummary.text('Select branch access first');
+                    roleButton.addClass('disabled').attr('aria-disabled', 'true');
+                    return;
+                }
+
+                roleButton.removeClass('disabled').removeAttr('aria-disabled');
+                let totalSelectedRoles = 0;
+
+                selectedBranchIds.forEach(function(branchId, index) {
                     const branchLabel = getBranchLabel(branchId);
                     const selectedRolesForBranch = (selectedBranchRoles[branchId] || []).map(x => parseInt(x, 10));
+                    totalSelectedRoles += selectedRolesForBranch.length;
 
-                    const card = $('<div class="mb-2 p-2 border rounded bg-white"></div>');
-                    card.append('<div class="small fw-semibold mb-1">' + branchLabel + '</div>');
-
-                    const select = $('<select class="form-select form-select-sm branch-role-select" multiple style="height: 90px;"></select>');
-                    select.attr('data-branch-id', branchId);
-                    if (isViewMode) {
-                        select.prop('disabled', true);
-                    }
+                    roleMenu.append('<div class="dropdown-header text-primary fw-semibold small px-2">' + branchLabel + '</div>');
 
                     allRoles.forEach(function(role) {
-                        const option = $('<option></option>').val(role.id).text(role.name);
-                        if (selectedRolesForBranch.includes(parseInt(role.id, 10))) {
-                            option.attr('selected', 'selected');
-                        }
-                        select.append(option);
+                        const roleId = parseInt(role.id, 10);
+                        const checkboxId = 'role_' + branchId + '_' + roleId;
+                        const checked = selectedRolesForBranch.includes(roleId) ? 'checked' : '';
+                        const itemHtml =
+                            '<div class="form-check mb-1 px-2">' +
+                                '<input class="form-check-input role-checkbox" type="checkbox" id="' + checkboxId + '" data-branch-id="' + branchId + '" data-role-id="' + roleId + '" ' + checked + '>' +
+                                '<label class="form-check-label small" for="' + checkboxId + '">' + role.name + '</label>' +
+                            '</div>';
+                        roleMenu.append(itemHtml);
                     });
 
-                    card.append(select);
-                    if (!isViewMode) {
-                        card.append('<small class="text-muted">Select one or more roles for this branch</small>');
+                    if (index < selectedBranchIds.length - 1) {
+                        roleMenu.append('<hr class="dropdown-divider my-1">');
                     }
-                    container.append(card);
                 });
+
+                if (totalSelectedRoles === 0) {
+                    roleSummary.text('Select branch-wise roles');
+                } else {
+                    roleSummary.text(totalSelectedRoles + ' role assignments selected');
+                }
             }
 
             function syncBranchRoleAssignmentsToHidden() {
                 const selectedBranchIds = getSelectedBranchIds();
                 const finalMap = {};
 
+                let selectedRolePairs = [];
+                if (isViewMode) {
+                    selectedRolePairs = ($('#branchRoleMulti').val() || []).map(function(v) {
+                        return String(v);
+                    });
+                } else {
+                    selectedRolePairs = $('.role-checkbox:checked').map(function() {
+                        const branchId = parseInt($(this).data('branch-id'), 10);
+                        const roleId = parseInt($(this).data('role-id'), 10);
+                        return branchId + '|' + roleId;
+                    }).get();
+                }
+
                 selectedBranchIds.forEach(function(branchId) {
-                    const selectedRoleIds = $('.branch-role-select[data-branch-id="' + branchId + '"]').val() || selectedBranchRoles[branchId] || [];
-                    finalMap[branchId] = selectedRoleIds.map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+                    const rolesForBranch = selectedRolePairs
+                        .filter(function(pair) { return pair.startsWith(branchId + '|'); })
+                        .map(function(pair) { return parseInt(pair.split('|')[1], 10); })
+                        .filter(function(roleId) { return !isNaN(roleId); });
+
+                    finalMap[branchId] = rolesForBranch;
                 });
 
                 selectedBranchRoles = finalMap;
                 $('#branchRoleAssignmentsJson').val(JSON.stringify(finalMap));
+            }
+
+            if (!isViewMode) {
+                if (!canAssignMultipleBranches && !isEditMode && activeBranchId !== null) {
+                    $('.branch-checkbox').each(function() {
+                        const branchId = parseInt($(this).val(), 10);
+                        const isActiveBranch = branchId === activeBranchId;
+                        $(this).prop('checked', isActiveBranch);
+                        $(this).prop('disabled', !isActiveBranch);
+                    });
+                    $('#selectedBranchesDropdownBtn').prop('disabled', true);
+                }
+
+                $('.branch-checkbox').on('change', function() {
+                    updateSelectedBranchesSummary();
+                    syncSelectedBranchesHidden();
+                    renderBranchRoleAssignments();
+                    syncBranchRoleAssignmentsToHidden();
+                    $('#selectedBranchesDropdownBtn').removeClass('is-invalid');
+                });
+
+                $(document).on('change', '.role-checkbox', function() {
+                    syncBranchRoleAssignmentsToHidden();
+                    renderBranchRoleAssignments();
+                    $('#branchRolesDropdownBtn').removeClass('is-invalid');
+                });
             }
 
             $('#selectedBranches').on('change', function() {
@@ -462,12 +648,12 @@
                 syncBranchRoleAssignmentsToHidden();
             });
 
-            $(document).on('change', '.branch-role-select', function() {
-                const branchId = parseInt($(this).data('branch-id'), 10);
-                selectedBranchRoles[branchId] = ($(this).val() || []).map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+            $('#branchRoleMulti').on('change', function() {
                 syncBranchRoleAssignmentsToHidden();
             });
 
+            updateSelectedBranchesSummary();
+            syncSelectedBranchesHidden();
             renderBranchRoleAssignments();
             syncBranchRoleAssignmentsToHidden();
             
@@ -615,18 +801,35 @@
 
                 const selectedBranches = getSelectedBranchIds();
                 if (selectedBranches.length === 0) {
-                    $('#selectedBranches').addClass('is-invalid');
+                    if (isViewMode) {
+                        $('#selectedBranches').addClass('is-invalid');
+                    } else {
+                        $('#selectedBranchesDropdownBtn').addClass('is-invalid');
+                    }
                     isValid = false;
                 } else {
-                    $('#selectedBranches').removeClass('is-invalid');
+                    if (isViewMode) {
+                        $('#selectedBranches').removeClass('is-invalid');
+                    } else {
+                        $('#selectedBranchesDropdownBtn').removeClass('is-invalid');
+                    }
                 }
 
                 syncBranchRoleAssignmentsToHidden();
+                if (isViewMode) {
+                    $('#branchRoleMulti').removeClass('is-invalid');
+                } else {
+                    $('#branchRolesDropdownBtn').removeClass('is-invalid');
+                }
                 selectedBranches.forEach(function(branchId) {
                     const roles = selectedBranchRoles[branchId] || [];
                     if (roles.length === 0) {
                         isValid = false;
-                        $('.branch-role-select[data-branch-id="' + branchId + '"]').addClass('is-invalid');
+                        if (isViewMode) {
+                            $('#branchRoleMulti').addClass('is-invalid');
+                        } else {
+                            $('#branchRolesDropdownBtn').addClass('is-invalid');
+                        }
                     }
                 });
                 
@@ -686,10 +889,14 @@
                 }
             });
 
-            $(document).on('change', '.branch-role-select', function() {
+            $('#branchRoleMulti').on('change', function() {
                 if (($(this).val() || []).length > 0) {
                     $(this).removeClass('is-invalid');
                 }
+            });
+
+            $('#selectedBranchesDropdownBtn, #branchRolesDropdownBtn').on('click', function() {
+                $(this).removeClass('is-invalid');
             });
         });
     </script>

@@ -3,6 +3,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Services;
+using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -14,6 +15,28 @@ namespace RestaurantManagementSystem.Controllers
 {
     public class UserController : Controller
     {
+        private const string ProtectedAdminUsername = "admin";
+
+        private bool IsProtectedAdminUsername(string? username)
+        {
+            return !string.IsNullOrWhiteSpace(username) && username.Trim().Equals(ProtectedAdminUsername, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsCurrentUserProtectedAdmin()
+        {
+            return IsProtectedAdminUsername(User?.Identity?.Name);
+        }
+
+        private string? GetUsernameById(SqlConnection con, int userId)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT TOP 1 Username FROM dbo.Users WHERE Id = @Id", con))
+            {
+                cmd.Parameters.AddWithValue("@Id", userId);
+                var result = cmd.ExecuteScalar();
+                return result?.ToString();
+            }
+        }
+
         // Stub: Ensures Users table exists (implement as needed)
         private void EnsureUsersTableExists(SqlConnection con) { /* TODO: Implement schema check if needed */ }
 
@@ -138,6 +161,100 @@ ORDER BY BranchCode", con))
             }
 
             return branches;
+        }
+
+        private bool IsMainBranch(SqlConnection con, int branchId)
+        {
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT TOP 1 ISNULL(Is_MainBranch, 0)
+FROM dbo.Branches
+WHERE BranchId = @BranchId
+  AND ISNULL(IsActive, 1) = 1", con))
+            {
+                cmd.Parameters.AddWithValue("@BranchId", branchId);
+                var result = cmd.ExecuteScalar();
+                if (result == null || result == DBNull.Value)
+                {
+                    return false;
+                }
+
+                return Convert.ToBoolean(result);
+            }
+        }
+
+        private void EnsureUserCreatedBranchColumnExists(SqlConnection con)
+        {
+            const string sql = @"
+IF COL_LENGTH('dbo.Users', 'CreatedBranchId') IS NULL
+BEGIN
+    ALTER TABLE dbo.Users ADD CreatedBranchId INT NULL;
+END";
+
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(sql, con))
+            {
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        private HashSet<int> GetVisibleUserIdsForBranch(SqlConnection con, int activeBranchId)
+        {
+            var ids = new HashSet<int>();
+
+            var hasCreatedBranchIdColumn = false;
+            var hasLegacyBranchIdColumn = false;
+
+            using (var schemaCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT
+    CASE WHEN COL_LENGTH('dbo.Users', 'CreatedBranchId') IS NULL THEN 0 ELSE 1 END AS HasCreatedBranchId,
+    CASE WHEN COL_LENGTH('dbo.Users', 'BranchId') IS NULL THEN 0 ELSE 1 END AS HasLegacyBranchId", con))
+            using (var reader = schemaCmd.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    hasCreatedBranchIdColumn = !reader.IsDBNull(0) && reader.GetInt32(0) == 1;
+                    hasLegacyBranchIdColumn = !reader.IsDBNull(1) && reader.GetInt32(1) == 1;
+                }
+            }
+
+            var whereConditions = new List<string>
+            {
+                @"EXISTS (
+    SELECT 1
+    FROM dbo.UserBranches ub
+    WHERE ub.UserId = u.Id
+      AND ub.BranchId = @ActiveBranchId
+      AND ISNULL(ub.IsActive, 1) = 1
+)"
+            };
+
+            if (hasCreatedBranchIdColumn)
+            {
+                whereConditions.Add("u.CreatedBranchId = @ActiveBranchId");
+            }
+
+            if (hasLegacyBranchIdColumn)
+            {
+                whereConditions.Add("u.BranchId = @ActiveBranchId");
+            }
+
+            var visibilitySql = $@"
+SELECT DISTINCT u.Id
+FROM dbo.Users u
+WHERE {string.Join(" OR ", whereConditions)}";
+
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(visibilitySql, con))
+            {
+                cmd.Parameters.AddWithValue("@ActiveBranchId", activeBranchId);
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        ids.Add(reader.GetInt32(0));
+                    }
+                }
+            }
+
+            return ids;
         }
 
         private List<int> GetUserBranchIds(SqlConnection con, int userId)
@@ -275,7 +392,11 @@ WHERE UserId = @UserId
         {
             try
             {
+                ViewBag.CanManageProtectedAdminUser = IsCurrentUserProtectedAdmin();
+                var activeBranchId = User.GetActiveBranchId();
                 var users = new List<User>();
+                bool canViewAllUsers = false;
+                HashSet<int> visibleUserIds = new HashSet<int>();
                 using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
                 {
                     con.Open();
@@ -284,6 +405,16 @@ WHERE UserId = @UserId
                     EnsureUsersTableExists(con);
                     EnsureBranchesTableExists(con);
                     EnsureUserBranchesTableExists(con);
+                    EnsureUserCreatedBranchColumnExists(con);
+
+                    if (activeBranchId.HasValue)
+                    {
+                        canViewAllUsers = IsMainBranch(con, activeBranchId.Value);
+                        if (!canViewAllUsers)
+                        {
+                            visibleUserIds = GetVisibleUserIdsForBranch(con, activeBranchId.Value);
+                        }
+                    }
                     
                     // Create or update a robust stored procedure to list users safely across schema variants
                     var createSp = @"CREATE OR ALTER PROCEDURE dbo.usp_GetUsersList
@@ -323,6 +454,11 @@ END";
                             }
                         }
                     }
+
+                    if (!canViewAllUsers)
+                    {
+                        users = users.Where(u => visibleUserIds.Contains(u.Id)).ToList();
+                    }
                 }
                 
                 // For each user, get their roles
@@ -335,7 +471,7 @@ END";
                         user.Branches = GetUserBranches(con, user.Id);
                     }
                 }
-                
+
                 return View(users);
             }
             catch (Exception ex)
@@ -353,6 +489,8 @@ END";
             {
                 User model = new User { Username = "", FirstName = "", LastName = "" };
                 ViewBag.IsView = isView;
+                var activeBranchId = User.GetActiveBranchId();
+                var canAssignMultipleBranches = true;
                 
                 // Get all roles for dropdown
                 var allRoles = await _userRoleService.GetAllRolesAsync();
@@ -371,6 +509,13 @@ END";
                         EnsureBranchesTableExists(con);
                         EnsureUserBranchesTableExists(con);
                         EnsureUserBranchRolesTableExists(con);
+
+                        var targetUsername = GetUsernameById(con, id.Value);
+                        if (IsProtectedAdminUsername(targetUsername) && !IsCurrentUserProtectedAdmin())
+                        {
+                            TempData["ResultMessage"] = "Only admin login can view or edit the admin user.";
+                            return RedirectToAction("UserList");
+                        }
                         
                         // Create or alter a stored procedure to fetch a single user robustly
                         var createSp = @"CREATE OR ALTER PROCEDURE dbo.usp_GetUserById
@@ -438,8 +583,23 @@ END";
                     EnsureBranchesTableExists(con);
                     EnsureUserBranchesTableExists(con);
                     EnsureUserBranchRolesTableExists(con);
+                    EnsureUserCreatedBranchColumnExists(con);
+
+                    if (activeBranchId.HasValue)
+                    {
+                        canAssignMultipleBranches = IsMainBranch(con, activeBranchId.Value);
+                    }
+
                     ViewBag.AllBranches = GetAllBranches(con);
                 }
+
+                if (!id.HasValue && !canAssignMultipleBranches && activeBranchId.HasValue)
+                {
+                    model.SelectedBranchIds = new List<int> { activeBranchId.Value };
+                }
+
+                ViewBag.ActiveBranchId = activeBranchId;
+                ViewBag.CanAssignMultipleBranches = canAssignMultipleBranches;
 
                 if (ViewBag.SelectedBranchRoles == null)
                 {
@@ -461,6 +621,55 @@ END";
         [HttpPostAttribute]
         public async Task<IActionResult> SaveUser(User model, List<int> selectedRoles, List<int> selectedBranches, string branchRoleAssignmentsJson)
         {
+            var activeBranchId = User.GetActiveBranchId();
+            var canAssignMultipleBranches = false;
+
+            using (var authCon = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
+            {
+                authCon.Open();
+                EnsureBranchesTableExists(authCon);
+                EnsureUserCreatedBranchColumnExists(authCon);
+                if (activeBranchId.HasValue)
+                {
+                    canAssignMultipleBranches = IsMainBranch(authCon, activeBranchId.Value);
+                }
+            }
+
+            if (model.Id == 0 && !canAssignMultipleBranches)
+            {
+                if (!activeBranchId.HasValue)
+                {
+                    ModelState.AddModelError("SelectedBranchIds", "Active branch is required to create user.");
+                }
+                else
+                {
+                    selectedBranches = new List<int> { activeBranchId.Value };
+
+                    if (selectedRoles != null && selectedRoles.Count > 0)
+                    {
+                        branchRoleAssignmentsJson = JsonSerializer.Serialize(new Dictionary<string, List<int>>
+                        {
+                            [activeBranchId.Value.ToString()] = selectedRoles.Distinct().ToList()
+                        });
+                    }
+                }
+            }
+
+            if (model.Id > 0)
+            {
+                using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
+                {
+                    con.Open();
+                    EnsureUsersTableExists(con);
+                    var existingUsername = GetUsernameById(con, model.Id);
+                    if (IsProtectedAdminUsername(existingUsername) && !IsCurrentUserProtectedAdmin())
+                    {
+                        TempData["ResultMessage"] = "Only admin login can edit the admin user.";
+                        return RedirectToAction("UserList");
+                    }
+                }
+            }
+
             // Always remove Password validation for existing users
             if (model.Id > 0 && ModelState.ContainsKey("Password"))
             {
@@ -539,8 +748,11 @@ END";
                 EnsureBranchesTableExists(branchCon);
                 EnsureUserBranchesTableExists(branchCon);
                 EnsureUserBranchRolesTableExists(branchCon);
+                EnsureUserCreatedBranchColumnExists(branchCon);
                 ViewBag.AllBranches = GetAllBranches(branchCon);
             }
+            ViewBag.ActiveBranchId = activeBranchId;
+            ViewBag.CanAssignMultipleBranches = canAssignMultipleBranches;
 
             if (ModelState.IsValid)
             {
@@ -566,6 +778,7 @@ END";
                         EnsureBranchesTableExists(con);
                         EnsureUserBranchesTableExists(con);
                         EnsureUserBranchRolesTableExists(con);
+                        EnsureUserCreatedBranchColumnExists(con);
                         
                         int userId = model.Id;
                         var effectiveRoleIds = branchRoleAssignments.Values.SelectMany(x => x).Distinct().ToList();
@@ -626,6 +839,19 @@ END";
                             }
                             result.Close();
                             resultMessage = model.Id == 0 ? "User added successfully" : "User updated successfully";
+                        }
+
+                        if (model.Id == 0 && activeBranchId.HasValue)
+                        {
+                            using (var createdBranchCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+UPDATE dbo.Users
+SET CreatedBranchId = @CreatedBranchId
+WHERE Id = @UserId", con))
+                            {
+                                createdBranchCmd.Parameters.AddWithValue("@CreatedBranchId", activeBranchId.Value);
+                                createdBranchCmd.Parameters.AddWithValue("@UserId", userId);
+                                createdBranchCmd.ExecuteNonQuery();
+                            }
                         }
 
                         using (var deleteBranchCmd = new Microsoft.Data.SqlClient.SqlCommand("DELETE FROM dbo.UserBranches WHERE UserId = @UserId", con))
@@ -691,8 +917,11 @@ VALUES (@UserId, @BranchId, @RoleId, 1, SYSUTCDATETIME(), NULL)", con))
                 EnsureBranchesTableExists(con);
                 EnsureUserBranchesTableExists(con);
                 EnsureUserBranchRolesTableExists(con);
+                EnsureUserCreatedBranchColumnExists(con);
                 ViewBag.AllBranches = GetAllBranches(con);
             }
+            ViewBag.ActiveBranchId = activeBranchId;
+            ViewBag.CanAssignMultipleBranches = canAssignMultipleBranches;
             if (ViewBag.SelectedBranchRoles == null)
             {
                 ViewBag.SelectedBranchRoles = "{}";

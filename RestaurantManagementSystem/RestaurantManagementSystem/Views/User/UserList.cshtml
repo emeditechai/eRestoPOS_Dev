@@ -1,6 +1,7 @@
 @model IEnumerable<RestaurantManagementSystem.Models.User>
 @{
     ViewData["Title"] = "User Management";
+    var canManageProtectedAdminUser = (ViewBag.CanManageProtectedAdminUser as bool?) ?? false;
 }
 
 <div class="container">
@@ -39,6 +40,8 @@
             <tbody>
                 @foreach (var user in Model)
                 {
+                    var isProtectedAdminRow = !string.IsNullOrWhiteSpace(user.Username) && user.Username.Equals("admin", StringComparison.OrdinalIgnoreCase);
+                    var disableActions = isProtectedAdminRow && !canManageProtectedAdminUser;
                     <tr>
                         <td>@user.Username</td>
                         <td>@user.FirstName @user.LastName</td>
@@ -48,8 +51,16 @@
                         <td>@(user.Branches != null && user.Branches.Any() ? string.Join(", ", user.Branches.Select(b => string.IsNullOrWhiteSpace(b.BranchCode) ? b.BranchName : $"{b.BranchCode} - {b.BranchName}")) : "-")</td>
                         <td>@(user.IsActive ? "Active" : "Inactive")</td>
                         <td>
-                            <a asp-action="UserForm" asp-route-id="@user.Id" class="btn btn-sm btn-primary">Edit</a>
-                            <a asp-action="UserForm" asp-route-id="@user.Id" asp-route-isView="true" class="btn btn-sm btn-info">View</a>
+                            @if (disableActions)
+                            {
+                                <button type="button" class="btn btn-sm btn-secondary" disabled title="Only admin login can edit admin user">Edit</button>
+                                <button type="button" class="btn btn-sm btn-secondary" disabled title="Only admin login can view admin user">View</button>
+                            }
+                            else
+                            {
+                                <a asp-action="UserForm" asp-route-id="@user.Id" class="btn btn-sm btn-primary">Edit</a>
+                                <a asp-action="UserForm" asp-route-id="@user.Id" asp-route-isView="true" class="btn btn-sm btn-info">View</a>
+                            }
                         </td>
                     </tr>
                 }
