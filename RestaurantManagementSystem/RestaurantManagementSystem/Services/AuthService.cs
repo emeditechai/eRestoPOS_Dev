@@ -853,7 +853,7 @@ ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExpr}, {
 SELECT b.BranchId,
        {branchCodeExpr} AS BranchCode,
        {branchNameExpr} AS BranchName,
-       CAST({userBranchDefaultExpr} AS bit) AS IsDefault,
+       CAST({branchIsMainExpr} AS bit) AS IsMain,
        CAST({branchIsActiveExpr} AS bit) AS IsActive,
        {branchCreatedAtExpr} AS CreatedAt,
        {branchUpdatedAtExpr} AS UpdatedAt
@@ -887,7 +887,7 @@ ORDER BY CASE WHEN {userBranchDefaultExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExp
 SELECT DISTINCT b.BranchId,
        {branchCodeExpr} AS BranchCode,
        {branchNameExpr} AS BranchName,
-       CAST({branchIsMainExpr} AS bit) AS IsDefault,
+                CAST({branchIsMainExpr} AS bit) AS IsMain,
        CAST({branchIsActiveExpr} AS bit) AS IsActive,
        {branchCreatedAtExpr} AS CreatedAt,
        {branchUpdatedAtExpr} AS UpdatedAt
@@ -921,7 +921,7 @@ ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExpr}, {
 SELECT TOP 1 b.BranchId,
        {branchCodeExpr} AS BranchCode,
        {branchNameExpr} AS BranchName,
-       CAST(1 AS bit) AS IsDefault,
+                CAST({branchIsMainExpr} AS bit) AS IsMain,
        CAST({branchIsActiveExpr} AS bit) AS IsActive,
        {branchCreatedAtExpr} AS CreatedAt,
        {branchUpdatedAtExpr} AS UpdatedAt
