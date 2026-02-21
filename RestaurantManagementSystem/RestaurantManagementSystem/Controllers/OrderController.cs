@@ -19,7 +19,9 @@ namespace RestaurantManagementSystem.Controllers
         private const string PosSelectedCounterDisplaySessionKey = "POS.SelectedCounterDisplay";
 
         private const string IsCounterRequiredCacheKey = "RestaurantSettings.IsCounterRequired";
+        private const string IsSaleFromInventoryCacheKey = "RestaurantSettings.IsSaleFromInventory";
         private static readonly TimeSpan CounterRequiredCacheDuration = TimeSpan.FromMinutes(2);
+        private static readonly TimeSpan SaleFromInventoryCacheDuration = TimeSpan.FromMinutes(2);
 
         private readonly IConfiguration _configuration;
         private readonly string _connectionString;
@@ -144,6 +146,96 @@ END", connection))
             return isRequired;
         }
 
+        private string GetPosBillFormatFromSettings()
+        {
+            string billFormat = "A4";
+
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+IF OBJECT_ID('dbo.RestaurantSettings','U') IS NULL
+BEGIN
+    SELECT CAST('A4' AS nvarchar(10));
+END
+ELSE
+BEGIN
+    SELECT TOP 1
+        CASE
+            WHEN COL_LENGTH('dbo.RestaurantSettings','BillFormat') IS NULL THEN CAST('A4' AS nvarchar(10))
+            ELSE ISNULL(NULLIF(LTRIM(RTRIM(BillFormat)), ''), 'A4')
+        END
+    FROM dbo.RestaurantSettings
+    ORDER BY Id DESC;
+END", connection))
+                    {
+                        var val = cmd.ExecuteScalar();
+                        if (val != null && val != DBNull.Value)
+                        {
+                            billFormat = val.ToString()?.Trim() ?? "A4";
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                billFormat = "A4";
+            }
+
+            if (string.Equals(billFormat, "POS", StringComparison.OrdinalIgnoreCase))
+            {
+                return "POS";
+            }
+
+            if (string.Equals(billFormat, "A5", StringComparison.OrdinalIgnoreCase))
+            {
+                return "A5";
+            }
+
+            return "A4";
+        }
+
+        private bool GetIsSaleFromInventoryEnabled()
+        {
+            bool isEnabled = false;
+            try
+            {
+                using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+IF OBJECT_ID('dbo.RestaurantSettings','U') IS NULL
+BEGIN
+    SELECT CAST(0 AS bit);
+END
+ELSE
+BEGIN
+    SELECT TOP 1
+        CASE
+            WHEN COL_LENGTH('dbo.RestaurantSettings','IsSaleFromInventory') IS NULL THEN CAST(0 AS bit)
+            ELSE CAST(ISNULL(IsSaleFromInventory, 0) AS bit)
+        END
+    FROM dbo.RestaurantSettings
+    ORDER BY Id DESC;
+END", connection))
+                    {
+                        var val = cmd.ExecuteScalar();
+                        if (val != null && val != DBNull.Value)
+                        {
+                            isEnabled = Convert.ToBoolean(val);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                isEnabled = false;
+            }
+
+            return isEnabled;
+        }
         private List<int> GetAllowedOrderTypeIdsFromSettings()
         {
             var userId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anon";
@@ -1448,6 +1540,15 @@ END", connection))
             }
 
             if (quantity < 1) quantity = 1;
+            var lowStockWarnings = new List<string>();
+            var saleFromInventory = GetIsSaleFromInventoryEnabled();
+            if (saleFromInventory)
+            {
+                new RestaurantManagementSystem.Services.InventoryService(_connectionString)
+                    .EnsureInventorySchemaAsync()
+                    .GetAwaiter()
+                    .GetResult();
+            }
             int menuItemId = 0;
             // Try to parse as ID, otherwise resolve by name
             if (!int.TryParse(menuItemNameOrId, out menuItemId))
@@ -1481,18 +1582,35 @@ END", connection))
             {
                 connection.Open();
                 var hasMenuBranchColumn = ColumnExistsInTable("MenuItems", "BranchId");
+                using var transaction = connection.BeginTransaction();
                 // Get order type to determine which price to use
                 int orderType = 0;
                 using (var typeCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT OrderType FROM Orders WHERE Id = @OrderId", connection))
                 {
                     typeCmd.Parameters.AddWithValue("@OrderId", orderId);
+                    typeCmd.Transaction = transaction;
                     var result = typeCmd.ExecuteScalar();
                     if (result != null) orderType = Convert.ToInt32(result);
                 }
-                using (var transaction = connection.BeginTransaction())
+
+                if (saleFromInventory)
                 {
-                    // Insert with order type-based pricing
-                    using (var command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    var inventoryService = new RestaurantManagementSystem.Services.InventoryService(_connectionString);
+                    if (!inventoryService.ApplySaleQuantityDelta(connection, transaction, menuItemId, quantity, orderId, GetCurrentUserId(), out var stockError, out var stockAlerts))
+                    {
+                        transaction.Rollback();
+                        TempData["ErrorMessage"] = stockError;
+                        return RedirectToAction("Details", new { id = orderId });
+                    }
+
+                    if (stockAlerts.Any())
+                    {
+                        lowStockWarnings.AddRange(stockAlerts);
+                    }
+                }
+                
+                // Insert with order type-based pricing
+                using (var command = new Microsoft.Data.SqlClient.SqlCommand(@"
                     IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.MenuItems') AND name = 'RoomServicePrice')
                     BEGIN
                         INSERT INTO OrderItems (OrderId, MenuItemId, Quantity, UnitPrice, Subtotal, Status, CreatedAt) 
@@ -1545,8 +1663,11 @@ END", connection))
                     EnsureOrderNumberAssigned(orderId, connection, transaction);
                     transaction.Commit();
                 }
-            }
             TempData["SuccessMessage"] = "Menu item added to order.";
+            if (lowStockWarnings.Any())
+            {
+                TempData["WarningMessage"] = string.Join(" ", lowStockWarnings.Distinct());
+            }
             return RedirectToAction("Details", new { id = orderId });
         }
         
@@ -1846,6 +1967,7 @@ END", connection))
         [ValidateAntiForgeryTokenAttribute]
         public async Task<IActionResult> AddItem(AddOrderItemViewModel model)
         {
+            var lowStockWarnings = new List<string>();
             if (ModelState.IsValid)
             {
                 try
@@ -1858,6 +1980,29 @@ END", connection))
                         {
                             try
                             {
+                                var saleFromInventory = GetIsSaleFromInventoryEnabled();
+                                if (saleFromInventory)
+                                {
+                                    new RestaurantManagementSystem.Services.InventoryService(_connectionString)
+                                        .EnsureInventorySchemaAsync()
+                                        .GetAwaiter()
+                                        .GetResult();
+
+                                    var inventoryService = new RestaurantManagementSystem.Services.InventoryService(_connectionString);
+                                    if (!inventoryService.ApplySaleQuantityDelta(connection, transaction, model.MenuItemId, model.Quantity, model.OrderId, GetCurrentUserId(), out var stockError, out var stockAlerts))
+                                    {
+                                        transaction.Rollback();
+                                        ModelState.AddModelError("", stockError);
+                                        ViewData["StockPopupError"] = stockError;
+                                        goto RepopulateAddItemModel;
+                                    }
+
+                                    if (stockAlerts.Any())
+                                    {
+                                        lowStockWarnings.AddRange(stockAlerts);
+                                    }
+                                }
+
                                 // Convert selected modifiers to comma-separated string
                                 string modifierIds = model.SelectedModifiers != null && model.SelectedModifiers.Any()
                                     ? string.Join(",", model.SelectedModifiers)
@@ -1972,6 +2117,10 @@ END", connection))
                                             catch { /* Audit logging should not break the main flow */ }
                                             
                                             TempData["SuccessMessage"] = "Item added to order successfully.";
+                                            if (lowStockWarnings.Any())
+                                            {
+                                                TempData["StockPopupWarning"] = string.Join(" ", lowStockWarnings.Distinct());
+                                            }
                                             return RedirectToAction("Details", new { id = model.OrderId });
                                         }
                                         else
@@ -1999,6 +2148,7 @@ END", connection))
             }
             
             // If we get here, something went wrong - repopulate the model
+            RepopulateAddItemModel:
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
@@ -5781,6 +5931,7 @@ END", connection))
         [ValidateAntiForgeryToken]
         public IActionResult UpdateOrderItemQty(int orderId, int orderItemId, int quantity, string specialInstructions)
         {
+            var lowStockWarnings = new List<string>();
             if (quantity < 1)
             {
                 if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
@@ -5793,19 +5944,74 @@ END", connection))
             
             try
             {
+                var saleFromInventory = GetIsSaleFromInventoryEnabled();
+                if (saleFromInventory)
+                {
+                    new RestaurantManagementSystem.Services.InventoryService(_connectionString)
+                        .EnsureInventorySchemaAsync()
+                        .GetAwaiter()
+                        .GetResult();
+                }
                 using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
+                    using var transaction = connection.BeginTransaction();
+
+                    if (saleFromInventory)
+                    {
+                        int menuItemId = 0;
+                        int oldQuantity = 0;
+                        using (var getItemCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT TOP 1 MenuItemId, Quantity
+FROM OrderItems
+WHERE Id = @OrderItemId AND OrderId = @OrderId", connection, transaction))
+                        {
+                            getItemCmd.Parameters.AddWithValue("@OrderItemId", orderItemId);
+                            getItemCmd.Parameters.AddWithValue("@OrderId", orderId);
+                            using var reader = getItemCmd.ExecuteReader();
+                            if (reader.Read())
+                            {
+                                menuItemId = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
+                                oldQuantity = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1));
+                            }
+                        }
+
+                        if (menuItemId > 0)
+                        {
+                            var quantityDelta = quantity - oldQuantity;
+                            if (quantityDelta != 0)
+                            {
+                                var inventoryService = new RestaurantManagementSystem.Services.InventoryService(_connectionString);
+                                if (!inventoryService.ApplySaleQuantityDelta(connection, transaction, menuItemId, quantityDelta, orderId, GetCurrentUserId(), out var stockError, out var stockAlerts))
+                                {
+                                    transaction.Rollback();
+                                    if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
+                                    {
+                                        return Json(new { success = false, message = stockError });
+                                    }
+                                    TempData["ErrorMessage"] = stockError;
+                                    return RedirectToAction("Details", new { id = orderId });
+                                }
+
+                                if (stockAlerts.Any())
+                                {
+                                    lowStockWarnings.AddRange(stockAlerts);
+                                }
+                            }
+                        }
+                    }
+
                     // Update quantity, subtotal, and special instructions
                     using (var command = new Microsoft.Data.SqlClient.SqlCommand(@"UPDATE OrderItems SET Quantity = @Quantity, Subtotal = UnitPrice * @Quantity, SpecialInstructions = @SpecialInstructions WHERE Id = @OrderItemId", connection))
                     {
                         command.Parameters.AddWithValue("@Quantity", quantity);
                         command.Parameters.AddWithValue("@OrderItemId", orderItemId);
                         command.Parameters.AddWithValue("@SpecialInstructions", (object?)specialInstructions ?? DBNull.Value);
+                        command.Transaction = transaction;
                         command.ExecuteNonQuery();
                     }
 
-                    UpdateOrderItemGstDetails(orderId, connection, null);
+                    UpdateOrderItemGstDetails(orderId, connection, transaction);
 
                     // Recalculate order totals
                     using (var command = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -5815,18 +6021,25 @@ END", connection))
                         WHERE Id = @OrderId", connection))
                     {
                         command.Parameters.AddWithValue("@OrderId", orderId);
+                        command.Transaction = transaction;
                         command.ExecuteNonQuery();
                     }
+
+                    transaction.Commit();
                 }
                 
                 // For AJAX requests, return JSON
                 if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
                 {
-                    return Json(new { success = true, message = "Item updated successfully." });
+                    return Json(new { success = true, message = "Item updated successfully.", lowStockAlerts = lowStockWarnings.Distinct().ToList() });
                 }
                 
                 // For standard requests, redirect with message
                 TempData["SuccessMessage"] = "Item updated.";
+                if (lowStockWarnings.Any())
+                {
+                    TempData["WarningMessage"] = string.Join(" ", lowStockWarnings.Distinct());
+                }
                 return RedirectToAction("Details", new { id = orderId });
             }
             catch (Exception ex)
@@ -5860,6 +6073,16 @@ END", connection))
             {
                 return Json(new { success = false, message = "No items to update." });
             }
+            var lowStockWarnings = new List<string>();
+            var saleFromInventory = GetIsSaleFromInventoryEnabled();
+            var inventoryService = saleFromInventory ? new RestaurantManagementSystem.Services.InventoryService(_connectionString) : null;
+            if (saleFromInventory)
+            {
+                inventoryService!
+                    .EnsureInventorySchemaAsync()
+                    .GetAwaiter()
+                    .GetResult();
+            }
             
             try
             {
@@ -5889,6 +6112,44 @@ END", connection))
                                     transaction.Rollback();
                                     return Json(new { success = false, message = $"Item #{item.OrderItemId}: Quantity must be at least 1." });
                                 }
+
+                                if (saleFromInventory)
+                                {
+                                    int menuItemId = 0;
+                                    int oldQuantity = 0;
+                                    using (var getExistingCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT TOP 1 MenuItemId, Quantity
+FROM OrderItems
+WHERE Id = @OrderItemId AND OrderId = @OrderId", connection, transaction))
+                                    {
+                                        getExistingCmd.Parameters.AddWithValue("@OrderItemId", item.OrderItemId);
+                                        getExistingCmd.Parameters.AddWithValue("@OrderId", orderId);
+                                        using var existingReader = getExistingCmd.ExecuteReader();
+                                        if (existingReader.Read())
+                                        {
+                                            menuItemId = existingReader.IsDBNull(0) ? 0 : existingReader.GetInt32(0);
+                                            oldQuantity = existingReader.IsDBNull(1) ? 0 : Convert.ToInt32(existingReader.GetValue(1));
+                                        }
+                                    }
+
+                                    if (menuItemId > 0)
+                                    {
+                                        var quantityDelta = item.Quantity - oldQuantity;
+                                        if (quantityDelta != 0)
+                                        {
+                                            if (!inventoryService.ApplySaleQuantityDelta(connection, transaction, menuItemId, quantityDelta, orderId, GetCurrentUserId(), out var stockError, out var stockAlerts))
+                                            {
+                                                transaction.Rollback();
+                                                return Json(new { success = false, message = stockError });
+                                            }
+
+                                            if (stockAlerts.Any())
+                                            {
+                                                lowStockWarnings.AddRange(stockAlerts);
+                                            }
+                                        }
+                                    }
+                                }
                                 
                                 using (var command = new Microsoft.Data.SqlClient.SqlCommand(@"
                                     UPDATE OrderItems 
@@ -5912,6 +6173,20 @@ END", connection))
                                 {
                                     transaction.Rollback();
                                     return Json(new { success = false, message = "Invalid new item data." });
+                                }
+
+                                if (saleFromInventory)
+                                {
+                                    if (!inventoryService.ApplySaleQuantityDelta(connection, transaction, item.MenuItemId.Value, item.Quantity, orderId, GetCurrentUserId(), out var stockError, out var stockAlerts))
+                                    {
+                                        transaction.Rollback();
+                                        return Json(new { success = false, message = stockError });
+                                    }
+
+                                    if (stockAlerts.Any())
+                                    {
+                                        lowStockWarnings.AddRange(stockAlerts);
+                                    }
                                 }
                                 
                                 // Get order type to determine which price to use
@@ -5989,7 +6264,13 @@ END", connection))
                             UpdateOrderFinancials(orderId, connection, transaction);
                             
                             transaction.Commit();
-                            return Json(new { success = true, message = "All items updated successfully.", orderNumber = assignedOrderNumber });
+                            return Json(new
+                            {
+                                success = true,
+                                message = "All items updated successfully.",
+                                orderNumber = assignedOrderNumber,
+                                lowStockAlerts = lowStockWarnings.Distinct().ToList()
+                            });
                         }
                         catch (Exception ex)
                         {
