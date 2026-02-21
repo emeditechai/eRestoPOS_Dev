@@ -408,6 +408,16 @@ namespace RestaurantManagementSystem.Services
                     _logger?.LogError(ex, "Error creating audit log for logout for user {UserId}", userId);
                 }
 
+                // Clear session-scoped data (e.g., POS selected counter) so next login starts fresh.
+                try
+                {
+                    httpContext?.Session?.Clear();
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Unable to clear session during logout");
+                }
+
                 // Sign out the cookie
                 await _httpContextAccessor.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             }

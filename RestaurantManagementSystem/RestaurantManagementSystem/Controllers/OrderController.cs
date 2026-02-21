@@ -17,6 +17,7 @@ namespace RestaurantManagementSystem.Controllers
     {
         private const string PosSelectedCounterIdSessionKey = "POS.SelectedCounterId";
         private const string PosSelectedCounterDisplaySessionKey = "POS.SelectedCounterDisplay";
+        private const string PosSelectedCounterSessionTokenKey = "POS.SelectedCounterSessionToken";
 
         private const string IsCounterRequiredCacheKey = "RestaurantSettings.IsCounterRequired";
         private const string IsSaleFromInventoryCacheKey = "RestaurantSettings.IsSaleFromInventory";
@@ -3018,6 +3019,26 @@ END", connection))
                 var activeCounters = GetActiveCountersSelectList();
                 var selectedCounterId = HttpContext?.Session?.GetInt32(PosSelectedCounterIdSessionKey);
                 var selectedCounterDisplay = HttpContext?.Session?.GetString(PosSelectedCounterDisplaySessionKey);
+                var selectedCounterSessionToken = HttpContext?.Session?.GetString(PosSelectedCounterSessionTokenKey);
+                var currentSessionToken = User?.FindFirst("SessionToken")?.Value;
+
+                // Counter selection is valid only for the current login session.
+                // If session token changed (logout/login), force selecting counter again.
+                if (selectedCounterId.HasValue && selectedCounterId.Value > 0 &&
+                    !string.IsNullOrWhiteSpace(currentSessionToken) &&
+                    !string.Equals(selectedCounterSessionToken, currentSessionToken, StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        HttpContext?.Session?.Remove(PosSelectedCounterIdSessionKey);
+                        HttpContext?.Session?.Remove(PosSelectedCounterDisplaySessionKey);
+                        HttpContext?.Session?.Remove(PosSelectedCounterSessionTokenKey);
+                    }
+                    catch { }
+
+                    selectedCounterId = null;
+                    selectedCounterDisplay = null;
+                }
 
                 // If counter is required but session counter is no longer valid/active, clear it.
                 if (selectedCounterId.HasValue && selectedCounterId.Value > 0)
@@ -3029,6 +3050,7 @@ END", connection))
                         {
                             HttpContext?.Session?.Remove(PosSelectedCounterIdSessionKey);
                             HttpContext?.Session?.Remove(PosSelectedCounterDisplaySessionKey);
+                            HttpContext?.Session?.Remove(PosSelectedCounterSessionTokenKey);
                         }
                         catch { }
                         selectedCounterId = null;
@@ -3137,9 +3159,11 @@ END", connection))
                             var code = reader.IsDBNull(reader.GetOrdinal("CounterCode")) ? string.Empty : reader.GetString(reader.GetOrdinal("CounterCode"));
                             var name = reader.IsDBNull(reader.GetOrdinal("CounterName")) ? string.Empty : reader.GetString(reader.GetOrdinal("CounterName"));
                             var display = $"{code}-{name}".Trim('-');
+                            var sessionToken = User?.FindFirst("SessionToken")?.Value ?? string.Empty;
 
                             HttpContext.Session.SetInt32(PosSelectedCounterIdSessionKey, id);
                             HttpContext.Session.SetString(PosSelectedCounterDisplaySessionKey, display);
+                            HttpContext.Session.SetString(PosSelectedCounterSessionTokenKey, sessionToken);
 
                             return Json(new { success = true, counterId = id, display });
                         }
@@ -3250,9 +3274,11 @@ END", connection))
                             var code = reader.IsDBNull(reader.GetOrdinal("CounterCode")) ? string.Empty : reader.GetString(reader.GetOrdinal("CounterCode"));
                             var name = reader.IsDBNull(reader.GetOrdinal("CounterName")) ? string.Empty : reader.GetString(reader.GetOrdinal("CounterName"));
                             var display = $"{code}-{name}".Trim('-');
+                            var sessionToken = User?.FindFirst("SessionToken")?.Value ?? string.Empty;
 
                             HttpContext?.Session?.SetInt32(PosSelectedCounterIdSessionKey, id);
                             HttpContext?.Session?.SetString(PosSelectedCounterDisplaySessionKey, display);
+                            HttpContext?.Session?.SetString(PosSelectedCounterSessionTokenKey, sessionToken);
 
                             storedCounterId = id;
                             storedDisplay = display;
