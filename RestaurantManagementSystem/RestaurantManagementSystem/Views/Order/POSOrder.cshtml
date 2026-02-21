@@ -334,7 +334,7 @@
                     <button type="button" class="pos-filter-chip" data-chip="premium">Signature</button>
                 </div>
             </div>
-                <button class="btn btn-primary ms-2" type="button" id="posNewOrderBtn" style="display:@(hasOrder ? "inline-flex" : "none")">
+                <button class="btn btn-primary ms-2" type="button" id="posNewOrderBtn" style="display:@(hasOrder && Model?.Order?.IsFullyPaid == true ? "inline-flex" : "none")">
                     <i class="fas fa-plus-circle me-1"></i> Next Order
                 </button>
             <a asp-action="Dashboard" class="btn btn-outline-secondary ms-2">
@@ -1376,7 +1376,7 @@
                 if (active) active.style.display = hasActive ? 'block' : 'none';
 
                 const nextBtn = document.getElementById('posNewOrderBtn');
-                if (nextBtn) nextBtn.style.display = hasActive ? 'inline-flex' : 'none';
+                if (nextBtn) nextBtn.style.display = (hasActive && isLocked) ? 'inline-flex' : 'none';
 
                 // Immediately reflect enabled state without waiting for refresh
                 document.querySelectorAll('.pos-add-btn').forEach(b => {
@@ -1610,6 +1610,11 @@
                 if (right) {
                     if (isLocked) right.classList.add('pos-disabled');
                     else right.classList.remove('pos-disabled');
+                }
+
+                const nextBtn = document.getElementById('posNewOrderBtn');
+                if (nextBtn) {
+                    nextBtn.style.display = (orderId && isLocked) ? 'inline-flex' : 'none';
                 }
 
                 // Disable add buttons in product grid
@@ -1976,30 +1981,90 @@
                 }
             }
 
+            const pendingAddQueue = [];
+            let addFlushTimer = null;
+            let addFlushInProgress = false;
+            const addFlushDelayMs = 120;
+
+            function enqueueItemAdd(menuItemId, qty, notes){
+                return new Promise((resolve) => {
+                    pendingAddQueue.push({
+                        menuItemId,
+                        qty: normalizeQtyValue(qty || 1),
+                        notes: notes || '',
+                        resolve
+                    });
+
+                    if (addFlushTimer) {
+                        clearTimeout(addFlushTimer);
+                    }
+
+                    addFlushTimer = setTimeout(flushPendingAdds, addFlushDelayMs);
+                });
+            }
+
+            async function flushPendingAdds(){
+                if (addFlushInProgress) return;
+                if (!pendingAddQueue.length) return;
+                if (!orderId) {
+                    while (pendingAddQueue.length) {
+                        const entry = pendingAddQueue.shift();
+                        entry?.resolve(false);
+                    }
+                    return;
+                }
+
+                addFlushInProgress = true;
+                const batch = pendingAddQueue.splice(0, pendingAddQueue.length);
+                const token = getToken();
+
+                try {
+                    const items = batch.map((entry) => ({
+                        OrderItemId: -1,
+                        MenuItemId: entry.menuItemId,
+                        Quantity: entry.qty,
+                        SpecialInstructions: entry.notes,
+                        IsNew: true,
+                        TempId: -1
+                    }));
+
+                    const res = await fetch('/Order/UpdateMultipleOrderItems?orderId=' + orderId, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': token
+                        },
+                        body: JSON.stringify(items)
+                    });
+
+                    const data = await res.json();
+                    if (data && data.success) {
+                        const last = batch[batch.length - 1];
+                        lastAddedMenuItemId = last?.menuItemId || 0;
+                        lastAddedAt = Date.now();
+                        await refresh();
+                        batch.forEach(entry => entry.resolve(true));
+                    } else {
+                        alert(data && data.message ? data.message : 'Add failed');
+                        batch.forEach(entry => entry.resolve(false));
+                    }
+                } catch {
+                    alert('Add failed');
+                    batch.forEach(entry => entry.resolve(false));
+                } finally {
+                    addFlushInProgress = false;
+                    if (pendingAddQueue.length) {
+                        addFlushTimer = setTimeout(flushPendingAdds, 0);
+                    }
+                }
+            }
+
             async function addItem(menuItemId, qty, notes){
                 if (!orderId) {
                     alert('Create an order first.');
                     return false;
                 }
-                const token = getToken();
-                const items = [{ OrderItemId: -1, MenuItemId: menuItemId, Quantity: qty || 1, SpecialInstructions: notes || '', IsNew: true, TempId: -1 }];
-                const res = await fetch('/Order/UpdateMultipleOrderItems?orderId=' + orderId, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'RequestVerificationToken': token
-                    },
-                    body: JSON.stringify(items)
-                });
-                const data = await res.json();
-                if (data && data.success) {
-                    lastAddedMenuItemId = menuItemId;
-                    lastAddedAt = Date.now();
-                    await refresh();
-                    return true;
-                }
-                alert(data && data.message ? data.message : 'Add failed');
-                return false;
+                return await enqueueItemAdd(menuItemId, qty, notes);
             }
 
             async function updateItem(orderItemId, qty, notes){
@@ -2026,24 +2091,7 @@
                     alert('Create an order first.');
                     return;
                 }
-                const token = getToken();
-                const items = [{ OrderItemId: -1, MenuItemId: menuItemId, Quantity: 1, SpecialInstructions: '', IsNew: true, TempId: -1 }];
-                const res = await fetch('/Order/UpdateMultipleOrderItems?orderId=' + orderId, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'RequestVerificationToken': token
-                    },
-                    body: JSON.stringify(items)
-                });
-                const data = await res.json();
-                if (data && data.success) {
-                    lastAddedMenuItemId = menuItemId;
-                    lastAddedAt = Date.now();
-                    await refresh();
-                } else {
-                    alert(data && data.message ? data.message : 'Add failed');
-                }
+                await enqueueItemAdd(menuItemId, 1, '');
             }
 
             // Category click
