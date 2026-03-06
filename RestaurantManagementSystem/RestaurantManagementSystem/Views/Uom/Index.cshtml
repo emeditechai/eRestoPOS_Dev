@@ -1,0 +1,531 @@
+@model IEnumerable<RestaurantManagementSystem.Models.UomMaster>
+@{
+    ViewData["Title"] = "UOM Master";
+    var uomTypes = (string[])ViewBag.UOMTypes;
+    var baseUoms = (List<(int Id, string Code, string Name, string Type)>)ViewBag.BaseUoms;
+}
+
+<div class="container-fluid">
+
+    <!-- Page Header-->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-1">
+                        <i class="fas fa-ruler-combined text-primary me-2"></i>
+                        UOM Master
+                    </h2>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb mb-0">
+                            <li class="breadcrumb-item"><a asp-controller="Home" asp-action="Index">Home</a></li>
+                            <li class="breadcrumb-item">Stocks</li>
+                            <li class="breadcrumb-item active" aria-current="page">UOM Master</li>
+                        </ol>
+                    </nav>
+                </div>
+                <div class="text-end d-none d-md-block">
+                    <span class="badge bg-primary fs-6 px-3 py-2">
+                        <i class="fas fa-database me-1"></i>
+                        @Model.Count() records &nbsp;|&nbsp; Active: @Model.Count(u => u.IsActive)
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Flash Messages-->
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show border-0 shadow-sm" role="alert">
+            <i class="fas fa-check-circle me-2"></i>@TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show border-0 shadow-sm" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>@TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <div class="row g-4">
+
+        <!-- ═══════════════════ FORM PANEL ═══════════════════-->
+        <div class="col-xl-4 col-lg-5">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-primary text-white d-flex align-items-center gap-2">
+                    <i class="fas fa-plus-circle" id="formIcon"></i>
+                    <strong id="formModeLabel">Create UOM</strong>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-danger small py-2 mb-3 d-none" id="clientValidation" role="alert">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        <span id="clientValidationMsg"></span>
+                    </div>
+
+                    <form id="uomForm" method="post" asp-action="Save" novalidate autocomplete="off">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="UOMId"   id="fldUOMId"   value="0" />
+
+                        <!-- UOM Code-->
+                        <div class="mb-3">
+                            <label for="fldUOMCode" class="form-label fw-semibold">
+                                UOM Code <span class="text-danger">*</span>
+                                <i class="fas fa-info-circle text-muted ms-1" data-bs-toggle="tooltip"
+                                   title="Short uppercase code. E.g. KG, GRM, LTR, ML, PCS"></i>
+                            </label>
+                            <input type="text" class="form-control text-uppercase" id="fldUOMCode" name="UOMCode"
+                                   maxlength="15" placeholder="e.g. KG, GRM, LTR" required />
+                        </div>
+
+                        <!-- UOM Name-->
+                        <div class="mb-3">
+                            <label for="fldUOMName" class="form-label fw-semibold">
+                                UOM Name <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="fldUOMName" name="UOMName"
+                                   maxlength="100" placeholder="e.g. Kilogram, Gram, Litre" required />
+                        </div>
+
+                        <!-- UOM Type-->
+                        <div class="mb-3">
+                            <label for="fldUOMType" class="form-label fw-semibold">
+                                UOM Type <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-select" id="fldUOMType" name="UOMType" required>
+                                <option value="">-- Select Type --</option>
+                                @foreach (var t in uomTypes)
+                                {
+                                    <option value="@t">@t</option>
+                                }
+                            </select>
+                        </div>
+
+                        <!-- Base UOM-->
+                        <div class="mb-3">
+                            <label for="fldBaseUOMId" class="form-label fw-semibold">
+                                Base UOM
+                                <i class="fas fa-info-circle text-muted ms-1" data-bs-toggle="tooltip"
+                                   title="Leave blank if THIS is the base unit (e.g. KG). For derived UOMs (e.g. GRM) select the base unit KG."></i>
+                            </label>
+                            <select class="form-select" id="fldBaseUOMId" name="BaseUOMId">
+                                <option value="">-- None (this is the base unit) --</option>
+                                @foreach (var b in baseUoms)
+                                {
+                                    <option value="@b.Id" data-type="@b.Type">[@b.Type] @b.Code – @b.Name</option>
+                                }
+                            </select>
+                            <div class="form-text">Select a base unit to define a conversion relationship.</div>
+                        </div>
+
+                        <!-- Conversion Factor-->
+                        <div class="mb-3" id="convFactorRow">
+                            <label for="fldConvFactor" class="form-label fw-semibold">
+                                Conversion Factor <span class="text-danger">*</span>
+                                <i class="fas fa-info-circle text-muted ms-1" data-bs-toggle="tooltip"
+                                   title="1 [this UOM] = ? [Base UOM]. E.g. 1 GRM = 0.001 KG → enter 0.001. Base units use 1."></i>
+                            </label>
+                            <input type="number" class="form-control" id="fldConvFactor" name="ConversionFactor"
+                                   step="0.000001" min="0.000001" value="1" required />
+                            <div class="form-text" id="cfHelp"></div>
+                        </div>
+
+                        <!-- Pack Size-->
+                        <div class="mb-3">
+                            <label for="fldPackSize" class="form-label fw-semibold">
+                                Purchase Pack Size
+                                <i class="fas fa-info-circle text-muted ms-1" data-bs-toggle="tooltip"
+                                   title="Optional. E.g. 50 for a 50-KG sack. Used in purchase order UOM."></i>
+                            </label>
+                            <input type="number" class="form-control" id="fldPackSize" name="PackSize"
+                                   step="0.001" min="0" placeholder="e.g. 50" />
+                        </div>
+
+                        <!-- Decimal Places-->
+                        <div class="mb-3">
+                            <label for="fldDP" class="form-label fw-semibold">Decimal Places</label>
+                            <select class="form-select" id="fldDP" name="DecimalPlaces">
+                                <option value="0">0 (e.g. Pieces)</option>
+                                <option value="2">2 (e.g. cost)</option>
+                                <option value="3" selected>3 (standard)</option>
+                                <option value="4">4 (precision)</option>
+                                <option value="6">6 (high precision)</option>
+                            </select>
+                        </div>
+
+                        <!-- Description-->
+                        <div class="mb-3">
+                            <label for="fldDesc" class="form-label fw-semibold">Description</label>
+                            <textarea class="form-control" id="fldDesc" name="Description"
+                                      rows="2" maxlength="300" placeholder="Optional notes"></textarea>
+                        </div>
+
+                        <!-- Active-->
+                        <div class="form-check form-switch mb-4">
+                            <input type="hidden" name="IsActive" value="false" />
+                            <input class="form-check-input" type="checkbox" id="fldIsActive"
+                                   name="IsActive" value="true" checked role="switch" />
+                            <label for="fldIsActive" class="form-check-label fw-semibold">Active</label>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary px-4" id="saveBtn">
+                                <i class="fas fa-save me-1"></i>
+                                <span id="saveBtnText">Create</span>
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" id="resetBtn">
+                                <i class="fas fa-undo me-1"></i> Reset
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════════════ TABLE PANEL ═══════════════════-->
+        <div class="col-xl-8 col-lg-7">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-table me-2 text-primary"></i>UOM List
+                    </h5>
+                    <div class="d-flex gap-2">
+                        <!-- Type filter-->
+                        <select class="form-select form-select-sm" id="typeFilter" style="width:140px">
+                            <option value="">All Types</option>
+                            @foreach (var t in uomTypes)
+                            {
+                                <option value="@t">@t</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    @if (Model.Any())
+                    {
+                        <div class="table-responsive" style="max-height:68vh;">
+                            <table class="table table-sm table-hover align-middle mb-0" id="uomTable">
+                                <thead class="table-light sticky-top">
+                                    <tr>
+                                        <th style="width:90px">Code</th>
+                                        <th>Name</th>
+                                        <th style="width:80px" class="text-center">Type</th>
+                                        <th style="width:110px">Base UOM</th>
+                                        <th style="width:110px" class="text-end">Conv. Factor</th>
+                                        <th style="width:80px" class="text-center">Status</th>
+                                        <th style="width:120px" class="text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var u in Model)
+                                    {
+                                        <tr class="@(u.IsActive ? "" : "table-secondary opacity-75")"
+                                            data-id="@u.UOMId"
+                                            data-code="@u.UOMCode"
+                                            data-name="@u.UOMName"
+                                            data-type="@u.UOMType"
+                                            data-baseid="@(u.BaseUOMId?.ToString() ?? "")"
+                                            data-cf="@u.ConversionFactor"
+                                            data-pack="@(u.PackSize?.ToString() ?? "")"
+                                            data-dp="@u.DecimalPlaces"
+                                            data-desc="@(u.Description ?? "")"
+                                            data-active="@u.IsActive.ToString().ToLower()"
+                                            data-uomtype="@u.UOMType">
+                                            <td>
+                                                <span class="badge rounded-pill text-bg-secondary fw-bold font-monospace fs-6">@u.UOMCode</span>
+                                            </td>
+                                            <td>
+                                                <div class="fw-semibold">@u.UOMName</div>
+                                                @if (!string.IsNullOrEmpty(u.Description))
+                                                {
+                                                    <div class="text-muted small text-truncate" style="max-width:200px"
+                                                         title="@u.Description">@u.Description</div>
+                                                }
+                                            </td>
+                                            <td class="text-center">
+                                                @{
+                                                    var (typeBg, typeIcon) = u.UOMType switch
+                                                    {
+                                                        "Weight" => ("bg-warning text-dark", "fa-weight-hanging"),
+                                                        "Volume" => ("bg-info text-white",   "fa-tint"),
+                                                        "Count"  => ("bg-success text-white", "fa-hashtag"),
+                                                        _        => ("bg-secondary text-white","fa-question-circle")
+                                                    };
+                                                }
+                                                <span class="badge @typeBg">
+                                                    <i class="fas @typeIcon me-1"></i>@u.UOMType
+                                                </span>
+                                            </td>
+                                            <td>
+                                                @if (u.BaseUOMId.HasValue)
+                                                {
+                                                    <span class="text-primary fw-semibold font-monospace small">@u.BaseUOMCode</span>
+                                                    <div class="text-muted" style="font-size:0.72rem">@u.BaseUOMName</div>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-primary bg-opacity-10 text-primary small">Base unit</span>
+                                                }
+                                            </td>
+                                            <td class="text-end font-monospace small">
+                                                @u.ConversionFactor.ToString("G10")
+                                                @if (u.PackSize.HasValue)
+                                                {
+                                                    <div class="text-muted" style="font-size:0.7rem">Pack: @u.PackSize.Value.ToString("G6")</div>
+                                                }
+                                            </td>
+                                            <td class="text-center">
+                                                <button type="button"
+                                                        class="btn btn-sm @(u.IsActive ? "btn-success" : "btn-outline-secondary") py-0"
+                                                        onclick="toggleStatus(@u.UOMId)"
+                                                        title="Click to @(u.IsActive ? "deactivate" : "activate")">
+                                                    <i class="fas @(u.IsActive ? "fa-check" : "fa-times")"></i>
+                                                    @(u.IsActive ? "Active" : "Inactive")
+                                                </button>
+                                            </td>
+                                            <td class="text-center">
+                                                <div class="btn-group btn-group-sm">
+                                                    <button type="button" class="btn btn-outline-primary editBtn" title="Edit">
+                                                        <i class="fas fa-edit"></i>
+                                                    </button>
+                                                    <button type="button" class="btn btn-outline-danger deleteBtn"
+                                                            title="Delete" data-code="@u.UOMCode">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-5">
+                            <i class="fas fa-ruler-combined fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No UOM records found</h5>
+                            <p class="text-muted">Start by creating your first Unit of Measurement.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Quick Reference Card-->
+            <div class="card shadow-sm border-0 mt-3">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0"><i class="fas fa-lightbulb text-warning me-2"></i>Quick Reference – Common UOMs</h6>
+                </div>
+                <div class="card-body py-2">
+                    <div class="row row-cols-2 row-cols-md-4 g-2 small">
+                        <div class="col">
+                            <div class="text-muted fw-bold mb-1"><i class="fas fa-weight-hanging text-warning me-1"></i>Weight</div>
+                            <div>KG → Kilogram (base)</div>
+                            <div>GRM → Gram (0.001 KG)</div>
+                            <div>MG → Milligram (0.000001 KG)</div>
+                        </div>
+                        <div class="col">
+                            <div class="text-muted fw-bold mb-1"><i class="fas fa-tint text-info me-1"></i>Volume</div>
+                            <div>LTR → Litre (base)</div>
+                            <div>ML → Millilitre (0.001 LTR)</div>
+                            <div>CL → Centilitre (0.01 LTR)</div>
+                        </div>
+                        <div class="col">
+                            <div class="text-muted fw-bold mb-1"><i class="fas fa-hashtag text-success me-1"></i>Count</div>
+                            <div>PCS → Pieces (base)</div>
+                            <div>DOZ → Dozen (12 PCS)</div>
+                            <div>PACK → Pack (variable)</div>
+                        </div>
+                        <div class="col">
+                            <div class="text-muted fw-bold mb-1"><i class="fas fa-question-circle text-secondary me-1"></i>Other</div>
+                            <div>PORTION → Portion</div>
+                            <div>SERVE → Serving</div>
+                            <div>BTL → Bottle</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden toggle forms-->
+<form id="toggleForm" method="post" asp-action="ToggleActive" style="display:none">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="id" id="toggleId" />
+</form>
+<form id="deleteForm" method="post" asp-action="Delete" style="display:none">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="id" id="deleteId" />
+</form>
+
+@section Scripts {
+    <script>
+    (function () {
+        'use strict';
+
+        // ── DOM refs ────────────────────────────────────────────────────────
+        const form           = document.getElementById('uomForm');
+        const fldId          = document.getElementById('fldUOMId');
+        const fldCode        = document.getElementById('fldUOMCode');
+        const fldName        = document.getElementById('fldUOMName');
+        const fldType        = document.getElementById('fldUOMType');
+        const fldBase        = document.getElementById('fldBaseUOMId');
+        const fldCF          = document.getElementById('fldConvFactor');
+        const fldPack        = document.getElementById('fldPackSize');
+        const fldDP          = document.getElementById('fldDP');
+        const fldDesc        = document.getElementById('fldDesc');
+        const fldActive      = document.getElementById('fldIsActive');
+        const formLabel      = document.getElementById('formModeLabel');
+        const formIcon       = document.getElementById('formIcon');
+        const saveBtnText    = document.getElementById('saveBtnText');
+        const resetBtn       = document.getElementById('resetBtn');
+        const errBox         = document.getElementById('clientValidation');
+        const errMsg         = document.getElementById('clientValidationMsg');
+        const cfHelp         = document.getElementById('cfHelp');
+        const typeFilter     = document.getElementById('typeFilter');
+
+        // ── Tooltip init ────────────────────────────────────────────────────
+        document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+            new bootstrap.Tooltip(el, { trigger: 'hover' });
+        });
+
+        // ── Helpers ─────────────────────────────────────────────────────────
+        function showError(msg) {
+            errMsg.textContent = msg;
+            errBox.classList.remove('d-none');
+        }
+        function hideError() {
+            errBox.classList.add('d-none');
+        }
+
+        function updateCfHelp() {
+            const baseOption = fldBase.options[fldBase.selectedIndex];
+            const baseCode   = baseOption?.value ? baseOption.text.match(/\[.*?\]\s*(\w+)/)?.[1] ?? '' : '';
+            const thisCode   = fldCode.value.trim().toUpperCase() || 'this UOM';
+            const cf         = parseFloat(fldCF.value);
+
+            if (fldBase.value && baseCode && !isNaN(cf)) {
+                cfHelp.textContent = `1 ${thisCode} = ${cf} ${baseCode}`;
+            } else if (!fldBase.value) {
+                cfHelp.textContent = 'This is a base unit (CF = 1)';
+            } else {
+                cfHelp.textContent = '';
+            }
+        }
+
+        function setCreateMode() {
+            fldId.value        = '0';
+            fldCode.value      = '';
+            fldName.value      = '';
+            fldType.value      = '';
+            fldBase.value      = '';
+            fldCF.value        = '1';
+            fldPack.value      = '';
+            fldDP.value        = '3';
+            fldDesc.value      = '';
+            fldActive.checked  = true;
+            formLabel.textContent = 'Create UOM';
+            formIcon.className = 'fas fa-plus-circle';
+            saveBtnText.textContent = 'Create';
+            fldCode.removeAttribute('readonly');
+            hideError();
+            updateCfHelp();
+        }
+
+        function setEditMode(row) {
+            fldId.value       = row.dataset.id;
+            fldCode.value     = row.dataset.code;
+            fldName.value     = row.dataset.name;
+            fldType.value     = row.dataset.type;
+            fldBase.value     = row.dataset.baseid || '';
+            fldCF.value       = row.dataset.cf;
+            fldPack.value     = row.dataset.pack || '';
+            fldDP.value       = row.dataset.dp;
+            fldDesc.value     = row.dataset.desc || '';
+            fldActive.checked = row.dataset.active === 'true';
+            formLabel.textContent = 'Edit UOM';
+            formIcon.className = 'fas fa-edit';
+            saveBtnText.textContent = 'Update';
+            // Code can be changed on edit too
+            hideError();
+            updateCfHelp();
+            // Scroll to form on mobile
+            form.closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            fldName.focus();
+        }
+
+        // ── Event listeners ─────────────────────────────────────────────────
+        resetBtn.addEventListener('click', setCreateMode);
+
+        fldCode.addEventListener('input', () => {
+            fldCode.value = fldCode.value.toUpperCase();
+            updateCfHelp();
+        });
+        fldBase.addEventListener('change', () => {
+            if (!fldBase.value) fldCF.value = '1';
+            updateCfHelp();
+        });
+        fldCF.addEventListener('input', updateCfHelp);
+
+        // Edit buttons
+        document.querySelectorAll('.editBtn').forEach(btn => {
+            btn.addEventListener('click', () => setEditMode(btn.closest('tr')));
+        });
+
+        // Delete buttons
+        document.querySelectorAll('.deleteBtn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const row  = btn.closest('tr');
+                const code = btn.dataset.code;
+                if (confirm(`Delete UOM '${code}'? This cannot be undone.`)) {
+                    document.getElementById('deleteId').value = row.dataset.id;
+                    document.getElementById('deleteForm').submit();
+                }
+            });
+        });
+
+        // Type filter
+        typeFilter.addEventListener('change', () => {
+            const val = typeFilter.value.toLowerCase();
+            document.querySelectorAll('#uomTable tbody tr').forEach(tr => {
+                tr.style.display = (!val || tr.dataset.uomtype.toLowerCase() === val) ? '' : 'none';
+            });
+        });
+
+        // Form validation
+        form.addEventListener('submit', e => {
+            hideError();
+            if (!fldCode.value.trim()) {
+                e.preventDefault(); showError('UOM Code is required.'); fldCode.focus(); return;
+            }
+            if (!fldName.value.trim()) {
+                e.preventDefault(); showError('UOM Name is required.'); fldName.focus(); return;
+            }
+            if (!fldType.value) {
+                e.preventDefault(); showError('Please select a UOM Type.'); fldType.focus(); return;
+            }
+            const cf = parseFloat(fldCF.value);
+            if (isNaN(cf) || cf <= 0) {
+                e.preventDefault(); showError('Conversion Factor must be greater than 0.'); fldCF.focus(); return;
+            }
+        });
+
+        // Init
+        setCreateMode();
+
+        // Init DataTable if library is available
+        if (typeof $.fn !== 'undefined' && typeof $.fn.DataTable !== 'undefined') {
+            $('#uomTable').DataTable({
+                responsive: true,
+                pageLength: 25,
+                order: [[2, 'asc'], [0, 'asc']],
+                columnDefs: [{ orderable: false, targets: [6] }],
+                language: { search: 'Search UOM:' }
+            });
+        }
+    })();
+    </script>
+}

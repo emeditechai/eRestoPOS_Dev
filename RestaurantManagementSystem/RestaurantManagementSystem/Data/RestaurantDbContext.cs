@@ -41,6 +41,9 @@ namespace RestaurantManagementSystem.Data
         public DbSet<CashierDayClose> CashierDayClosings { get; set; } = null!;
         public DbSet<DayLockAudit> DayLockAudits { get; set; } = null!;
 
+        // Stock Masters
+        public DbSet<UomMaster> UomMasters { get; set; } = null!;
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Set default schema to dbo for all entities
@@ -122,6 +125,35 @@ namespace RestaurantManagementSystem.Data
                 entity.Property(e => e.GST_Perc).HasColumnName("GST_Perc").HasColumnType("numeric(12,2)");
             });
             
+            // Configure UomMaster entity
+            modelBuilder.Entity<UomMaster>(entity =>
+            {
+                entity.ToTable("UomMaster", "dbo");
+                entity.HasKey(e => e.UOMId);
+                entity.Property(e => e.UOMCode).HasColumnName("UOMCode").IsRequired().HasMaxLength(15);
+                entity.Property(e => e.UOMName).HasColumnName("UOMName").IsRequired().HasMaxLength(100);
+                entity.Property(e => e.UOMType).HasColumnName("UOMType").IsRequired().HasMaxLength(20);
+                entity.Property(e => e.BaseUOMId).HasColumnName("BaseUOMId");
+                entity.Property(e => e.ConversionFactor).HasColumnName("ConversionFactor").HasColumnType("decimal(18,6)");
+                entity.Property(e => e.PackSize).HasColumnName("PackSize").HasColumnType("decimal(18,3)");
+                entity.Property(e => e.DecimalPlaces).HasColumnName("DecimalPlaces").HasDefaultValue(3);
+                entity.Property(e => e.Description).HasColumnName("Description").HasMaxLength(300);
+                entity.Property(e => e.IsActive).HasColumnName("IsActive").IsRequired();
+                entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt").IsRequired();
+                entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
+
+                // Self-referencing FK: BaseUOMId → UOMId
+                entity.HasOne(u => u.BaseUOM)
+                      .WithMany()
+                      .HasForeignKey(u => u.BaseUOMId)
+                      .OnDelete(DeleteBehavior.NoAction)
+                      .IsRequired(false);
+
+                // Unmapped computed/view properties
+                entity.Ignore(e => e.BaseUOMCode);
+                entity.Ignore(e => e.BaseUOMName);
+            });
+
             // Seed data for Categories
             modelBuilder.Entity<Category>().HasData(
                 new Category { Id = 1, Name = "Appetizers", IsActive = true },
