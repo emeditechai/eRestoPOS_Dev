@@ -150,6 +150,34 @@ BEGIN
             1, 1, 1, NULL, NULL, 0);
 END
 
+-- Insert NAV_STOCKS_ITEMS child (Item / Ingredients Master)
+IF NOT EXISTS (SELECT 1 FROM dbo.NavigationMenus WHERE Code = 'NAV_STOCKS_ITEMS')
+BEGIN
+    INSERT INTO dbo.NavigationMenus
+           (Code, ParentCode, DisplayName, Description, Area,
+            ControllerName, ActionName, RouteValues, CustomUrl, IconCss,
+            DisplayOrder, IsActive, IsVisible, ThemeColor, ShortcutHint, OpenInNewTab)
+    VALUES ('NAV_STOCKS_ITEMS', 'NAV_STOCKS', 'Item Master',
+            'Ingredient / inventory item master with UOM mapping', NULL,
+            'Master', 'IngredientsList', NULL, NULL,
+            'fas fa-boxes-stacked compact-icon text-success',
+            2, 1, 1, NULL, NULL, 0);
+END
+
+-- Insert NAV_STOCKS_CATEGORIES child (Stock Item Categories)
+IF NOT EXISTS (SELECT 1 FROM dbo.NavigationMenus WHERE Code = 'NAV_STOCKS_CATEGORIES')
+BEGIN
+    INSERT INTO dbo.NavigationMenus
+           (Code, ParentCode, DisplayName, Description, Area,
+            ControllerName, ActionName, RouteValues, CustomUrl, IconCss,
+            DisplayOrder, IsActive, IsVisible, ThemeColor, ShortcutHint, OpenInNewTab)
+    VALUES ('NAV_STOCKS_CATEGORIES', 'NAV_STOCKS', 'Stock Categories',
+            'Manage stock item categories', NULL,
+            'Master', 'StockCategoryList', NULL, NULL,
+            'fas fa-tags compact-icon text-warning',
+            3, 1, 1, NULL, NULL, 0);
+END
+
 -- Grant full permissions to Administrator role for the new nodes
 DECLARE @AdminRoleId INT = (SELECT TOP 1 Id FROM dbo.Roles WHERE Name = 'Administrator');
 IF @AdminRoleId IS NOT NULL
@@ -160,7 +188,7 @@ BEGIN
     SELECT @AdminRoleId, nm.Id, 1, 1, 1, 1, 1, 1, 1,
            SYSUTCDATETIME(), 0, SYSUTCDATETIME(), 0
     FROM dbo.NavigationMenus nm
-    WHERE nm.Code IN ('NAV_STOCKS', 'NAV_STOCKS_UOM')
+    WHERE nm.Code IN ('NAV_STOCKS', 'NAV_STOCKS_UOM', 'NAV_STOCKS_ITEMS', 'NAV_STOCKS_CATEGORIES')
       AND NOT EXISTS (
           SELECT 1 FROM dbo.RoleMenuPermissions rmp
            WHERE rmp.RoleId = @AdminRoleId AND rmp.MenuId = nm.Id);

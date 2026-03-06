@@ -43,6 +43,7 @@ namespace RestaurantManagementSystem.Data
 
         // Stock Masters
         public DbSet<UomMaster> UomMasters { get; set; } = null!;
+        public DbSet<StockItemCategory> StockItemCategories { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -153,6 +154,83 @@ namespace RestaurantManagementSystem.Data
                 entity.Ignore(e => e.BaseUOMCode);
                 entity.Ignore(e => e.BaseUOMName);
             });
+
+            // Configure enhanced Ingredients (Item Master) entity
+            modelBuilder.Entity<Ingredients>(entity =>
+            {
+                entity.ToTable("Ingredients", "dbo");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.IngredientsName).HasColumnName("IngredientsName").IsRequired().HasMaxLength(150);
+                entity.Property(e => e.DisplayName).HasColumnName("DisplayName").HasMaxLength(150);
+                entity.Property(e => e.Code).HasColumnName("Code").HasMaxLength(20);
+                entity.Property(e => e.ItemCategory).HasColumnName("ItemCategory").HasMaxLength(50);
+                entity.Property(e => e.Description).HasColumnName("Description").HasMaxLength(500);
+                entity.Property(e => e.StandardCost).HasColumnName("StandardCost").HasColumnType("decimal(18,4)");
+                entity.Property(e => e.PurchaseToRecipeFactor).HasColumnName("PurchaseToRecipeFactor").HasColumnType("decimal(18,6)");
+                entity.Property(e => e.ReorderLevel).HasColumnName("ReorderLevel").HasColumnType("decimal(18,3)");
+                entity.Property(e => e.IsActive).HasColumnName("IsActive").HasDefaultValue(true);
+                entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt").IsRequired(false);
+                entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
+
+                // FK: PurchaseUOMId → UomMaster (NO ACTION to avoid cascade cycles)
+                entity.HasOne(e => e.PurchaseUOM)
+                      .WithMany()
+                      .HasForeignKey(e => e.PurchaseUOMId)
+                      .OnDelete(DeleteBehavior.NoAction)
+                      .IsRequired(false);
+
+                // FK: RecipeUOMId → UomMaster (NO ACTION)
+                entity.HasOne(e => e.RecipeUOM)
+                      .WithMany()
+                      .HasForeignKey(e => e.RecipeUOMId)
+                      .OnDelete(DeleteBehavior.NoAction)
+                      .IsRequired(false);
+
+                // Ignore [NotMapped] helpers
+                entity.Ignore(e => e.PurchaseUOMCode);
+                entity.Ignore(e => e.PurchaseUOMName);
+                entity.Ignore(e => e.RecipeUOMCode);
+                entity.Ignore(e => e.RecipeUOMName);
+            });
+
+            // Configure StockItemCategory entity
+            modelBuilder.Entity<StockItemCategory>(entity =>
+            {
+                entity.ToTable("StockItemCategories", "dbo");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Name).HasColumnName("Name").IsRequired().HasMaxLength(100);
+                entity.Property(e => e.Description).HasColumnName("Description").HasMaxLength(300);
+                entity.Property(e => e.DisplayOrder).HasColumnName("DisplayOrder").HasDefaultValue(0);
+                entity.Property(e => e.IsActive).HasColumnName("IsActive").HasDefaultValue(true);
+                entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
+                entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
+            });
+
+            // Configure MenuItemIngredient – add optional UOMId FK
+            modelBuilder.Entity<MenuItemIngredient>(entity =>
+            {
+                entity.HasOne(e => e.UOM)
+                      .WithMany()
+                      .HasForeignKey(e => e.UOMId)
+                      .OnDelete(DeleteBehavior.NoAction)
+                      .IsRequired(false);
+            });
+
+            // Seed data for StockItemCategories
+            var scSeedDate = new DateTime(2024, 1, 1, 0, 0, 0);
+            modelBuilder.Entity<StockItemCategory>().HasData(
+                new StockItemCategory { Id = 1,  Name = "Vegetable",          DisplayOrder = 1,  IsActive = true, CreatedAt = scSeedDate },
+                new StockItemCategory { Id = 2,  Name = "Meat",               DisplayOrder = 2,  IsActive = true, CreatedAt = scSeedDate },
+                new StockItemCategory { Id = 3,  Name = "Seafood",            DisplayOrder = 3,  IsActive = true, CreatedAt = scSeedDate },
+                new StockItemCategory { Id = 4,  Name = "Spice & Herb",       DisplayOrder = 4,  IsActive = true, CreatedAt = scSeedDate },
+                new StockItemCategory { Id = 5,  Name = "Dairy",              DisplayOrder = 5,  IsActive = true, CreatedAt = scSeedDate },
+                new StockItemCategory { Id = 6,  Name = "Grain & Flour",      DisplayOrder = 6,  IsActive = true, CreatedAt = scSeedDate },
+                new StockItemCategory { Id = 7,  Name = "Beverage",           DisplayOrder = 7,  IsActive = true, CreatedAt = scSeedDate },
+                new StockItemCategory { Id = 8,  Name = "Sauce & Condiment",  DisplayOrder = 8,  IsActive = true, CreatedAt = scSeedDate },
+                new StockItemCategory { Id = 9,  Name = "Packaging",          DisplayOrder = 9,  IsActive = true, CreatedAt = scSeedDate },
+                new StockItemCategory { Id = 10, Name = "Finish Goods",       DisplayOrder = 10, IsActive = true, CreatedAt = scSeedDate },
+                new StockItemCategory { Id = 11, Name = "Other",              DisplayOrder = 11, IsActive = true, CreatedAt = scSeedDate }
+            );
 
             // Seed data for Categories
             modelBuilder.Entity<Category>().HasData(

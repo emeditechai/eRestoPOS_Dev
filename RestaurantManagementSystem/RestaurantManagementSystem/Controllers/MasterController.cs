@@ -76,6 +76,8 @@ namespace RestaurantManagementSystem.Controllers
         return RedirectToAction("CategoryList");
     }
 
+    // ── Item Master (Ingredients) ─────────────────────────────────────────────
+
     // Ingredients List
     public IActionResult IngredientsList()
     {
@@ -86,24 +88,63 @@ namespace RestaurantManagementSystem.Controllers
             return View(new List<Ingredients>());
         }
 
-        EnsureIngredientsBranchColumnExists();
-        var ingredients = _dbContext.Ingredients.Where(i => i.BranchId == activeBranchId.Value).ToList();
-        
-        // If there are no ingredients, seed some sample data
-        if (!ingredients.Any())
+        EnsureIngredientsColumnsExist();
+
+        // Load with UOM names via LEFT JOIN using raw SQL for reliability
+        var ingredients = new List<Ingredients>();
+        using (var connection = new SqlConnection(_connectionString))
         {
-            _dbContext.Ingredients.AddRange(
-                new Ingredients { IngredientsName = "Tomato", DisplayName = "Tomato", Code = "TMT", BranchId = activeBranchId.Value },
-                new Ingredients { IngredientsName = "Cheese", DisplayName = "Cheese", Code = "CHS", BranchId = activeBranchId.Value }
-            );
-            _dbContext.SaveChanges();
-            ingredients = _dbContext.Ingredients.Where(i => i.BranchId == activeBranchId.Value).ToList();
+            connection.Open();
+            using (var cmd = new SqlCommand(@"
+SELECT i.Id, i.BranchId, i.IngredientsName, i.DisplayName, i.Code,
+       i.ItemCategory, i.Description,
+       i.PurchaseUOMId, p.UOMCode AS PurchaseUOMCode, p.UOMName AS PurchaseUOMName,
+       i.RecipeUOMId,   r.UOMCode AS RecipeUOMCode,   r.UOMName AS RecipeUOMName,
+       i.PurchaseToRecipeFactor, i.StandardCost, i.ReorderLevel,
+       ISNULL(i.IsActive, 1) AS IsActive,
+       i.CreatedAt, i.UpdatedAt
+FROM   dbo.Ingredients i
+LEFT JOIN dbo.UomMaster p ON p.UOMId = i.PurchaseUOMId
+LEFT JOIN dbo.UomMaster r ON r.UOMId = i.RecipeUOMId
+WHERE  i.BranchId = @BranchId
+ORDER  BY i.IngredientsName", connection))
+            {
+                cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    ingredients.Add(new Ingredients
+                    {
+                        Id                     = reader.GetInt32(reader.GetOrdinal("Id")),
+                        BranchId               = activeBranchId.Value,
+                        IngredientsName        = reader["IngredientsName"]?.ToString() ?? "",
+                        DisplayName            = reader["DisplayName"]?.ToString(),
+                        Code                   = reader["Code"]?.ToString(),
+                        ItemCategory           = reader["ItemCategory"]?.ToString(),
+                        Description            = reader["Description"]?.ToString(),
+                        PurchaseUOMId          = reader["PurchaseUOMId"] == DBNull.Value ? null : (int?)reader.GetInt32(reader.GetOrdinal("PurchaseUOMId")),
+                        PurchaseUOMCode        = reader["PurchaseUOMCode"]?.ToString(),
+                        PurchaseUOMName        = reader["PurchaseUOMName"]?.ToString(),
+                        RecipeUOMId            = reader["RecipeUOMId"] == DBNull.Value ? null : (int?)reader.GetInt32(reader.GetOrdinal("RecipeUOMId")),
+                        RecipeUOMCode          = reader["RecipeUOMCode"]?.ToString(),
+                        RecipeUOMName          = reader["RecipeUOMName"]?.ToString(),
+                        PurchaseToRecipeFactor = reader["PurchaseToRecipeFactor"] == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("PurchaseToRecipeFactor")),
+                        StandardCost           = reader["StandardCost"] == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("StandardCost")),
+                        ReorderLevel           = reader["ReorderLevel"] == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("ReorderLevel")),
+                        IsActive               = reader.GetBoolean(reader.GetOrdinal("IsActive")),
+                        CreatedAt              = reader["CreatedAt"] == DBNull.Value ? null : (DateTime?)reader.GetDateTime(reader.GetOrdinal("CreatedAt")),
+                        UpdatedAt              = reader["UpdatedAt"] == DBNull.Value ? null : (DateTime?)reader.GetDateTime(reader.GetOrdinal("UpdatedAt"))
+                    });
+                }
+            }
         }
-        
+
+        ViewBag.AllUoms    = GetUomSelectList();
+        ViewBag.Categories = GetItemCategoryList();
         return View(ingredients);
     }
 
-    // Add/Edit/View Form
+    // Add/Edit/View Form (AJAX + page POST)
     public IActionResult IngredientsForm(int? id, bool isView = false)
     {
         var activeBranchId = User.GetActiveBranchId();
@@ -113,19 +154,22 @@ namespace RestaurantManagementSystem.Controllers
             return RedirectToAction(nameof(IngredientsList));
         }
 
-        EnsureIngredientsBranchColumnExists();
-        Ingredients model = new Ingredients { IngredientsName = "" };
-        
-        if (id.HasValue)
+        EnsureIngredientsColumnsExist();
+        Ingredients model = new Ingredients { IngredientsName = "", IsActive = true };
+
+        if (id.HasValue && id.Value > 0)
         {
             model = _dbContext.Ingredients.FirstOrDefault(i => i.Id == id.Value && i.BranchId == activeBranchId.Value) ?? model;
         }
-        
-        ViewBag.IsView = isView;
+
+        ViewBag.IsView     = isView;
+        ViewBag.AllUoms    = GetUomSelectList();
+        ViewBag.Categories = GetItemCategoryList();
         return View("Ingredients", model);
     }
 
-    [HttpPostAttribute]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
     public IActionResult IngredientsForm(Ingredients model)
     {
         var activeBranchId = User.GetActiveBranchId();
@@ -135,40 +179,260 @@ namespace RestaurantManagementSystem.Controllers
             return RedirectToAction(nameof(IngredientsList));
         }
 
-        EnsureIngredientsBranchColumnExists();
+        EnsureIngredientsColumnsExist();
         model.BranchId = activeBranchId.Value;
+
+        // Remove navigation property validation noise
+        ModelState.Remove(nameof(Ingredients.PurchaseUOM));
+        ModelState.Remove(nameof(Ingredients.RecipeUOM));
 
         if (ModelState.IsValid)
         {
             if (model.Id == 0)
             {
-                // Add new ingredient
+                model.CreatedAt = DateTime.UtcNow;
+                model.UpdatedAt  = null;
                 _dbContext.Ingredients.Add(model);
                 _dbContext.SaveChanges();
-                TempData["ResultMessage"] = "Ingredient added successfully.";
+                TempData["ResultMessage"] = "Item added successfully.";
             }
             else
             {
-                // Update existing ingredient
-                var existingIngredient = _dbContext.Ingredients.FirstOrDefault(i => i.Id == model.Id && i.BranchId == activeBranchId.Value);
-                if (existingIngredient != null)
+                var existing = _dbContext.Ingredients.FirstOrDefault(i => i.Id == model.Id && i.BranchId == activeBranchId.Value);
+                if (existing != null)
                 {
-                    existingIngredient.IngredientsName = model.IngredientsName;
-                    existingIngredient.DisplayName = model.DisplayName;
-                    existingIngredient.Code = model.Code;
-                    existingIngredient.BranchId = activeBranchId.Value;
+                    existing.IngredientsName        = model.IngredientsName;
+                    existing.DisplayName            = model.DisplayName;
+                    existing.Code                   = model.Code;
+                    existing.ItemCategory           = model.ItemCategory;
+                    existing.Description            = model.Description;
+                    existing.PurchaseUOMId          = model.PurchaseUOMId;
+                    existing.RecipeUOMId            = model.RecipeUOMId;
+                    existing.PurchaseToRecipeFactor = model.PurchaseToRecipeFactor;
+                    existing.StandardCost           = model.StandardCost;
+                    existing.ReorderLevel           = model.ReorderLevel;
+                    existing.IsActive               = model.IsActive;
+                    existing.UpdatedAt              = DateTime.UtcNow;
                     _dbContext.SaveChanges();
-                    TempData["ResultMessage"] = "Ingredient updated successfully.";
+                    TempData["ResultMessage"] = "Item updated successfully.";
                 }
                 else
                 {
-                    TempData["ResultMessage"] = "Ingredient update failed. Id not found.";
+                    TempData["ResultMessage"] = "Item update failed. Record not found.";
                 }
             }
             return RedirectToAction("IngredientsList");
         }
+
+        ViewBag.IsView     = false;
+        ViewBag.AllUoms    = GetUomSelectList();
+        ViewBag.Categories = GetItemCategoryList();
         return View("Ingredients", model);
     }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult ToggleIngredientActive(int id)
+    {
+        var activeBranchId = User.GetActiveBranchId();
+        if (!activeBranchId.HasValue)
+        {
+            TempData["ResultMessage"] = "No active branch.";
+            return RedirectToAction(nameof(IngredientsList));
+        }
+
+        var item = _dbContext.Ingredients.FirstOrDefault(i => i.Id == id && i.BranchId == activeBranchId.Value);
+        if (item != null)
+        {
+            item.IsActive  = !item.IsActive;
+            item.UpdatedAt = DateTime.UtcNow;
+            _dbContext.SaveChanges();
+            TempData["ResultMessage"] = $"Item {(item.IsActive ? "activated" : "deactivated")} successfully.";
+        }
+        return RedirectToAction(nameof(IngredientsList));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult DeleteIngredient(int id)
+    {
+        var activeBranchId = User.GetActiveBranchId();
+        if (!activeBranchId.HasValue)
+        {
+            TempData["ResultMessage"] = "No active branch.";
+            return RedirectToAction(nameof(IngredientsList));
+        }
+
+        // Guard: check if used in recipe BOM
+        var inUse = _dbContext.MenuItemIngredients.Any(m => m.IngredientId == id);
+        if (inUse)
+        {
+            TempData["ResultMessage"] = "Cannot delete: this item is linked to one or more recipes. Deactivate it instead.";
+            return RedirectToAction(nameof(IngredientsList));
+        }
+
+        var item = _dbContext.Ingredients.FirstOrDefault(i => i.Id == id && i.BranchId == activeBranchId.Value);
+        if (item != null)
+        {
+            _dbContext.Ingredients.Remove(item);
+            _dbContext.SaveChanges();
+            TempData["ResultMessage"] = "Item deleted successfully.";
+        }
+        return RedirectToAction(nameof(IngredientsList));
+    }
+
+    // Helper: UOM select list for dropdowns
+    private SelectList GetUomSelectList(int? selected = null)
+    {
+        var uoms = _dbContext.UomMasters
+            .Where(u => u.IsActive)
+            .OrderBy(u => u.UOMType).ThenBy(u => u.UOMName)
+            .Select(u => new { u.UOMId, Label = $"{u.UOMCode} – {u.UOMName}" })
+            .ToList();
+        return new SelectList(uoms, "UOMId", "Label", selected);
+    }
+
+    // Helper: Item category list – reads from dbo.StockItemCategories table
+    private SelectList GetItemCategoryList(string? selected = null)
+    {
+        EnsureStockItemCategoriesTableExists();
+        var cats = _dbContext.StockItemCategories
+            .Where(c => c.IsActive)
+            .OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name)
+            .Select(c => new { Val = c.Name, Txt = c.Name })
+            .ToList();
+        return new SelectList(cats, "Val", "Txt", selected);
+    }
+
+    // ── Stock Item Category CRUD ──────────────────────────────────────────────
+
+    public IActionResult StockCategoryList()
+    {
+        EnsureStockItemCategoriesTableExists();
+        var cats = _dbContext.StockItemCategories
+            .OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name)
+            .ToList();
+        return View(cats);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult StockCategorySave(StockItemCategory model)
+    {
+        EnsureStockItemCategoriesTableExists();
+        ModelState.Remove(nameof(StockItemCategory.Description));
+
+        if (!ModelState.IsValid)
+        {
+            TempData["ResultMessage"] = "Validation failed. Please check the form.";
+            return RedirectToAction(nameof(StockCategoryList));
+        }
+
+        if (model.Id == 0)
+        {
+            model.CreatedAt = DateTime.UtcNow;
+            _dbContext.StockItemCategories.Add(model);
+            TempData["ResultMessage"] = $"Category '{model.Name}' added successfully.";
+        }
+        else
+        {
+            var existing = _dbContext.StockItemCategories.FirstOrDefault(c => c.Id == model.Id);
+            if (existing != null)
+            {
+                existing.Name         = model.Name;
+                existing.Description  = model.Description;
+                existing.DisplayOrder = model.DisplayOrder;
+                existing.IsActive     = model.IsActive;
+                existing.UpdatedAt    = DateTime.UtcNow;
+                TempData["ResultMessage"] = $"Category '{model.Name}' updated successfully.";
+            }
+        }
+
+        _dbContext.SaveChanges();
+        return RedirectToAction(nameof(StockCategoryList));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult StockCategoryToggleActive(int id)
+    {
+        var cat = _dbContext.StockItemCategories.FirstOrDefault(c => c.Id == id);
+        if (cat != null)
+        {
+            cat.IsActive  = !cat.IsActive;
+            cat.UpdatedAt = DateTime.UtcNow;
+            _dbContext.SaveChanges();
+            TempData["ResultMessage"] = $"'{cat.Name}' {(cat.IsActive ? "activated" : "deactivated")}.";
+        }
+        return RedirectToAction(nameof(StockCategoryList));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult StockCategoryDelete(int id)
+    {
+        // Guard: used in Item Master?
+        var inUse = _dbContext.Ingredients.Any(i => i.ItemCategory != null &&
+                    _dbContext.StockItemCategories.Any(c => c.Id == id && c.Name == i.ItemCategory));
+        if (inUse)
+        {
+            TempData["ResultMessage"] = "Cannot delete: this category is used by one or more items. Deactivate it instead.";
+            return RedirectToAction(nameof(StockCategoryList));
+        }
+
+        var cat = _dbContext.StockItemCategories.FirstOrDefault(c => c.Id == id);
+        if (cat != null)
+        {
+            _dbContext.StockItemCategories.Remove(cat);
+            _dbContext.SaveChanges();
+            TempData["ResultMessage"] = $"Category '{cat.Name}' deleted.";
+        }
+        return RedirectToAction(nameof(StockCategoryList));
+    }
+
+    private void EnsureStockItemCategoriesTableExists()
+    {
+        using var connection = new SqlConnection(_connectionString);
+        connection.Open();
+        using var cmd = new SqlCommand(@"
+IF OBJECT_ID('dbo.StockItemCategories') IS NULL
+BEGIN
+    CREATE TABLE dbo.StockItemCategories (
+        Id           INT IDENTITY(1,1) PRIMARY KEY,
+        Name         NVARCHAR(100) NOT NULL,
+        Description  NVARCHAR(300) NULL,
+        DisplayOrder INT           NOT NULL DEFAULT 0,
+        IsActive     BIT           NOT NULL DEFAULT 1,
+        CreatedAt    DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
+        UpdatedAt    DATETIME2     NULL
+    );
+
+    -- Seed default categories
+    INSERT INTO dbo.StockItemCategories (Name, DisplayOrder, IsActive, CreatedAt) VALUES
+        ('Vegetable',         1,  1, SYSUTCDATETIME()),
+        ('Meat',              2,  1, SYSUTCDATETIME()),
+        ('Seafood',           3,  1, SYSUTCDATETIME()),
+        ('Spice & Herb',      4,  1, SYSUTCDATETIME()),
+        ('Dairy',             5,  1, SYSUTCDATETIME()),
+        ('Grain & Flour',     6,  1, SYSUTCDATETIME()),
+        ('Beverage',          7,  1, SYSUTCDATETIME()),
+        ('Sauce & Condiment', 8,  1, SYSUTCDATETIME()),
+        ('Packaging',         9,  1, SYSUTCDATETIME()),
+        ('Finish Goods',      10, 1, SYSUTCDATETIME()),
+        ('Other',             11, 1, SYSUTCDATETIME());
+END
+ELSE
+BEGIN
+    -- Ensure 'Finish Goods' exists in older installs
+    IF NOT EXISTS (SELECT 1 FROM dbo.StockItemCategories WHERE Name = 'Finish Goods')
+        INSERT INTO dbo.StockItemCategories (Name, DisplayOrder, IsActive, CreatedAt)
+        VALUES ('Finish Goods', 10, 1, SYSUTCDATETIME());
+END
+", connection);
+        cmd.ExecuteNonQuery();
+    }
+
+
 
         // Counter Master List
         public IActionResult CounterList()
@@ -602,22 +866,101 @@ ORDER BY ISNULL(Is_MainBranch, 0) DESC, BranchCode, BranchName", connection))
             return items;
         }
 
-        private void EnsureIngredientsBranchColumnExists()
+        private void EnsureIngredientsColumnsExist()
         {
-            using (var connection = new SqlConnection(_connectionString))
-            {
-                connection.Open();
-                using (var cmd = new SqlCommand(@"
+            using var connection = new SqlConnection(_connectionString);
+            connection.Open();
+            using var cmd = new SqlCommand(@"
+-- Original column
 IF COL_LENGTH('dbo.Ingredients', 'BranchId') IS NULL
-BEGIN
     ALTER TABLE dbo.Ingredients ADD BranchId INT NULL;
+
+-- Item Master extension columns
+IF COL_LENGTH('dbo.Ingredients', 'ItemCategory') IS NULL
+    ALTER TABLE dbo.Ingredients ADD ItemCategory NVARCHAR(50) NULL;
+
+IF COL_LENGTH('dbo.Ingredients', 'Description') IS NULL
+    ALTER TABLE dbo.Ingredients ADD Description NVARCHAR(500) NULL;
+
+IF COL_LENGTH('dbo.Ingredients', 'PurchaseUOMId') IS NULL
+    ALTER TABLE dbo.Ingredients ADD PurchaseUOMId INT NULL;
+
+IF COL_LENGTH('dbo.Ingredients', 'RecipeUOMId') IS NULL
+    ALTER TABLE dbo.Ingredients ADD RecipeUOMId INT NULL;
+
+IF COL_LENGTH('dbo.Ingredients', 'PurchaseToRecipeFactor') IS NULL
+    ALTER TABLE dbo.Ingredients ADD PurchaseToRecipeFactor DECIMAL(18,6) NULL;
+
+IF COL_LENGTH('dbo.Ingredients', 'StandardCost') IS NULL
+    ALTER TABLE dbo.Ingredients ADD StandardCost DECIMAL(18,4) NULL;
+
+IF COL_LENGTH('dbo.Ingredients', 'ReorderLevel') IS NULL
+    ALTER TABLE dbo.Ingredients ADD ReorderLevel DECIMAL(18,3) NULL;
+
+IF COL_LENGTH('dbo.Ingredients', 'IsActive') IS NULL
+    ALTER TABLE dbo.Ingredients ADD IsActive BIT NOT NULL DEFAULT 1;
+
+IF COL_LENGTH('dbo.Ingredients', 'CreatedAt') IS NULL
+    ALTER TABLE dbo.Ingredients ADD CreatedAt DATETIME2 NULL DEFAULT SYSUTCDATETIME();
+
+-- Backfill NULL CreatedAt for rows added before this column existed
+UPDATE dbo.Ingredients SET CreatedAt = SYSUTCDATETIME() WHERE CreatedAt IS NULL;
+
+IF COL_LENGTH('dbo.Ingredients', 'UpdatedAt') IS NULL
+    ALTER TABLE dbo.Ingredients ADD UpdatedAt DATETIME2 NULL;
+
+-- FK: Ingredients.PurchaseUOMId → UomMaster (idempotent)
+IF OBJECT_ID('dbo.UomMaster') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = 'FK_Ingredients_PurchaseUOM' AND parent_object_id = OBJECT_ID('dbo.Ingredients'))
+    BEGIN
+        ALTER TABLE dbo.Ingredients
+            ADD CONSTRAINT FK_Ingredients_PurchaseUOM
+            FOREIGN KEY (PurchaseUOMId) REFERENCES dbo.UomMaster(UOMId);
+    END
+
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = 'FK_Ingredients_RecipeUOM' AND parent_object_id = OBJECT_ID('dbo.Ingredients'))
+    BEGIN
+        ALTER TABLE dbo.Ingredients
+            ADD CONSTRAINT FK_Ingredients_RecipeUOM
+            FOREIGN KEY (RecipeUOMId) REFERENCES dbo.UomMaster(UOMId);
+    END
 END
-", connection))
-                {
-                    cmd.ExecuteNonQuery();
-                }
-            }
+
+-- FK: MenuItemIngredients.UOMId → UomMaster (only when both tables exist)
+IF OBJECT_ID('dbo.UomMaster') IS NOT NULL
+   AND OBJECT_ID('dbo.MenuItemIngredients') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.MenuItemIngredients', 'UOMId') IS NULL
+        ALTER TABLE dbo.MenuItemIngredients ADD UOMId INT NULL;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = 'FK_MenuItemIngredients_UOM'
+          AND parent_object_id = OBJECT_ID('dbo.MenuItemIngredients'))
+    BEGIN
+        ALTER TABLE dbo.MenuItemIngredients
+            ADD CONSTRAINT FK_MenuItemIngredients_UOM
+            FOREIGN KEY (UOMId) REFERENCES dbo.UomMaster(UOMId);
+    END
+
+    -- Make Unit column nullable (backward compat)
+    IF EXISTS (
+        SELECT 1 FROM sys.columns c
+        JOIN sys.objects o ON o.object_id = c.object_id
+        WHERE o.name = 'MenuItemIngredients' AND c.name = 'Unit' AND c.is_nullable = 0)
+    BEGIN
+        ALTER TABLE dbo.MenuItemIngredients ALTER COLUMN Unit NVARCHAR(20) NULL;
+    END
+END
+", connection);
+            cmd.ExecuteNonQuery();
         }
+
 
         private bool IsMainBranchActiveSession()
         {
