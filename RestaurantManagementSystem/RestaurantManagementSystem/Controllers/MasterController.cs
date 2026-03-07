@@ -81,13 +81,6 @@ namespace RestaurantManagementSystem.Controllers
     // Ingredients List
     public IActionResult IngredientsList()
     {
-        var activeBranchId = User.GetActiveBranchId();
-        if (!activeBranchId.HasValue)
-        {
-            TempData["ResultMessage"] = "Please select an active branch first.";
-            return View(new List<Ingredients>());
-        }
-
         EnsureIngredientsColumnsExist();
 
         // Load with UOM names via LEFT JOIN using raw SQL for reliability
@@ -106,17 +99,15 @@ SELECT i.Id, i.BranchId, i.IngredientsName, i.DisplayName, i.Code,
 FROM   dbo.Ingredients i
 LEFT JOIN dbo.UomMaster p ON p.UOMId = i.PurchaseUOMId
 LEFT JOIN dbo.UomMaster r ON r.UOMId = i.RecipeUOMId
-WHERE  i.BranchId = @BranchId
 ORDER  BY i.IngredientsName", connection))
             {
-                cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
                     ingredients.Add(new Ingredients
                     {
                         Id                     = reader.GetInt32(reader.GetOrdinal("Id")),
-                        BranchId               = activeBranchId.Value,
+                        BranchId               = reader["BranchId"] == DBNull.Value ? 0 : reader.GetInt32(reader.GetOrdinal("BranchId")),
                         IngredientsName        = reader["IngredientsName"]?.ToString() ?? "",
                         DisplayName            = reader["DisplayName"]?.ToString(),
                         Code                   = reader["Code"]?.ToString(),
@@ -143,22 +134,15 @@ ORDER  BY i.IngredientsName", connection))
         return View(ingredients);
     }
 
-    // Add/Edit/View Form (AJAX + page POST)
+    // Add/Edit/View Form
     public IActionResult IngredientsForm(int? id, bool isView = false)
     {
-        var activeBranchId = User.GetActiveBranchId();
-        if (!activeBranchId.HasValue)
-        {
-            TempData["ResultMessage"] = "Please select an active branch first.";
-            return RedirectToAction(nameof(IngredientsList));
-        }
-
         EnsureIngredientsColumnsExist();
         Ingredients model = new Ingredients { IngredientsName = "", IsActive = true };
 
         if (id.HasValue && id.Value > 0)
         {
-            model = _dbContext.Ingredients.FirstOrDefault(i => i.Id == id.Value && i.BranchId == activeBranchId.Value) ?? model;
+            model = _dbContext.Ingredients.FirstOrDefault(i => i.Id == id.Value) ?? model;
         }
 
         ViewBag.IsView     = isView;
@@ -171,15 +155,7 @@ ORDER  BY i.IngredientsName", connection))
     [ValidateAntiForgeryToken]
     public IActionResult IngredientsForm(Ingredients model)
     {
-        var activeBranchId = User.GetActiveBranchId();
-        if (!activeBranchId.HasValue)
-        {
-            TempData["ResultMessage"] = "Please select an active branch first.";
-            return RedirectToAction(nameof(IngredientsList));
-        }
-
         EnsureIngredientsColumnsExist();
-        model.BranchId = activeBranchId.Value;
 
         // Remove navigation property validation noise
         ModelState.Remove(nameof(Ingredients.PurchaseUOM));
@@ -189,15 +165,16 @@ ORDER  BY i.IngredientsName", connection))
         {
             if (model.Id == 0)
             {
+                model.BranchId  = 0;   // global – not branch-specific
                 model.CreatedAt = DateTime.UtcNow;
-                model.UpdatedAt  = null;
+                model.UpdatedAt = null;
                 _dbContext.Ingredients.Add(model);
                 _dbContext.SaveChanges();
                 TempData["ResultMessage"] = "Item added successfully.";
             }
             else
             {
-                var existing = _dbContext.Ingredients.FirstOrDefault(i => i.Id == model.Id && i.BranchId == activeBranchId.Value);
+                var existing = _dbContext.Ingredients.FirstOrDefault(i => i.Id == model.Id);
                 if (existing != null)
                 {
                     existing.IngredientsName        = model.IngredientsName;
@@ -233,14 +210,7 @@ ORDER  BY i.IngredientsName", connection))
     [ValidateAntiForgeryToken]
     public IActionResult ToggleIngredientActive(int id)
     {
-        var activeBranchId = User.GetActiveBranchId();
-        if (!activeBranchId.HasValue)
-        {
-            TempData["ResultMessage"] = "No active branch.";
-            return RedirectToAction(nameof(IngredientsList));
-        }
-
-        var item = _dbContext.Ingredients.FirstOrDefault(i => i.Id == id && i.BranchId == activeBranchId.Value);
+        var item = _dbContext.Ingredients.FirstOrDefault(i => i.Id == id);
         if (item != null)
         {
             item.IsActive  = !item.IsActive;
@@ -255,13 +225,6 @@ ORDER  BY i.IngredientsName", connection))
     [ValidateAntiForgeryToken]
     public IActionResult DeleteIngredient(int id)
     {
-        var activeBranchId = User.GetActiveBranchId();
-        if (!activeBranchId.HasValue)
-        {
-            TempData["ResultMessage"] = "No active branch.";
-            return RedirectToAction(nameof(IngredientsList));
-        }
-
         // Guard: check if used in recipe BOM
         var inUse = _dbContext.MenuItemIngredients.Any(m => m.IngredientId == id);
         if (inUse)
@@ -270,7 +233,7 @@ ORDER  BY i.IngredientsName", connection))
             return RedirectToAction(nameof(IngredientsList));
         }
 
-        var item = _dbContext.Ingredients.FirstOrDefault(i => i.Id == id && i.BranchId == activeBranchId.Value);
+        var item = _dbContext.Ingredients.FirstOrDefault(i => i.Id == id);
         if (item != null)
         {
             _dbContext.Ingredients.Remove(item);
