@@ -1,0 +1,172 @@
+@model RestaurantManagementSystem.Models.Godown
+@{
+    bool isNew = Model.Id == 0;
+    ViewData["Title"] = isNew ? "Add New Godown" : "Edit Godown";
+}
+
+<div class="container-fluid px-0" style="max-width:700px">
+
+    <!-- Breadcrumb + Header -->
+    <div class="d-flex align-items-center gap-2 mb-1">
+        <a asp-action="GodownList" asp-controller="Master" class="text-muted text-decoration-none small">
+            <i class="fas fa-warehouse me-1"></i>Godown Master
+        </a>
+        <i class="fas fa-chevron-right text-muted" style="font-size:.65rem"></i>
+        <span class="small text-dark fw-semibold">@ViewData["Title"]</span>
+    </div>
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h4 class="mb-0 fw-bold">
+            <i class="fas @(isNew ? "fa-plus-circle text-info" : "fa-edit text-primary") me-2"></i>@ViewData["Title"]
+        </h4>
+        <a asp-action="GodownList" asp-controller="Master" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Back to List
+        </a>
+    </div>
+
+    @if (TempData["ResultMessage"] != null)
+    {
+        <div class="alert alert-info alert-dismissible fade show py-2">
+            @TempData["ResultMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <form method="post" asp-action="GodownForm" asp-controller="Master">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="Id" />
+        <input type="hidden" asp-for="BranchId" />
+
+        <div class="row g-3">
+
+            <!-- ── Left Column ─────────────────────────────── -->
+            <div class="col-md-7">
+
+                <!-- Basic Info -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-light py-2 fw-semibold">
+                        <i class="fas fa-info-circle me-2 text-info"></i>Basic Information
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-sm-4">
+                                <label asp-for="Code" class="form-label fw-semibold">
+                                    Code <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="Code" class="form-control text-uppercase" maxlength="20"
+                                       placeholder="e.g. GDN01" />
+                                <span asp-validation-for="Code" class="text-danger small"></span>
+                                <div class="form-text">Must be unique within branch.</div>
+                            </div>
+                            <div class="col-sm-8">
+                                <label asp-for="GodownName" class="form-label fw-semibold">
+                                    Godown Name <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="GodownName" class="form-control" maxlength="150"
+                                       placeholder="e.g. Main Warehouse" />
+                                <span asp-validation-for="GodownName" class="text-danger small"></span>
+                            </div>
+                            <div class="col-12">
+                                <label asp-for="Address" class="form-label fw-semibold">Address</label>
+                                <textarea asp-for="Address" class="form-control" rows="3" maxlength="500"
+                                          placeholder="Godown address (optional)..."></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- ── Right Column ─────────────────────────────── -->
+            <div class="col-md-5">
+
+                <!-- Main Godown -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-warning bg-opacity-10 py-2 fw-semibold text-warning-emphasis">
+                        <i class="fas fa-star me-2 text-warning"></i>Main Godown
+                    </div>
+                    <div class="card-body">
+                        <div class="form-check form-switch">
+                            <input asp-for="IsMainGodown" class="form-check-input" type="checkbox"
+                                   role="switch" id="switchMain" style="width:3em;height:1.5em" />
+                            <label class="form-check-label ms-2 fw-semibold" for="switchMain">
+                                <span id="mainLabel" class="@(Model.IsMainGodown ? "text-warning" : "text-secondary")">
+                                    @(Model.IsMainGodown ? "Yes — Main Godown" : "No — Secondary")
+                                </span>
+                            </label>
+                        </div>
+                        <span asp-validation-for="IsMainGodown" class="text-danger small d-block mt-1"></span>
+                        <div class="alert alert-warning bg-warning bg-opacity-10 border-warning border-opacity-25 py-2 px-3 mt-3 mb-0 small">
+                            <i class="fas fa-triangle-exclamation me-1"></i>
+                            <strong>Rule:</strong> Each branch must have exactly <strong>one</strong> Main Godown.
+                            Setting this will fail if another Main Godown already exists.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-light py-2 fw-semibold">
+                        <i class="fas fa-toggle-on me-2 text-success"></i>Status
+                    </div>
+                    <div class="card-body">
+                        <div class="form-check form-switch">
+                            <input asp-for="IsActive" class="form-check-input" type="checkbox"
+                                   role="switch" id="switchActive" style="width:3em;height:1.5em" />
+                            <label class="form-check-label ms-2 fw-semibold" for="switchActive">
+                                <span id="statusLabel" class="@(Model.IsActive ? "text-success" : "text-secondary")">
+                                    @(Model.IsActive ? "Active" : "Inactive")
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Audit -->
+                @if (!isNew)
+                {
+                    <div class="card border-0 bg-light mb-3">
+                        <div class="card-body py-2 px-3">
+                            <div class="small text-muted">
+                                <div><i class="fas fa-clock me-1"></i><strong>Created:</strong> @(Model.CreatedAt?.ToString("dd MMM yyyy HH:mm") ?? "—")</div>
+                                @if (Model.UpdatedAt.HasValue)
+                                {
+                                    <div><i class="fas fa-pen me-1"></i><strong>Updated:</strong> @Model.UpdatedAt.Value.ToString("dd MMM yyyy HH:mm")</div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="d-flex gap-2 mt-1">
+            <button type="submit" class="btn btn-info text-white px-4">
+                <i class="fas fa-save me-1"></i>@(isNew ? "Save Godown" : "Update Godown")
+            </button>
+            <a asp-action="GodownList" asp-controller="Master" class="btn btn-outline-secondary">
+                <i class="fas fa-times me-1"></i>Cancel
+            </a>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+<script>
+    // Main Godown toggle label
+    document.getElementById('switchMain')?.addEventListener('change', function () {
+        var lbl = document.getElementById('mainLabel');
+        lbl.textContent = this.checked ? 'Yes — Main Godown' : 'No — Secondary';
+        lbl.className   = this.checked ? 'text-warning' : 'text-secondary';
+    });
+
+    // Status toggle label
+    document.getElementById('switchActive')?.addEventListener('change', function () {
+        var lbl = document.getElementById('statusLabel');
+        lbl.textContent = this.checked ? 'Active' : 'Inactive';
+        lbl.className   = this.checked ? 'text-success' : 'text-secondary';
+    });
+</script>
+}

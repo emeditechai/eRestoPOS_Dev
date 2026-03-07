@@ -139,7 +139,6 @@ ORDER  BY i.IngredientsName", connection))
             }
         }
 
-        ViewBag.AllUoms    = GetUomSelectList();
         ViewBag.Categories = GetItemCategoryList();
         return View(ingredients);
     }
@@ -427,6 +426,190 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM dbo.StockItemCategories WHERE Name = 'Finish Goods')
         INSERT INTO dbo.StockItemCategories (Name, DisplayOrder, IsActive, CreatedAt)
         VALUES ('Finish Goods', 10, 1, SYSUTCDATETIME());
+END
+", connection);
+        cmd.ExecuteNonQuery();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  GODOWN MASTER
+    // ═══════════════════════════════════════════════════════════════
+
+    public IActionResult GodownList()
+    {
+        var activeBranchId = User.GetActiveBranchId();
+        if (!activeBranchId.HasValue)
+        {
+            TempData["ResultMessage"] = "Please select an active branch first.";
+            return View(new List<Godown>());
+        }
+        EnsureGodownsTableExists();
+        var godowns = _dbContext.Godowns
+            .Where(g => g.BranchId == activeBranchId.Value)
+            .OrderByDescending(g => g.IsMainGodown)
+            .ThenBy(g => g.GodownName)
+            .ToList();
+        return View(godowns);
+    }
+
+    [HttpGet]
+    public IActionResult GodownForm(int? id)
+    {
+        var activeBranchId = User.GetActiveBranchId();
+        if (!activeBranchId.HasValue)
+        {
+            TempData["ResultMessage"] = "Please select an active branch first.";
+            return RedirectToAction(nameof(GodownList));
+        }
+        EnsureGodownsTableExists();
+
+        Godown model;
+        if (id.HasValue && id.Value > 0)
+        {
+            var existing = _dbContext.Godowns.FirstOrDefault(g => g.Id == id.Value && g.BranchId == activeBranchId.Value);
+            if (existing == null)
+            {
+                TempData["ResultMessage"] = "Godown not found.";
+                return RedirectToAction(nameof(GodownList));
+            }
+            model = existing;
+        }
+        else
+        {
+            model = new Godown { BranchId = activeBranchId.Value, IsActive = true };
+        }
+        return View(model);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult GodownForm(Godown model)
+    {
+        var activeBranchId = User.GetActiveBranchId();
+        if (!activeBranchId.HasValue)
+        {
+            TempData["ResultMessage"] = "Please select an active branch first.";
+            return RedirectToAction(nameof(GodownList));
+        }
+        model.BranchId = activeBranchId.Value;
+        EnsureGodownsTableExists();
+
+        ModelState.Remove(nameof(Godown.Address));
+
+        if (!ModelState.IsValid)
+            return View(model);
+
+        // Normalise code to uppercase
+        model.Code = model.Code.Trim().ToUpper();
+
+        // Unique-code check within branch
+        bool codeExists = _dbContext.Godowns.Any(g =>
+            g.BranchId == activeBranchId.Value &&
+            g.Code == model.Code &&
+            g.Id != model.Id);
+        if (codeExists)
+        {
+            ModelState.AddModelError(nameof(Godown.Code), $"Code '{model.Code}' already exists in this branch.");
+            return View(model);
+        }
+
+        // Main-godown uniqueness: only one per branch
+        if (model.IsMainGodown)
+        {
+            bool mainExists = _dbContext.Godowns.Any(g =>
+                g.BranchId == activeBranchId.Value &&
+                g.IsMainGodown &&
+                g.Id != model.Id);
+            if (mainExists)
+            {
+                ModelState.AddModelError(nameof(Godown.IsMainGodown),
+                    "This branch already has a Main Godown. Please deselect the existing one first.");
+                return View(model);
+            }
+        }
+
+        if (model.Id == 0)
+        {
+            model.CreatedAt = DateTime.UtcNow;
+            _dbContext.Godowns.Add(model);
+            TempData["ResultMessage"] = $"Godown '{model.GodownName}' added successfully.";
+        }
+        else
+        {
+            var existing = _dbContext.Godowns.FirstOrDefault(g => g.Id == model.Id && g.BranchId == activeBranchId.Value);
+            if (existing == null)
+            {
+                TempData["ResultMessage"] = "Godown not found.";
+                return RedirectToAction(nameof(GodownList));
+            }
+            existing.Code          = model.Code;
+            existing.GodownName    = model.GodownName;
+            existing.IsMainGodown  = model.IsMainGodown;
+            existing.Address       = model.Address;
+            existing.IsActive      = model.IsActive;
+            existing.UpdatedAt     = DateTime.UtcNow;
+            TempData["ResultMessage"] = $"Godown '{model.GodownName}' updated successfully.";
+        }
+
+        _dbContext.SaveChanges();
+        return RedirectToAction(nameof(GodownList));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult GodownToggleActive(int id)
+    {
+        var activeBranchId = User.GetActiveBranchId();
+        var g = _dbContext.Godowns.FirstOrDefault(x => x.Id == id && x.BranchId == activeBranchId);
+        if (g != null)
+        {
+            g.IsActive  = !g.IsActive;
+            g.UpdatedAt = DateTime.UtcNow;
+            _dbContext.SaveChanges();
+            TempData["ResultMessage"] = $"'{g.GodownName}' {(g.IsActive ? "activated" : "deactivated")}.";
+        }
+        return RedirectToAction(nameof(GodownList));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult GodownDelete(int id)
+    {
+        var activeBranchId = User.GetActiveBranchId();
+        var g = _dbContext.Godowns.FirstOrDefault(x => x.Id == id && x.BranchId == activeBranchId);
+        if (g != null)
+        {
+            if (g.IsMainGodown)
+            {
+                TempData["ResultMessage"] = "Cannot delete the Main Godown. Set another godown as Main first.";
+                return RedirectToAction(nameof(GodownList));
+            }
+            _dbContext.Godowns.Remove(g);
+            _dbContext.SaveChanges();
+            TempData["ResultMessage"] = $"Godown '{g.GodownName}' deleted.";
+        }
+        return RedirectToAction(nameof(GodownList));
+    }
+
+    private void EnsureGodownsTableExists()
+    {
+        using var connection = new SqlConnection(_connectionString);
+        connection.Open();
+        using var cmd = new SqlCommand(@"
+IF OBJECT_ID('dbo.Godowns') IS NULL
+BEGIN
+    CREATE TABLE dbo.Godowns (
+        Id            INT IDENTITY(1,1) PRIMARY KEY,
+        BranchId      INT           NOT NULL,
+        Code          NVARCHAR(20)  NOT NULL,
+        GodownName    NVARCHAR(150) NOT NULL,
+        IsMainGodown  BIT           NOT NULL DEFAULT 0,
+        Address       NVARCHAR(500) NULL,
+        IsActive      BIT           NOT NULL DEFAULT 1,
+        CreatedAt     DATETIME2     NULL,
+        UpdatedAt     DATETIME2     NULL,
+        CONSTRAINT UQ_Godowns_BranchCode UNIQUE (BranchId, Code)
+    );
 END
 ", connection);
         cmd.ExecuteNonQuery();

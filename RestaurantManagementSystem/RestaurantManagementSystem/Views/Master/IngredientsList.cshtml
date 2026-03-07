@@ -1,11 +1,11 @@
 @model IEnumerable<RestaurantManagementSystem.Models.Ingredients>
 @{
     ViewData["Title"] = "Item Master";
-    var allUoms    = ViewBag.AllUoms    as Microsoft.AspNetCore.Mvc.Rendering.SelectList;
     var categories = ViewBag.Categories as Microsoft.AspNetCore.Mvc.Rendering.SelectList;
 }
 
 <div class="container-fluid px-0">
+
     <!-- Page Header -->
     <div class="d-flex align-items-center justify-content-between mb-3">
         <div>
@@ -14,335 +14,175 @@
             </h4>
             <small class="text-muted">Manage inventory ingredients / stock items with UOM mapping</small>
         </div>
-        <div>
-            <span class="badge bg-primary fs-6">@Model.Count() Items</span>
-        </div>
+        <a asp-action="IngredientsForm" asp-controller="Master" class="btn btn-success">
+            <i class="fas fa-plus me-1"></i> Add New Item
+        </a>
     </div>
 
     @if (TempData["ResultMessage"] != null)
     {
-        <div class="alert alert-info alert-dismissible fade show py-2" role="alert">
-            <i class="fas fa-info-circle me-2"></i>@TempData["ResultMessage"]
+        var msg = TempData["ResultMessage"]!.ToString()!;
+        var isError = msg.ToLower().Contains("fail") || msg.ToLower().Contains("cannot") || msg.ToLower().Contains("error");
+        <div class="alert @(isError ? "alert-danger" : "alert-success") alert-dismissible fade show py-2" role="alert">
+            <i class="fas @(isError ? "fa-exclamation-circle" : "fa-check-circle") me-2"></i>@msg
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
     }
 
-    <div class="row g-3">
-        <!-- ─── Left: Add / Edit Panel ─────────────────────────────────────── -->
-        <div class="col-lg-4 col-xl-3">
-            <div class="card shadow-sm border-0" id="itemFormCard">
-                <div class="card-header bg-success text-white py-2 d-flex align-items-center justify-content-between">
-                    <span id="formTitle"><i class="fas fa-plus-circle me-2"></i>Add New Item</span>
-                </div>
-                <div class="card-body p-3">
-                    <form method="post" asp-action="IngredientsForm" asp-controller="Master" id="ingredientForm">
-                        @Html.AntiForgeryToken()
-                        <input type="hidden" name="Id" id="f_Id" value="0" />
-                        <input type="hidden" name="IsActive" id="f_IsActive" value="true" />
+    <!-- Filters + Table Card -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-bottom py-2 d-flex align-items-center flex-wrap gap-2">
+            <span class="fw-semibold text-muted me-auto">
+                <i class="fas fa-list me-1"></i>All Items
+                <span class="badge bg-primary ms-1">@Model.Count()</span>
+            </span>
 
-                        <!-- Item Code + Name -->
-                        <div class="mb-2">
-                            <label class="form-label form-label-sm fw-semibold">Item Code</label>
-                            <input type="text" class="form-control form-control-sm text-uppercase" name="Code" id="f_Code"
-                                   maxlength="20" placeholder="e.g. TMT" />
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label form-label-sm fw-semibold">Item Name <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control form-control-sm" name="IngredientsName" id="f_Name"
-                                   required maxlength="150" placeholder="e.g. Tomato" />
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label form-label-sm fw-semibold">Display Name</label>
-                            <input type="text" class="form-control form-control-sm" name="DisplayName" id="f_DisplayName"
-                                   maxlength="150" placeholder="Short display label" />
-                        </div>
-
-                        <!-- Category -->
-                        <div class="mb-2">
-                            <label class="form-label form-label-sm fw-semibold">Category</label>
-                            <select class="form-select form-select-sm" name="ItemCategory" id="f_Category">
-                                <option value="">-- Select --</option>
-                                @if (categories != null)
-                                {
-                                    foreach (var c in categories)
-                                    {
-                                        <option value="@c.Value">@c.Text</option>
-                                    }
-                                }
-                            </select>
-                        </div>
-
-                        <!-- UOM Mapping -->
-                        <hr class="my-2" />
-                        <div class="text-muted small fw-semibold mb-1"><i class="fas fa-ruler me-1"></i>UOM Mapping</div>
-
-                        <div class="mb-2">
-                            <label class="form-label form-label-sm fw-semibold">Purchase UOM</label>
-                            <select class="form-select form-select-sm" name="PurchaseUOMId" id="f_PurchaseUOM">
-                                <option value="">-- Select --</option>
-                                @if (allUoms != null)
-                                {
-                                    foreach (var u in allUoms)
-                                    {
-                                        <option value="@u.Value">@u.Text</option>
-                                    }
-                                }
-                            </select>
-                            <div class="form-text">UOM used when ordering / purchasing (e.g. KG)</div>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label form-label-sm fw-semibold">Recipe UOM</label>
-                            <select class="form-select form-select-sm" name="RecipeUOMId" id="f_RecipeUOM">
-                                <option value="">-- Select --</option>
-                                @if (allUoms != null)
-                                {
-                                    foreach (var u in allUoms)
-                                    {
-                                        <option value="@u.Value">@u.Text</option>
-                                    }
-                                }
-                            </select>
-                            <div class="form-text">UOM used in BOM / recipes (e.g. GRM)</div>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label form-label-sm fw-semibold">Purchase → Recipe Factor</label>
-                            <input type="number" class="form-control form-control-sm" name="PurchaseToRecipeFactor" id="f_Factor"
-                                   step="0.000001" min="0" placeholder="e.g. 1000 (1 KG = 1000 GRM)" />
-                            <div class="form-text">How many Recipe units = 1 Purchase unit</div>
-                        </div>
-
-                        <!-- Costing -->
-                        <hr class="my-2" />
-                        <div class="text-muted small fw-semibold mb-1"><i class="fas fa-indian-rupee-sign me-1"></i>Costing</div>
-                        <div class="mb-2">
-                            <label class="form-label form-label-sm fw-semibold">Standard Cost <small class="text-muted">(per Purchase UOM)</small></label>
-                            <input type="number" class="form-control form-control-sm" name="StandardCost" id="f_Cost"
-                                   step="0.01" min="0" placeholder="0.00" />
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label form-label-sm fw-semibold">Reorder Level <small class="text-muted">(Recipe UOM qty)</small></label>
-                            <input type="number" class="form-control form-control-sm" name="ReorderLevel" id="f_Reorder"
-                                   step="0.001" min="0" placeholder="0" />
-                        </div>
-
-                        <!-- Description -->
-                        <div class="mb-3">
-                            <label class="form-label form-label-sm fw-semibold">Description</label>
-                            <textarea class="form-control form-control-sm" name="Description" id="f_Desc"
-                                      rows="2" maxlength="500" placeholder="Optional notes..."></textarea>
-                        </div>
-
-                        <div class="d-grid gap-2 d-flex">
-                            <button type="submit" class="btn btn-success btn-sm flex-fill" id="btnSave">
-                                <i class="fas fa-save me-1"></i>Save Item
-                            </button>
-                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetForm()">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-
-        <!-- ─── Right: Item Table ──────────────────────────────────────────── -->
-        <div class="col-lg-8 col-xl-9">
-            <div class="card shadow-sm border-0">
-                <div class="card-header bg-white border-bottom py-2 d-flex align-items-center gap-2 flex-wrap">
-                    <span class="fw-semibold text-muted me-auto"><i class="fas fa-list me-1"></i>All Items</span>
-
-                    <!-- Filter by Category -->
-                    <select class="form-select form-select-sm" id="filterCategory" style="width:160px;">
-                        <option value="">All Categories</option>
-                        @if (categories != null)
-                        {
-                            foreach (var c in categories)
-                            {
-                                <option value="@c.Value">@c.Text</option>
-                            }
-                        }
-                    </select>
-                    <!-- Filter by Status -->
-                    <select class="form-select form-select-sm" id="filterStatus" style="width:120px;">
-                        <option value="">All Status</option>
-                        <option value="Active">Active</option>
-                        <option value="Inactive">Inactive</option>
-                    </select>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table id="tblIngredients" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
-                            <thead class="table-light small text-uppercase text-muted">
-                                <tr>
-                                    <th class="ps-3">Code</th>
-                                    <th>Item Name</th>
-                                    <th>Category</th>
-                                    <th>Purchase UOM</th>
-                                    <th>Recipe UOM</th>
-                                    <th class="text-end">Factor</th>
-                                    <th class="text-end">Std Cost</th>
-                                    <th class="text-center">Status</th>
-                                    <th class="text-center pe-3">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var item in Model)
-                                {
-                                    <tr>
-                                        <td class="ps-3">
-                                            @if (!string.IsNullOrEmpty(item.Code))
-                                            {
-                                                <span class="badge bg-light text-dark border font-monospace">@item.Code</span>
-                                            }
-                                        </td>
-                                        <td>
-                                            <div class="fw-semibold">@item.IngredientsName</div>
-                                            @if (!string.IsNullOrEmpty(item.DisplayName) && item.DisplayName != item.IngredientsName)
-                                            {
-                                                <small class="text-muted">@item.DisplayName</small>
-                                            }
-                                        </td>
-                                        <td>
-                                            @if (!string.IsNullOrEmpty(item.ItemCategory))
-                                            {
-                                                <span class="badge bg-secondary bg-opacity-10 text-secondary">@item.ItemCategory</span>
-                                            }
-                                        </td>
-                                        <td>
-                                            @if (!string.IsNullOrEmpty(item.PurchaseUOMCode))
-                                            {
-                                                <span class="fw-bold text-primary">@item.PurchaseUOMCode</span>
-                                                <small class="text-muted d-block">@item.PurchaseUOMName</small>
-                                            }
-                                            else { <span class="text-muted">—</span> }
-                                        </td>
-                                        <td>
-                                            @if (!string.IsNullOrEmpty(item.RecipeUOMCode))
-                                            {
-                                                <span class="fw-bold text-info">@item.RecipeUOMCode</span>
-                                                <small class="text-muted d-block">@item.RecipeUOMName</small>
-                                            }
-                                            else { <span class="text-muted">—</span> }
-                                        </td>
-                                        <td class="text-end font-monospace small">
-                                            @if (item.PurchaseToRecipeFactor.HasValue && item.PurchaseToRecipeFactor != 1)
-                                            {
-                                                @item.PurchaseToRecipeFactor.Value.ToString("G")
-                                            }
-                                            else { <span class="text-muted">1</span> }
-                                        </td>
-                                        <td class="text-end">
-                                            @if (item.StandardCost.HasValue)
-                                            {
-                                                <span>₹ @item.StandardCost.Value.ToString("0.####")</span>
-                                            }
-                                            else { <span class="text-muted">—</span> }
-                                        </td>
-                                        <td class="text-center">
-                                            @if (item.IsActive)
-                                            {
-                                                <span class="badge bg-success-subtle text-success">Active</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="badge bg-secondary-subtle text-secondary">Inactive</span>
-                                            }
-                                        </td>
-                                        <td class="text-center pe-3">
-                                            <button class="btn btn-outline-primary btn-sm py-0 px-2"
-                                                    title="Edit" onclick="editItem(@item.Id, '@Html.Raw(item.IngredientsName)', '@item.DisplayName', '@item.Code',
-                                                    '@item.ItemCategory', '@item.Description',
-                                                    @(item.PurchaseUOMId?.ToString() ?? "null"), @(item.RecipeUOMId?.ToString() ?? "null"),
-                                                    '@(item.PurchaseToRecipeFactor?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")',
-                                                    '@(item.StandardCost?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")',
-                                                    '@(item.ReorderLevel?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")',
-                                                    @(item.IsActive ? "true" : "false"))">
-                                                <i class="fas fa-edit"></i>
-                                            </button>
-                                            <form method="post" asp-action="ToggleIngredientActive" asp-controller="Master" class="d-inline">
-                                                @Html.AntiForgeryToken()
-                                                <input type="hidden" name="id" value="@item.Id" />
-                                                <button type="submit" class="btn btn-sm py-0 px-2 @(item.IsActive ? "btn-outline-warning" : "btn-outline-success")"
-                                                        title="@(item.IsActive ? "Deactivate" : "Activate")">
-                                                    <i class="fas @(item.IsActive ? "fa-toggle-off" : "fa-toggle-on")"></i>
-                                                </button>
-                                            </form>
-                                            <form method="post" asp-action="DeleteIngredient" asp-controller="Master" class="d-inline"
-                                                  onsubmit="return confirm('Delete @Html.Raw(item.IngredientsName)? This cannot be undone.');">
-                                                @Html.AntiForgeryToken()
-                                                <input type="hidden" name="id" value="@item.Id" />
-                                                <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete">
-                                                    <i class="fas fa-trash"></i>
-                                                </button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                @if (!Model.Any())
+            <!-- Category Filter -->
+            <select class="form-select form-select-sm" id="filterCategory" style="width:170px;">
+                <option value="">All Categories</option>
+                @if (categories != null)
                 {
-                    <div class="text-center text-muted py-4">
-                        <i class="fas fa-box-open fa-2x mb-2 d-block"></i>No items yet. Add the first item using the form on the left.
-                    </div>
+                    foreach (var c in categories)
+                    {
+                        <option value="@c.Value">@c.Text</option>
+                    }
                 }
+            </select>
+
+            <!-- Status Filter -->
+            <select class="form-select form-select-sm" id="filterStatus" style="width:120px;">
+                <option value="">All Status</option>
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+            </select>
+        </div>
+
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblItems" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">Code</th>
+                            <th>Item Name</th>
+                            <th>Category</th>
+                            <th>Purchase UOM</th>
+                            <th>Recipe UOM</th>
+                            <th class="text-end">Factor</th>
+                            <th class="text-end">Std Cost</th>
+                            <th class="text-center">Status</th>
+                            <th class="text-center pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Model)
+                        {
+                            <tr>
+                                <td class="ps-3">
+                                    @if (!string.IsNullOrEmpty(item.Code))
+                                    {
+                                        <span class="badge bg-light text-dark border font-monospace">@item.Code</span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="fw-semibold">@item.IngredientsName</div>
+                                    @if (!string.IsNullOrEmpty(item.DisplayName) && item.DisplayName != item.IngredientsName)
+                                    {
+                                        <small class="text-muted">@item.DisplayName</small>
+                                    }
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(item.ItemCategory))
+                                    {
+                                        <span class="badge bg-secondary bg-opacity-10 text-secondary">@item.ItemCategory</span>
+                                    }
+                                    else { <span class="text-muted">—</span> }
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(item.PurchaseUOMCode))
+                                    {
+                                        <span class="fw-bold text-primary">@item.PurchaseUOMCode</span>
+                                        <small class="text-muted d-block">@item.PurchaseUOMName</small>
+                                    }
+                                    else { <span class="text-muted">—</span> }
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(item.RecipeUOMCode))
+                                    {
+                                        <span class="fw-bold text-info">@item.RecipeUOMCode</span>
+                                        <small class="text-muted d-block">@item.RecipeUOMName</small>
+                                    }
+                                    else { <span class="text-muted">—</span> }
+                                </td>
+                                <td class="text-end font-monospace small">
+                                    @if (item.PurchaseToRecipeFactor.HasValue && item.PurchaseToRecipeFactor != 1)
+                                    { @item.PurchaseToRecipeFactor.Value.ToString("G") }
+                                    else { <span class="text-muted">1</span> }
+                                </td>
+                                <td class="text-end">
+                                    @if (item.StandardCost.HasValue)
+                                    { <span>&#8377; @item.StandardCost.Value.ToString("0.##")</span> }
+                                    else { <span class="text-muted">—</span> }
+                                </td>
+                                <td class="text-center">
+                                    @if (item.IsActive)
+                                    { <span class="badge bg-success-subtle text-success">Active</span> }
+                                    else
+                                    { <span class="badge bg-secondary-subtle text-secondary">Inactive</span> }
+                                </td>
+                                <td class="text-center pe-3">
+                                    <a asp-action="IngredientsForm" asp-controller="Master" asp-route-id="@item.Id"
+                                       class="btn btn-outline-primary btn-sm py-0 px-2" title="Edit">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                    <form method="post" asp-action="DeleteIngredient" asp-controller="Master" class="d-inline"
+                                          onsubmit="return confirm('Delete @Html.Raw(System.Web.HttpUtility.JavaScriptStringEncode(item.IngredientsName))? This cannot be undone.')">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@item.Id" />
+                                        <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
             </div>
         </div>
+
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-box-open fa-3x mb-3 d-block opacity-25"></i>
+                <p class="mb-2">No items found.</p>
+                <a asp-action="IngredientsForm" asp-controller="Master" class="btn btn-success btn-sm">
+                    <i class="fas fa-plus me-1"></i>Add First Item
+                </a>
+            </div>
+        }
     </div>
 </div>
 
 @section Scripts {
 <script>
-    // DataTables
     $(document).ready(function () {
-        var table = $('#tblIngredients').DataTable({
+        var table = $('#tblItems').DataTable({
             paging: true,
-            pageLength: 20,
+            pageLength: 25,
             searching: true,
             ordering: true,
             order: [[1, 'asc']],
             columnDefs: [{ orderable: false, targets: [8] }],
-            language: { search: 'Search items:' }
+            language: { search: 'Search:' }
         });
 
-        // Category filter
         $('#filterCategory').on('change', function () {
             table.column(2).search(this.value).draw();
         });
-
-        // Status filter
         $('#filterStatus').on('change', function () {
             table.column(7).search(this.value).draw();
         });
     });
-
-    function editItem(id, name, displayName, code, category, desc, purchaseUOMId, recipeUOMId, factor, cost, reorder, isActive) {
-        document.getElementById('f_Id').value = id;
-        document.getElementById('f_Code').value = code || '';
-        document.getElementById('f_Name').value = name;
-        document.getElementById('f_DisplayName').value = displayName || '';
-        document.getElementById('f_Category').value = category || '';
-        document.getElementById('f_Desc').value = desc || '';
-        document.getElementById('f_PurchaseUOM').value = purchaseUOMId || '';
-        document.getElementById('f_RecipeUOM').value = recipeUOMId || '';
-        document.getElementById('f_Factor').value = factor || '';
-        document.getElementById('f_Cost').value = cost || '';
-        document.getElementById('f_Reorder').value = reorder || '';
-        document.getElementById('f_IsActive').value = isActive ? 'true' : 'false';
-
-        document.getElementById('formTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Item';
-        document.getElementById('btnSave').innerHTML = '<i class="fas fa-save me-1"></i>Update Item';
-        document.getElementById('itemFormCard').scrollIntoView({ behavior: 'smooth' });
-    }
-
-    function resetForm() {
-        document.getElementById('ingredientForm').reset();
-        document.getElementById('f_Id').value = '0';
-        document.getElementById('f_IsActive').value = 'true';
-        document.getElementById('formTitle').innerHTML = '<i class="fas fa-plus-circle me-2"></i>Add New Item';
-        document.getElementById('btnSave').innerHTML = '<i class="fas fa-save me-1"></i>Save Item';
-    }
 </script>
 }
+

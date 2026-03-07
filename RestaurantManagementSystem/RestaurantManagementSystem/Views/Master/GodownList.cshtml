@@ -1,0 +1,162 @@
+@model IEnumerable<RestaurantManagementSystem.Models.Godown>
+@{
+    ViewData["Title"] = "Godown Master";
+}
+
+<div class="container-fluid px-0">
+
+    <!-- Page Header -->
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold text-dark">
+                <i class="fas fa-warehouse me-2 text-info"></i>Godown Master
+            </h4>
+            <small class="text-muted">Manage branch-wise godowns / warehouses</small>
+        </div>
+        <a asp-action="GodownForm" asp-controller="Master" class="btn btn-info text-white">
+            <i class="fas fa-plus me-1"></i> Add New Godown
+        </a>
+    </div>
+
+    @if (TempData["ResultMessage"] != null)
+    {
+        var msg = TempData["ResultMessage"]!.ToString()!;
+        var isError = msg.ToLower().Contains("fail") || msg.ToLower().Contains("cannot") || msg.ToLower().Contains("error");
+        <div class="alert @(isError ? "alert-danger" : "alert-success") alert-dismissible fade show py-2" role="alert">
+            <i class="fas @(isError ? "fa-exclamation-circle" : "fa-check-circle") me-2"></i>@msg
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <!-- Filters + Table Card -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-bottom py-2 d-flex align-items-center flex-wrap gap-2">
+            <span class="fw-semibold text-muted me-auto">
+                <i class="fas fa-list me-1"></i>All Godowns
+                <span class="badge bg-info ms-1">@Model.Count()</span>
+            </span>
+
+            <!-- Status Filter -->
+            <select class="form-select form-select-sm" id="filterStatus" style="width:130px;">
+                <option value="">All Status</option>
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+            </select>
+        </div>
+
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblGodowns" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">Code</th>
+                            <th>Godown Name</th>
+                            <th class="text-center">Main Godown</th>
+                            <th>Address</th>
+                            <th class="text-center">Status</th>
+                            <th class="text-center pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Model)
+                        {
+                            <tr>
+                                <td class="ps-3">
+                                    <span class="badge bg-light text-dark border font-monospace">@item.Code</span>
+                                </td>
+                                <td>
+                                    <div class="fw-semibold">@item.GodownName</div>
+                                </td>
+                                <td class="text-center">
+                                    @if (item.IsMainGodown)
+                                    {
+                                        <span class="badge bg-warning text-dark">
+                                            <i class="fas fa-star me-1"></i>Main
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(item.Address))
+                                    {
+                                        <span class="text-muted small" title="@item.Address">
+                                            @(item.Address.Length > 60 ? item.Address.Substring(0, 57) + "…" : item.Address)
+                                        </span>
+                                    }
+                                    else { <span class="text-muted">—</span> }
+                                </td>
+                                <td class="text-center">
+                                    @if (item.IsActive)
+                                    { <span class="badge bg-success-subtle text-success">Active</span> }
+                                    else
+                                    { <span class="badge bg-secondary-subtle text-secondary">Inactive</span> }
+                                </td>
+                                <td class="text-center pe-3">
+                                    <a asp-action="GodownForm" asp-controller="Master" asp-route-id="@item.Id"
+                                       class="btn btn-outline-primary btn-sm py-0 px-2" title="Edit">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                    <form method="post" asp-action="GodownToggleActive" asp-controller="Master"
+                                          class="d-inline" title="@(item.IsActive ? "Deactivate" : "Activate")">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@item.Id" />
+                                        <button type="submit"
+                                                class="btn btn-sm py-0 px-2 @(item.IsActive ? "btn-outline-warning" : "btn-outline-success")">
+                                            <i class="fas @(item.IsActive ? "fa-ban" : "fa-check")"></i>
+                                        </button>
+                                    </form>
+                                    @if (!item.IsMainGodown)
+                                    {
+                                        <form method="post" asp-action="GodownDelete" asp-controller="Master"
+                                              class="d-inline"
+                                              onsubmit="return confirm('Delete godown \'@Html.Raw(System.Web.HttpUtility.JavaScriptStringEncode(item.GodownName))\'? This cannot be undone.')">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@item.Id" />
+                                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-warehouse fa-3x mb-3 d-block opacity-25"></i>
+                <p class="mb-2">No godowns found for this branch.</p>
+                <a asp-action="GodownForm" asp-controller="Master" class="btn btn-info text-white btn-sm">
+                    <i class="fas fa-plus me-1"></i>Add First Godown
+                </a>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        var table = $('#tblGodowns').DataTable({
+            paging: true,
+            pageLength: 25,
+            searching: true,
+            ordering: true,
+            order: [[2, 'desc'], [1, 'asc']],
+            columnDefs: [{ orderable: false, targets: [5] }],
+            language: { search: 'Search:' }
+        });
+
+        $('#filterStatus').on('change', function () {
+            table.column(4).search(this.value).draw();
+        });
+    });
+</script>
+}

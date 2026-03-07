@@ -44,6 +44,7 @@ namespace RestaurantManagementSystem.Data
         // Stock Masters
         public DbSet<UomMaster> UomMasters { get; set; } = null!;
         public DbSet<StockItemCategory> StockItemCategories { get; set; } = null!;
+        public DbSet<Godown> Godowns { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -204,6 +205,19 @@ namespace RestaurantManagementSystem.Data
                 entity.Property(e => e.IsActive).HasColumnName("IsActive").HasDefaultValue(true);
                 entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
                 entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
+            });
+
+            // Configure Godown entity
+            modelBuilder.Entity<Godown>(entity =>
+            {
+                entity.ToTable("Godowns", "dbo");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Code).HasMaxLength(20).IsRequired();
+                entity.Property(e => e.GodownName).HasMaxLength(150).IsRequired();
+                entity.Property(e => e.Address).HasMaxLength(500);
+                entity.Property(e => e.IsActive).HasDefaultValue(true);
+                // Code must be unique within a branch
+                entity.HasIndex(e => new { e.BranchId, e.Code }).IsUnique();
             });
 
             // Configure MenuItemIngredient – add optional UOMId FK

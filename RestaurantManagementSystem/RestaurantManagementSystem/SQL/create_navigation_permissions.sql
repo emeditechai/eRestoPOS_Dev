@@ -132,7 +132,7 @@ VALUES
     ('NAV_MENU_RECIPES', 'NAV_MENU', 'All Recipes', NULL, NULL, 'Recipe', 'Index', NULL, NULL, 'fas fa-book compact-icon text-primary', 3, 1, 1, NULL, NULL, 0),
     ('NAV_MENU_CATEGORIES', 'NAV_MENU', 'Categories', NULL, NULL, 'Category', 'Index', NULL, NULL, 'fas fa-tags compact-icon text-primary', 4, 1, 1, NULL, NULL, 0),
     ('NAV_MENU_SUBCATEGORIES', 'NAV_MENU', 'Sub Categories', NULL, NULL, 'SubCategory', 'Index', NULL, NULL, 'fas fa-list-ul compact-icon text-primary', 5, 1, 1, NULL, NULL, 0),
-    ('NAV_MENU_INGREDIENTS', 'NAV_MENU', 'Ingredients', NULL, NULL, 'Master', 'IngredientsList', NULL, NULL, 'fas fa-carrot compact-icon text-primary', 6, 1, 1, NULL, NULL, 0),
+    ('NAV_MENU_INGREDIENTS', 'NAV_MENU', 'Ingredients', NULL, NULL, 'Master', 'IngredientsList', NULL, NULL, 'fas fa-carrot compact-icon text-primary', 6, 1, 0, NULL, NULL, 0),
     ('NAV_MENU_QR', 'NAV_MENU', 'QR Code Menu', NULL, NULL, 'MenuQR', 'Index', NULL, NULL, 'fas fa-qrcode compact-icon text-success', 7, 1, 1, NULL, NULL, 0),
     ('NAV_SETTINGS', NULL, 'Settings', 'Administration settings', NULL, NULL, NULL, NULL, NULL, 'fas fa-cogs compact-icon', 9, 1, 1, '#f8b133', NULL, 0),
     ('NAV_SETTINGS_RESTAURANT', 'NAV_SETTINGS', 'Restaurant Settings', NULL, NULL, 'Settings', 'Index', NULL, NULL, 'fas fa-store compact-icon text-primary', 1, 1, 1, NULL, NULL, 0),

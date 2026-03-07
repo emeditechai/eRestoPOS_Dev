@@ -1,48 +1,256 @@
 @model RestaurantManagementSystem.Models.Ingredients
 @{
-    ViewData["Title"] = Model.Id == 0 ? "Add Ingredient" : (ViewBag.IsView == true ? "View Ingredient" : "Edit Ingredient");
+    bool isNew  = Model.Id == 0;
     bool isView = ViewBag.IsView == true;
+    ViewData["Title"] = isNew ? "Add New Item" : (isView ? "View Item" : "Edit Item");
+    var allUoms    = ViewBag.AllUoms    as Microsoft.AspNetCore.Mvc.Rendering.SelectList;
+    var categories = ViewBag.Categories as Microsoft.AspNetCore.Mvc.Rendering.SelectList;
 }
 
-<h2 class="mb-4">@ViewData["Title"]</h2>
-<form method="post">
-    <input type="hidden" asp-for="Id" />
-    <div class="mb-3">
-        <label asp-for="IngredientsName" class="form-label">Ingredients Name <span style="color:red">*</span></label>
-        @if (isView)
-        {
-            <input asp-for="IngredientsName" class="form-control" required readonly />
-        }
-        else
-        {
-            <input asp-for="IngredientsName" class="form-control" required />
-        }
+<div class="container-fluid px-0" style="max-width:900px">
+
+    <!-- Breadcrumb + Header -->
+    <div class="d-flex align-items-center gap-2 mb-1">
+        <a asp-action="IngredientsList" asp-controller="Master" class="text-muted text-decoration-none small">
+            <i class="fas fa-boxes-stacked me-1"></i>Item Master
+        </a>
+        <i class="fas fa-chevron-right text-muted" style="font-size:.65rem"></i>
+        <span class="small text-dark fw-semibold">@ViewData["Title"]</span>
     </div>
-    <div class="mb-3">
-        <label asp-for="DisplayName" class="form-label">Display Name</label>
-        @if (isView)
-        {
-            <input asp-for="DisplayName" class="form-control" readonly />
-        }
-        else
-        {
-            <input asp-for="DisplayName" class="form-control" />
-        }
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h4 class="mb-0 fw-bold">
+            <i class="fas @(isNew ? "fa-plus-circle text-success" : "fa-edit text-primary") me-2"></i>@ViewData["Title"]
+        </h4>
+        <a asp-action="IngredientsList" asp-controller="Master" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Back to List
+        </a>
     </div>
-    <div class="mb-3">
-        <label asp-for="Code" class="form-label">Code</label>
-        @if (isView)
-        {
-            <input asp-for="Code" class="form-control" readonly />
-        }
-        else
-        {
-            <input asp-for="Code" class="form-control" />
-        }
-    </div>
-    @if (!isView)
+
+    @if (TempData["ResultMessage"] != null)
     {
-        <button type="submit" class="btn btn-primary">Save</button>
+        <div class="alert alert-info alert-dismissible fade show py-2">
+            @TempData["ResultMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
     }
-    <a href="@Url.Action("IngredientsList", "Master")" class="btn btn-secondary">Back</a>
-</form>
+
+    <form method="post" asp-action="IngredientsForm" asp-controller="Master">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="Id" />
+
+        <div class="row g-3">
+
+            <!-- ── Left Column ──────────────────────────────────────────────── -->
+            <div class="col-md-7">
+
+                <!-- Basic Info -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-light py-2 fw-semibold">
+                        <i class="fas fa-info-circle me-2 text-primary"></i>Basic Information
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-sm-4">
+                                <label asp-for="Code" class="form-label fw-semibold">Item Code</label>
+                                <input asp-for="Code" class="form-control text-uppercase" maxlength="20"
+                                       placeholder="e.g. TMT" />
+                            </div>
+                            <div class="col-sm-8">
+                                <label asp-for="IngredientsName" class="form-label fw-semibold">
+                                    Item Name <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="IngredientsName" class="form-control" required maxlength="150"
+                                       placeholder="e.g. Tomato" />
+                                <span asp-validation-for="IngredientsName" class="text-danger small"></span>
+                            </div>
+                            <div class="col-12">
+                                <label asp-for="DisplayName" class="form-label fw-semibold">Display Name</label>
+                                <input asp-for="DisplayName" class="form-control" maxlength="150"
+                                       placeholder="Short label for display (optional)" />
+                            </div>
+                            <div class="col-12">
+                                <label asp-for="ItemCategory" class="form-label fw-semibold">Category</label>
+                                @if (isView)
+                                {
+                                    <input value="@Model.ItemCategory" class="form-control" readonly />
+                                }
+                                else
+                                {
+                                    <select asp-for="ItemCategory" asp-items="categories" class="form-select">
+                                        <option value="">-- Select Category --</option>
+                                    </select>
+                                }
+                            </div>
+                            <div class="col-12">
+                                <label asp-for="Description" class="form-label fw-semibold">Description</label>
+                                <textarea asp-for="Description" class="form-control" rows="2" maxlength="500"
+                                          placeholder="Optional notes..."></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- UOM Mapping -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-light py-2 fw-semibold">
+                        <i class="fas fa-ruler-combined me-2 text-info"></i>UOM Mapping
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <label asp-for="PurchaseUOMId" class="form-label fw-semibold">Purchase UOM</label>
+                                @if (isView)
+                                {
+                                    <input value="@(Model.PurchaseUOMCode != null ? Model.PurchaseUOMCode + " - " + Model.PurchaseUOMName : "")" class="form-control" readonly />
+                                }
+                                else
+                                {
+                                    <select asp-for="PurchaseUOMId" asp-items="allUoms" class="form-select">
+                                        <option value="">-- Select --</option>
+                                    </select>
+                                }
+                                <div class="form-text">UOM used when ordering / purchasing (e.g. KG)</div>
+                            </div>
+                            <div class="col-sm-6">
+                                <label asp-for="RecipeUOMId" class="form-label fw-semibold">Recipe UOM</label>
+                                @if (isView)
+                                {
+                                    <input value="@(Model.RecipeUOMCode != null ? Model.RecipeUOMCode + " - " + Model.RecipeUOMName : "")" class="form-control" readonly />
+                                }
+                                else
+                                {
+                                    <select asp-for="RecipeUOMId" asp-items="allUoms" class="form-select">
+                                        <option value="">-- Select --</option>
+                                    </select>
+                                }
+                                <div class="form-text">UOM used in BOM / recipes (e.g. GRM)</div>
+                            </div>
+                            <div class="col-12">
+                                <label asp-for="PurchaseToRecipeFactor" class="form-label fw-semibold">
+                                    Purchase → Recipe Conversion Factor
+                                </label>
+                                <input asp-for="PurchaseToRecipeFactor" type="number" step="0.000001" min="0"
+                                       class="form-control" placeholder="e.g. 1000 means 1 KG = 1000 GRM" />
+                                <div class="form-text">How many Recipe UOM units = 1 Purchase UOM unit</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- ── Right Column ─────────────────────────────────────────────── -->
+            <div class="col-md-5">
+
+                <!-- Costing -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-light py-2 fw-semibold">
+                        <i class="fas fa-indian-rupee-sign me-2 text-warning"></i>Costing
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label asp-for="StandardCost" class="form-label fw-semibold">
+                                Standard Cost <small class="text-muted fw-normal">(per Purchase UOM)</small>
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">&#8377;</span>
+                                <input asp-for="StandardCost" type="number" step="0.01" min="0"
+                                       class="form-control" placeholder="0.00" />
+                            </div>
+                        </div>
+                        <div>
+                            <label asp-for="ReorderLevel" class="form-label fw-semibold">
+                                Reorder Level <small class="text-muted fw-normal">(Recipe UOM qty)</small>
+                            </label>
+                            <input asp-for="ReorderLevel" type="number" step="0.001" min="0"
+                                   class="form-control" placeholder="0" />
+                            <div class="form-text">Alert when stock falls below this quantity</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-light py-2 fw-semibold">
+                        <i class="fas fa-toggle-on me-2 text-success"></i>Status
+                    </div>
+                    <div class="card-body">
+                        @if (isView)
+                        {
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge fs-6 @(Model.IsActive ? "bg-success" : "bg-secondary")">
+                                    @(Model.IsActive ? "Active" : "Inactive")
+                                </span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="form-check form-switch">
+                                <input asp-for="IsActive" class="form-check-input" type="checkbox"
+                                       role="switch" id="switchActive" style="width:3em;height:1.5em" />
+                                <label class="form-check-label ms-2 fw-semibold" for="switchActive">
+                                    <span id="statusLabel" class="@(Model.IsActive ? "text-success" : "text-secondary")">
+                                        @(Model.IsActive ? "Active" : "Inactive")
+                                    </span>
+                                </label>
+                            </div>
+                            <div class="form-text mt-1">
+                                Inactive items are hidden from recipe/BOM selection.
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Audit -->
+                @if (!isNew)
+                {
+                    <div class="card border-0 bg-light mb-3">
+                        <div class="card-body py-2 px-3">
+                            <div class="small text-muted">
+                                <div><i class="fas fa-clock me-1"></i><strong>Created:</strong> @(Model.CreatedAt?.ToString("dd MMM yyyy HH:mm") ?? "—")</div>
+                                @if (Model.UpdatedAt.HasValue)
+                                {
+                                    <div><i class="fas fa-pen me-1"></i><strong>Updated:</strong> @Model.UpdatedAt.Value.ToString("dd MMM yyyy HH:mm")</div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        @if (!isView)
+        {
+            <div class="d-flex gap-2 mt-1">
+                <button type="submit" class="btn btn-success px-4">
+                    <i class="fas fa-save me-1"></i>@(isNew ? "Save Item" : "Update Item")
+                </button>
+                <a asp-action="IngredientsList" asp-controller="Master" class="btn btn-outline-secondary">
+                    <i class="fas fa-times me-1"></i>Cancel
+                </a>
+            </div>
+        }
+    </form>
+</div>
+
+@if (!isView)
+{
+    @section Scripts {
+    <script>
+        // Active/Inactive toggle label
+        document.getElementById('switchActive')?.addEventListener('change', function () {
+            var lbl = document.getElementById('statusLabel');
+            if (this.checked) {
+                lbl.textContent = 'Active';
+                lbl.className = 'text-success';
+            } else {
+                lbl.textContent = 'Inactive';
+                lbl.className = 'text-secondary';
+            }
+        });
+    </script>
+    }
+}

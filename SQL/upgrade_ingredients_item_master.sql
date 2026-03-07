@@ -194,6 +194,10 @@ BEGIN
     END
 END
 
+-- ─── 8. Hide Ingredients entry from Menu nav (moved to Stocks) ──────────────
+IF OBJECT_ID('dbo.NavigationMenus') IS NOT NULL
+    UPDATE dbo.NavigationMenus SET IsVisible = 0 WHERE Code = 'NAV_MENU_INGREDIENTS';
+
 PRINT '=== upgrade_ingredients_item_master.sql completed successfully ===';
 GO
 

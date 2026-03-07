@@ -124,6 +124,9 @@ namespace RestaurantManagementSystem.Services
 -- Ensure NavigationMenus table exists before trying to insert
 IF OBJECT_ID(N'dbo.NavigationMenus', N'U') IS NULL RETURN;
 
+-- Hide Ingredients from Menu nav (it lives under Stocks > Item Master now)
+UPDATE dbo.NavigationMenus SET IsVisible = 0 WHERE Code = 'NAV_MENU_INGREDIENTS';
+
 -- Insert NAV_STOCKS parent
 IF NOT EXISTS (SELECT 1 FROM dbo.NavigationMenus WHERE Code = 'NAV_STOCKS')
 BEGIN
@@ -178,6 +181,20 @@ BEGIN
             3, 1, 1, NULL, NULL, 0);
 END
 
+-- Insert NAV_STOCKS_GODOWN child (Godown Master)
+IF NOT EXISTS (SELECT 1 FROM dbo.NavigationMenus WHERE Code = 'NAV_STOCKS_GODOWN')
+BEGIN
+    INSERT INTO dbo.NavigationMenus
+           (Code, ParentCode, DisplayName, Description, Area,
+            ControllerName, ActionName, RouteValues, CustomUrl, IconCss,
+            DisplayOrder, IsActive, IsVisible, ThemeColor, ShortcutHint, OpenInNewTab)
+    VALUES ('NAV_STOCKS_GODOWN', 'NAV_STOCKS', 'Godown Master',
+            'Manage branch-wise godowns / warehouses', NULL,
+            'Master', 'GodownList', NULL, NULL,
+            'fas fa-warehouse compact-icon text-info',
+            4, 1, 1, NULL, NULL, 0);
+END
+
 -- Grant full permissions to Administrator role for the new nodes
 DECLARE @AdminRoleId INT = (SELECT TOP 1 Id FROM dbo.Roles WHERE Name = 'Administrator');
 IF @AdminRoleId IS NOT NULL
@@ -188,7 +205,7 @@ BEGIN
     SELECT @AdminRoleId, nm.Id, 1, 1, 1, 1, 1, 1, 1,
            SYSUTCDATETIME(), 0, SYSUTCDATETIME(), 0
     FROM dbo.NavigationMenus nm
-    WHERE nm.Code IN ('NAV_STOCKS', 'NAV_STOCKS_UOM', 'NAV_STOCKS_ITEMS', 'NAV_STOCKS_CATEGORIES')
+    WHERE nm.Code IN ('NAV_STOCKS', 'NAV_STOCKS_UOM', 'NAV_STOCKS_ITEMS', 'NAV_STOCKS_CATEGORIES', 'NAV_STOCKS_GODOWN')
       AND NOT EXISTS (
           SELECT 1 FROM dbo.RoleMenuPermissions rmp
            WHERE rmp.RoleId = @AdminRoleId AND rmp.MenuId = nm.Id);
