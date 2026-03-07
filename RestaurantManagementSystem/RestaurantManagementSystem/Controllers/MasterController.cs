@@ -89,7 +89,7 @@ namespace RestaurantManagementSystem.Controllers
         {
             connection.Open();
             using (var cmd = new SqlCommand(@"
-SELECT i.Id, i.BranchId, i.IngredientsName, i.DisplayName, i.Code,
+SELECT i.Id, i.IngredientsName, i.DisplayName, i.Code,
        i.ItemCategory, i.Description,
        i.PurchaseUOMId, p.UOMCode AS PurchaseUOMCode, p.UOMName AS PurchaseUOMName,
        i.RecipeUOMId,   r.UOMCode AS RecipeUOMCode,   r.UOMName AS RecipeUOMName,
@@ -107,7 +107,6 @@ ORDER  BY i.IngredientsName", connection))
                     ingredients.Add(new Ingredients
                     {
                         Id                     = reader.GetInt32(reader.GetOrdinal("Id")),
-                        BranchId               = reader["BranchId"] == DBNull.Value ? 0 : reader.GetInt32(reader.GetOrdinal("BranchId")),
                         IngredientsName        = reader["IngredientsName"]?.ToString() ?? "",
                         DisplayName            = reader["DisplayName"]?.ToString(),
                         Code                   = reader["Code"]?.ToString(),
@@ -165,7 +164,6 @@ ORDER  BY i.IngredientsName", connection))
         {
             if (model.Id == 0)
             {
-                model.BranchId  = 0;   // global – not branch-specific
                 model.CreatedAt = DateTime.UtcNow;
                 model.UpdatedAt = null;
                 _dbContext.Ingredients.Add(model);

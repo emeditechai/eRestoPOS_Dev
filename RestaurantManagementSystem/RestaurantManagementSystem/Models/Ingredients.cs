@@ -15,7 +15,6 @@ namespace RestaurantManagementSystem.Models
     {
         // ── Core (original columns – never removed) ───────────────────────────
         public int Id { get; set; }
-        public int? BranchId { get; set; }
 
         [Required]
         [StringLength(150)]
