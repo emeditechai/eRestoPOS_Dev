@@ -1,0 +1,186 @@
+@model IEnumerable<RestaurantManagementSystem.Models.PartyMaster>
+@{
+    ViewData["Title"] = "Party Master";
+}
+
+<div class="container-fluid px-0">
+
+    <!-- Page Header -->
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold text-dark">
+                <i class="fas fa-handshake me-2 text-purple" style="color:#7c3aed"></i>Party Master
+            </h4>
+            <small class="text-muted">Manage vendors, suppliers and traders</small>
+        </div>
+        <a asp-action="PartyForm" asp-controller="Master" class="btn btn-primary">
+            <i class="fas fa-plus me-1"></i> Add New Party
+        </a>
+    </div>
+
+    @if (TempData["ResultMessage"] != null)
+    {
+        var msg = TempData["ResultMessage"]!.ToString()!;
+        var isError = msg.ToLower().Contains("fail") || msg.ToLower().Contains("cannot") || msg.ToLower().Contains("error");
+        <div class="alert @(isError ? "alert-danger" : "alert-success") alert-dismissible fade show py-2" role="alert">
+            <i class="fas @(isError ? "fa-exclamation-circle" : "fa-check-circle") me-2"></i>@msg
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <!-- Table Card -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-bottom py-2 d-flex align-items-center flex-wrap gap-2">
+            <span class="fw-semibold text-muted me-auto">
+                <i class="fas fa-list me-1"></i>All Parties
+                <span class="badge bg-primary ms-1">@Model.Count()</span>
+            </span>
+
+            <!-- Type Filter -->
+            <select class="form-select form-select-sm" id="filterType" style="width:150px;">
+                <option value="">All Types</option>
+                <option value="Vendor">Vendor</option>
+                <option value="Supplier">Supplier</option>
+                <option value="Trader">Trader</option>
+            </select>
+
+            <!-- Status Filter -->
+            <select class="form-select form-select-sm" id="filterStatus" style="width:130px;">
+                <option value="">All Status</option>
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+            </select>
+        </div>
+
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblParties" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">Code</th>
+                            <th>Party Name</th>
+                            <th>Type</th>
+                            <th>Phone</th>
+                            <th>Email</th>
+                            <th class="text-center">Credit</th>
+                            <th class="text-end">Credit Limit</th>
+                            <th class="text-center">Status</th>
+                            <th class="text-center pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Model)
+                        {
+                            <tr>
+                                <td class="ps-3">
+                                    <span class="badge bg-light text-dark border font-monospace">@item.PartyCode</span>
+                                </td>
+                                <td>
+                                    <div class="fw-semibold">@item.PartyName</div>
+                                    @if (!string.IsNullOrWhiteSpace(item.Address))
+                                    {
+                                        <small class="text-muted">@(item.Address.Length > 40 ? item.Address.Substring(0, 37) + "…" : item.Address)</small>
+                                    }
+                                </td>
+                                <td>
+                                    @{
+                                        var typeBadge = item.PartyType switch {
+                                            "Vendor"   => "bg-info-subtle text-info",
+                                            "Supplier" => "bg-success-subtle text-success",
+                                            "Trader"   => "bg-warning-subtle text-warning",
+                                            _          => "bg-secondary-subtle text-secondary"
+                                        };
+                                    }
+                                    <span class="badge @typeBadge">@item.PartyType</span>
+                                </td>
+                                <td>
+                                    <a href="tel:@item.PhoneNumber" class="text-decoration-none text-dark">
+                                        <i class="fas fa-phone fa-xs me-1 text-muted"></i>@item.PhoneNumber
+                                    </a>
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(item.Email))
+                                    {
+                                        <a href="mailto:@item.Email" class="text-decoration-none small">@item.Email</a>
+                                    }
+                                    else { <span class="text-muted">—</span> }
+                                </td>
+                                <td class="text-center">
+                                    @if (item.IsCreditAllow)
+                                    { <i class="fas fa-check-circle text-success"></i> }
+                                    else
+                                    { <i class="fas fa-times-circle text-secondary opacity-50"></i> }
+                                </td>
+                                <td class="text-end font-monospace small">
+                                    @if (item.IsCreditAllow && item.AllowBalance.HasValue)
+                                    { <span>&#8377; @item.AllowBalance.Value.ToString("N2")</span> }
+                                    else { <span class="text-muted">—</span> }
+                                </td>
+                                <td class="text-center">
+                                    @if (item.IsActive)
+                                    { <span class="badge bg-success-subtle text-success">Active</span> }
+                                    else
+                                    { <span class="badge bg-secondary-subtle text-secondary">Inactive</span> }
+                                </td>
+                                <td class="text-center pe-3">
+                                    <a asp-action="PartyForm" asp-controller="Master" asp-route-id="@item.Id"
+                                       asp-route-isView="true"
+                                       class="btn btn-outline-secondary btn-sm py-0 px-2" title="View">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    <a asp-action="PartyForm" asp-controller="Master" asp-route-id="@item.Id"
+                                       class="btn btn-outline-primary btn-sm py-0 px-2" title="Edit">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                    <form method="post" asp-action="PartyDelete" asp-controller="Master"
+                                          class="d-inline"
+                                          onsubmit="return confirm('Delete party \'@Html.Raw(System.Web.HttpUtility.JavaScriptStringEncode(item.PartyName))\'? This cannot be undone.')">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@item.Id" />
+                                        <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-handshake fa-3x mb-3 d-block opacity-25"></i>
+                <p class="mb-2">No parties found.</p>
+                <a asp-action="PartyForm" asp-controller="Master" class="btn btn-primary btn-sm">
+                    <i class="fas fa-plus me-1"></i>Add First Party
+                </a>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        var table = $('#tblParties').DataTable({
+            paging: true,
+            pageLength: 25,
+            searching: true,
+            ordering: true,
+            order: [[1, 'asc']],
+            columnDefs: [{ orderable: false, targets: [8] }],
+            language: { search: 'Search:' }
+        });
+
+        $('#filterType').on('change', function () {
+            table.column(2).search(this.value).draw();
+        });
+        $('#filterStatus').on('change', function () {
+            table.column(7).search(this.value).draw();
+        });
+    });
+</script>
+}

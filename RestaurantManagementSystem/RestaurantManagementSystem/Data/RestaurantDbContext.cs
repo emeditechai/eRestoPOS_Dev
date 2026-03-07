@@ -45,6 +45,7 @@ namespace RestaurantManagementSystem.Data
         public DbSet<UomMaster> UomMasters { get; set; } = null!;
         public DbSet<StockItemCategory> StockItemCategories { get; set; } = null!;
         public DbSet<Godown> Godowns { get; set; } = null!;
+        public DbSet<PartyMaster> Parties { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -205,6 +206,23 @@ namespace RestaurantManagementSystem.Data
                 entity.Property(e => e.IsActive).HasColumnName("IsActive").HasDefaultValue(true);
                 entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
                 entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
+            });
+
+            // Configure PartyMaster entity
+            modelBuilder.Entity<PartyMaster>(entity =>
+            {
+                entity.ToTable("Parties", "dbo");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.PartyCode).HasMaxLength(20).IsRequired();
+                entity.Property(e => e.PartyName).HasMaxLength(200).IsRequired();
+                entity.Property(e => e.PartyType).HasMaxLength(20).IsRequired();
+                entity.Property(e => e.Email).HasMaxLength(200);
+                entity.Property(e => e.PhoneNumber).HasMaxLength(20).IsRequired();
+                entity.Property(e => e.Address).HasMaxLength(500);
+                entity.Property(e => e.PinCode).HasMaxLength(10);
+                entity.Property(e => e.AllowBalance).HasColumnType("decimal(18,2)");
+                entity.Property(e => e.IsActive).HasDefaultValue(true);
+                entity.HasIndex(e => e.PartyCode).IsUnique();
             });
 
             // Configure Godown entity

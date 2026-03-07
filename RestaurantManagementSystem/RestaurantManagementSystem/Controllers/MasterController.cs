@@ -576,6 +576,163 @@ END
         cmd.ExecuteNonQuery();
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  PARTY MASTER
+    // ═══════════════════════════════════════════════════════════════
+
+    public IActionResult PartyList()
+    {
+        EnsurePartiesTableExists();
+        var parties = _dbContext.Parties
+            .OrderBy(p => p.PartyName)
+            .ToList();
+        return View(parties);
+    }
+
+    [HttpGet]
+    public IActionResult PartyForm(int? id, bool isView = false)
+    {
+        EnsurePartiesTableExists();
+        PartyMaster model;
+        if (id.HasValue && id.Value > 0)
+        {
+            var existing = _dbContext.Parties.FirstOrDefault(p => p.Id == id.Value);
+            if (existing == null)
+            {
+                TempData["ResultMessage"] = "Party not found.";
+                return RedirectToAction(nameof(PartyList));
+            }
+            model = existing;
+        }
+        else
+        {
+            model = new PartyMaster { IsActive = true };
+            isView = false; // cannot view a new record
+        }
+        ViewBag.IsView = isView;
+        return View(model);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult PartyForm(PartyMaster model)
+    {
+        EnsurePartiesTableExists();
+
+        ModelState.Remove(nameof(PartyMaster.Email));
+        ModelState.Remove(nameof(PartyMaster.Address));
+        ModelState.Remove(nameof(PartyMaster.PinCode));
+        ModelState.Remove(nameof(PartyMaster.AllowBalance));
+
+        if (!ModelState.IsValid)
+            return View(model);
+
+        // Normalise code
+        model.PartyCode = model.PartyCode.Trim().ToUpper();
+
+        // Unique code check
+        bool codeExists = _dbContext.Parties.Any(p =>
+            p.PartyCode == model.PartyCode && p.Id != model.Id);
+        if (codeExists)
+        {
+            ModelState.AddModelError(nameof(PartyMaster.PartyCode),
+                $"Party Code '{model.PartyCode}' already exists.");
+            return View(model);
+        }
+
+        // If credit not allowed, clear balance
+        if (!model.IsCreditAllow)
+            model.AllowBalance = null;
+
+        if (model.Id == 0)
+        {
+            model.CreatedAt = DateTime.UtcNow;
+            _dbContext.Parties.Add(model);
+            TempData["ResultMessage"] = $"Party '{model.PartyName}' added successfully.";
+        }
+        else
+        {
+            var existing = _dbContext.Parties.FirstOrDefault(p => p.Id == model.Id);
+            if (existing == null)
+            {
+                TempData["ResultMessage"] = "Party not found.";
+                return RedirectToAction(nameof(PartyList));
+            }
+            existing.PartyCode     = model.PartyCode;
+            existing.PartyName     = model.PartyName;
+            existing.PartyType     = model.PartyType;
+            existing.Email         = model.Email;
+            existing.PhoneNumber   = model.PhoneNumber;
+            existing.Address       = model.Address;
+            existing.PinCode       = model.PinCode;
+            existing.IsCreditAllow = model.IsCreditAllow;
+            existing.AllowBalance  = model.AllowBalance;
+            existing.IsActive      = model.IsActive;
+            existing.UpdatedAt     = DateTime.UtcNow;
+            TempData["ResultMessage"] = $"Party '{model.PartyName}' updated successfully.";
+        }
+
+        _dbContext.SaveChanges();
+        return RedirectToAction(nameof(PartyList));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult PartyToggleActive(int id)
+    {
+        var party = _dbContext.Parties.FirstOrDefault(p => p.Id == id);
+        if (party != null)
+        {
+            party.IsActive  = !party.IsActive;
+            party.UpdatedAt = DateTime.UtcNow;
+            _dbContext.SaveChanges();
+            TempData["ResultMessage"] = $"'{party.PartyName}' {(party.IsActive ? "activated" : "deactivated")}.";
+        }
+        return RedirectToAction(nameof(PartyList));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult PartyDelete(int id)
+    {
+        var party = _dbContext.Parties.FirstOrDefault(p => p.Id == id);
+        if (party != null)
+        {
+            _dbContext.Parties.Remove(party);
+            _dbContext.SaveChanges();
+            TempData["ResultMessage"] = $"Party '{party.PartyName}' deleted.";
+        }
+        return RedirectToAction(nameof(PartyList));
+    }
+
+    private void EnsurePartiesTableExists()
+    {
+        using var connection = new SqlConnection(_connectionString);
+        connection.Open();
+        using var cmd = new SqlCommand(@"
+IF OBJECT_ID('dbo.Parties') IS NULL
+BEGIN
+    CREATE TABLE dbo.Parties (
+        Id            INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Parties PRIMARY KEY,
+        PartyCode     NVARCHAR(20)   NOT NULL,
+        PartyName     NVARCHAR(200)  NOT NULL,
+        PartyType     NVARCHAR(20)   NOT NULL,
+        Email         NVARCHAR(200)  NULL,
+        PhoneNumber   NVARCHAR(20)   NOT NULL,
+        Address       NVARCHAR(500)  NULL,
+        PinCode       NVARCHAR(10)   NULL,
+        IsCreditAllow BIT            NOT NULL CONSTRAINT DF_Parties_IsCreditAllow DEFAULT 0,
+        AllowBalance  DECIMAL(18,2)  NULL,
+        IsActive      BIT            NOT NULL CONSTRAINT DF_Parties_IsActive      DEFAULT 1,
+        CreatedAt     DATETIME2      NULL,
+        UpdatedAt     DATETIME2      NULL,
+        CONSTRAINT UQ_Parties_PartyCode UNIQUE (PartyCode)
+    );
+END
+", connection);
+        cmd.ExecuteNonQuery();
+    }
+
 
 
         // Counter Master List

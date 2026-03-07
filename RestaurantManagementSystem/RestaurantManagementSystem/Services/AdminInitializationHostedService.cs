@@ -195,6 +195,20 @@ BEGIN
             4, 1, 1, NULL, NULL, 0);
 END
 
+-- Insert NAV_STOCKS_PARTY child (Party Master)
+IF NOT EXISTS (SELECT 1 FROM dbo.NavigationMenus WHERE Code = 'NAV_STOCKS_PARTY')
+BEGIN
+    INSERT INTO dbo.NavigationMenus
+           (Code, ParentCode, DisplayName, Description, Area,
+            ControllerName, ActionName, RouteValues, CustomUrl, IconCss,
+            DisplayOrder, IsActive, IsVisible, ThemeColor, ShortcutHint, OpenInNewTab)
+    VALUES ('NAV_STOCKS_PARTY', 'NAV_STOCKS', 'Party Master',
+            'Manage vendors, suppliers and traders', NULL,
+            'Master', 'PartyList', NULL, NULL,
+            'fas fa-handshake compact-icon text-purple',
+            5, 1, 1, NULL, NULL, 0);
+END
+
 -- Grant full permissions to Administrator role for the new nodes
 DECLARE @AdminRoleId INT = (SELECT TOP 1 Id FROM dbo.Roles WHERE Name = 'Administrator');
 IF @AdminRoleId IS NOT NULL
@@ -205,7 +219,7 @@ BEGIN
     SELECT @AdminRoleId, nm.Id, 1, 1, 1, 1, 1, 1, 1,
            SYSUTCDATETIME(), 0, SYSUTCDATETIME(), 0
     FROM dbo.NavigationMenus nm
-    WHERE nm.Code IN ('NAV_STOCKS', 'NAV_STOCKS_UOM', 'NAV_STOCKS_ITEMS', 'NAV_STOCKS_CATEGORIES', 'NAV_STOCKS_GODOWN')
+    WHERE nm.Code IN ('NAV_STOCKS', 'NAV_STOCKS_UOM', 'NAV_STOCKS_ITEMS', 'NAV_STOCKS_CATEGORIES', 'NAV_STOCKS_GODOWN', 'NAV_STOCKS_PARTY')
       AND NOT EXISTS (
           SELECT 1 FROM dbo.RoleMenuPermissions rmp
            WHERE rmp.RoleId = @AdminRoleId AND rmp.MenuId = nm.Id);
