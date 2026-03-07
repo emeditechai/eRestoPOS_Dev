@@ -389,13 +389,6 @@ BEGIN
         ('Finish Goods',      10, 1, SYSUTCDATETIME()),
         ('Other',             11, 1, SYSUTCDATETIME());
 END
-ELSE
-BEGIN
-    -- Ensure 'Finish Goods' exists in older installs
-    IF NOT EXISTS (SELECT 1 FROM dbo.StockItemCategories WHERE Name = 'Finish Goods')
-        INSERT INTO dbo.StockItemCategories (Name, DisplayOrder, IsActive, CreatedAt)
-        VALUES ('Finish Goods', 10, 1, SYSUTCDATETIME());
-END
 ", connection);
         cmd.ExecuteNonQuery();
     }
