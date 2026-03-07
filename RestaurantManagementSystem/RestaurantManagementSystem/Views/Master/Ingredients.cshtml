@@ -113,7 +113,7 @@
                                 <div class="form-text">UOM used when ordering / purchasing (e.g. KG)</div>
                             </div>
                             <div class="col-sm-6">
-                                <label asp-for="RecipeUOMId" class="form-label fw-semibold">Recipe UOM</label>
+                                <label asp-for="RecipeUOMId" class="form-label fw-semibold">Consumption UOM</label>
                                 @if (isView)
                                 {
                                     <input value="@(Model.RecipeUOMCode != null ? Model.RecipeUOMCode + " - " + Model.RecipeUOMName : "")" class="form-control" readonly />
@@ -132,7 +132,7 @@
                                 </label>
                                 <input asp-for="PurchaseToRecipeFactor" type="number" step="0.000001" min="0"
                                        class="form-control" placeholder="e.g. 1000 means 1 KG = 1000 GRM" />
-                                <div class="form-text">How many Recipe UOM units = 1 Purchase UOM unit</div>
+                                <div class="form-text">How many Consumption UOM units = 1 Purchase UOM unit</div>
                             </div>
                         </div>
                     </div>
@@ -161,7 +161,7 @@
                         </div>
                         <div>
                             <label asp-for="ReorderLevel" class="form-label fw-semibold">
-                                Reorder Level <small class="text-muted fw-normal">(Recipe UOM qty)</small>
+                                Reorder Level <small class="text-muted fw-normal">(Consumption UOM qty)</small>
                             </label>
                             <input asp-for="ReorderLevel" type="number" step="0.001" min="0"
                                    class="form-control" placeholder="0" />
