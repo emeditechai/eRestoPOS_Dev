@@ -3,435 +3,803 @@
 @{
     ViewData["Title"] = Model.Id == 0 ? "Create User" : ((ViewBag.IsView ?? false) ? "View User" : "Edit User");
     bool isView = ViewBag.IsView ?? false;
+    bool isNew  = Model.Id == 0;
     bool canAssignMultipleBranches = (ViewBag.CanAssignMultipleBranches as bool?) ?? true;
     int? activeBranchId = ViewBag.ActiveBranchId as int?;
     string selectedBranchRolesJson = ViewBag.SelectedBranchRoles as string ?? "{}";
+
+    string fullName = $"{Model.FirstName} {Model.LastName}".Trim();
+    if (string.IsNullOrWhiteSpace(fullName)) fullName = Model.Username ?? "New User";
+
+    string initials = "";
+    if (!string.IsNullOrEmpty(Model.FirstName) && !string.IsNullOrEmpty(Model.LastName))
+        initials = $"{Model.FirstName[0]}{Model.LastName[0]}".ToUpper();
+    else if (!string.IsNullOrEmpty(Model.FirstName))
+        initials = Model.FirstName[0].ToString().ToUpper();
+    else if (!string.IsNullOrEmpty(Model.Username) && Model.Username.Length > 0)
+        initials = Model.Username[0].ToString().ToUpper();
+    else initials = "?";
+
+    string modeGradient = isView
+        ? "linear-gradient(135deg,#1e3a5f 0%,#7c3aed 100%)"
+        : isNew
+            ? "linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%)"
+            : "linear-gradient(135deg,#1e3a5f 0%,#0ea5e9 100%)";
+
+    string modeIcon = isView ? "fa-eye" : isNew ? "fa-user-plus" : "fa-user-edit";
 }
 
-<div class="container-fluid py-3" style="background: #f0f2f5; min-height: 100vh;">
-    <div class="row justify-content-center">
-        <div class="col-xl-7 col-lg-9 col-md-10">
-            <div class="card border-0 shadow-sm rounded-3">
-                <!-- Header -->
-                <div class="card-header text-white py-3 px-4 border-0" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                    <div class="d-flex align-items-center">
-                        <i class="bi bi-person-circle me-3" style="font-size: 2rem;"></i>
-                        <div>
-                            <h4 class="mb-0 fw-bold">@ViewData["Title"]</h4>
-                            <small class="opacity-75">@(Model.Id == 0 ? "Create a new user account" : "Update user information")</small>
+<style>
+/* ── Layout ───────────────────────────────────────────────── */
+.uf-wrap { max-width: 1060px; }
+.uf-section-card {
+    border: none;
+    border-radius: .75rem;
+    box-shadow: 0 2px 12px rgba(0,0,0,.07);
+    margin-bottom: 1.1rem;
+    overflow: visible;
+}
+.uf-section-card .card-header {
+    padding: .65rem 1.1rem;
+    background: #f8fafc;
+    border-bottom: 1px solid #e9eef5;
+    display: flex; align-items: center; gap: .55rem;
+}
+.uf-section-card .card-header .sec-icon {
+    width: 28px; height: 28px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .8rem; flex-shrink: 0;
+}
+.uf-section-card .card-header .sec-title {
+    font-size: .82rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .05em; color: #374151;
+}
+.uf-section-card .card-body { padding: 1.1rem 1.1rem .9rem; }
+
+/* ── View-mode field display ─────────────────────────────── */
+.vf-field { margin-bottom: .85rem; }
+.vf-label {
+    font-size: .7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: #6b7280; margin-bottom: .18rem;
+}
+.vf-value {
+    font-size: .9rem; color: #111827; font-weight: 500;
+    padding: .4rem .65rem; background: #f8fafc;
+    border: 1px solid #e9eef5; border-radius: 6px;
+    min-height: 36px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+    word-break: break-word;
+}
+.vf-value.empty { color: #9ca3af; font-style: italic; }
+
+/* ── Sidebar profile card ───────────────────────────────── */
+.profile-card {
+    border: none; border-radius: .75rem;
+    box-shadow: 0 2px 12px rgba(0,0,0,.07);
+    overflow: hidden; position: sticky; top: 72px;
+}
+.profile-card-header {
+    padding: 1.6rem 1.2rem 1.4rem;
+    background: @modeGradient;
+    text-align: center; color: #fff;
+}
+.profile-avatar-lg {
+    width: 72px; height: 72px; border-radius: 50%;
+    background: rgba(255,255,255,.22); backdrop-filter: blur(4px);
+    border: 3px solid rgba(255,255,255,.45);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem; font-weight: 800; color: #fff;
+    margin: 0 auto .75rem;
+}
+.profile-name { font-size: 1rem; font-weight: 700; margin: 0; }
+.profile-username { font-size: .75rem; opacity: .75; }
+.profile-card-body { padding: 1rem 1.1rem; }
+.profile-row {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .45rem 0; border-bottom: 1px solid #f1f5f9;
+    font-size: .8rem;
+}
+.profile-row:last-child { border-bottom: none; }
+.profile-row .pr-icon { color: #6b7280; width: 16px; text-align: center; flex-shrink: 0; }
+.profile-row .pr-val  { color: #374151; font-weight: 500; word-break: break-all; }
+
+/* ── Hero banner ────────────────────────────────────────── */
+.uf-hero {
+    background: @modeGradient;
+    border-radius: .85rem;
+    padding: 1.3rem 1.6rem;
+    color: #fff; margin-bottom: 1.4rem;
+    position: relative; overflow: hidden;
+}
+.uf-hero::before {
+    content:''; position:absolute; top:-50px; right:-30px;
+    width:140px; height:140px; border-radius:50%;
+    background:rgba(255,255,255,.07);
+}
+.uf-hero::after {
+    content:''; position:absolute; bottom:-30px; right:100px;
+    width:80px; height:80px; border-radius:50%;
+    background:rgba(255,255,255,.05);
+}
+.uf-hero h4 { font-size:1.25rem; font-weight:700; margin:0; }
+.uf-hero p  { font-size:.8rem; opacity:.8; margin:0; }
+
+/* ── Input tweaks ───────────────────────────────────────── */
+.form-control:focus, .form-select:focus {
+    box-shadow: 0 0 0 0.2rem rgba(37,99,235,.2);
+    border-color: #2563eb;
+}
+.form-control, .form-select { font-size: .875rem; }
+.input-group-text { font-size: .85rem; }
+.form-label { font-size: .8rem; font-weight: 600; margin-bottom: .3rem; color: #374151; }
+
+/* ── Mode badge ─────────────────────────────────────────── */
+.mode-badge {
+    display: inline-flex; align-items: center; gap: .3rem;
+    padding: .25em .7em; border-radius: 20px;
+    font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    background: rgba(255,255,255,.2); color: #fff; backdrop-filter: blur(2px);
+}
+
+/* ── Status switch label ────────────────────────────────── */
+.form-check-input:checked { background-color: #2563eb; border-color: #2563eb; }
+
+/* ── Branch / Role pills (view mode) ───────────────────── */
+.br-pill {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: .72rem; padding: .2em .6em; border-radius: 20px;
+    background: #eff6ff; color: #2563eb; font-weight: 600;
+}
+.rl-pill {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: .72rem; padding: .2em .6em; border-radius: 20px;
+    background: #f3e8ff; color: #7c3aed; font-weight: 600;
+}
+
+/* ── Validation ─────────────────────────────────────────── */
+.is-invalid  { border-color: #dc3545 !important; }
+.is-valid    { border-color: #22c55e !important; }
+.invalid-feedback { display: block; }
+.multi-select-dropdown-menu {
+    max-height: 260px; overflow-y: auto;
+    z-index: 1056 !important;
+    position: absolute !important;
+}
+.multi-select-dropdown-menu .form-check {
+    display: flex; align-items: center; gap: .5rem;
+    padding-left: 0;
+}
+.multi-select-dropdown-menu .form-check-input {
+    float: none; margin: 0; position: static; flex-shrink: 0;
+}
+.multi-select-dropdown-menu .form-check-label { margin-bottom: 0; cursor: pointer; }
+.btn.is-invalid { border-color: #dc3545 !important; }
+
+/* ── Action bar ─────────────────────────────────────────── */
+.uf-action-bar {
+    background: #fff; border-top: 1px solid #e9eef5;
+    border-radius: 0 0 .75rem .75rem;
+    padding: .9rem 1.1rem;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: .75rem;
+}
+</style>
+
+<div class="container-fluid px-0 uf-wrap">
+
+    @if (TempData["ResultMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show py-2 mb-3">
+            <i class="fas fa-check-circle me-2"></i>@TempData["ResultMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2 mb-3">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <strong>Please correct the following errors:</strong>
+            <ul class="mb-0 mt-1 small">
+                @foreach (var entry in ViewData.ModelState)
+                {
+                    foreach (var error in entry.Value.Errors)
+                    {
+                        <li>@error.ErrorMessage</li>
+                    }
+                }
+            </ul>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <!-- ── Hero Banner ─────────────────────────────────────── -->
+    <div class="uf-hero">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-3">
+                <div style="width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:800;color:#fff;flex-shrink:0">
+                    @if (isNew) { <i class="fas fa-user-plus" style="font-size:1.1rem"></i> }
+                    else { @initials }
+                </div>
+                <div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <h4>@(isNew ? "Create New User" : fullName)</h4>
+                        @if (isView)
+                        {
+                            <span class="mode-badge"><i class="fas fa-eye" style="font-size:.7rem"></i>View Mode</span>
+                        }
+                    </div>
+                    <p>
+                        @if (isNew) { @:Fill in the details below to create a new user account.
+                        } else if (isView) { @:Viewing user account details. No changes will be saved.
+                        } else { @:Update the user account settings and branch-role assignments.
+                        }
+                    </p>
+                </div>
+            </div>
+            <a asp-action="UserList" class="btn btn-light btn-sm fw-semibold px-3" style="color:#1e3a5f">
+                <i class="fas fa-arrow-left me-1"></i>Back to Users
+            </a>
+        </div>
+    </div>
+
+    <!-- ── Two-column layout ───────────────────────────────── -->
+    <div class="row g-3 align-items-start">
+
+        <!-- ── Main form column ──────────────────────────── -->
+        <div class="col-lg-8">
+            <form asp-action="SaveUser" method="post" id="userForm" autocomplete="off" novalidate>
+                <div asp-validation-summary="ModelOnly" class="text-danger mb-2 small"></div>
+                <input type="hidden" asp-for="Id" />
+                <input type="hidden" id="branchRoleAssignmentsJson" name="branchRoleAssignmentsJson" value='@Html.Raw(selectedBranchRolesJson)' />
+
+                <!-- ── Account Information ──────────────────── -->
+                <div class="uf-section-card card">
+                    <div class="card-header">
+                        <span class="sec-icon" style="background:#eff6ff"><i class="fas fa-id-badge" style="color:#2563eb"></i></span>
+                        <span class="sec-title">Account Information</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                @if (isView)
+                                {
+                                    <div class="vf-field">
+                                        <div class="vf-label">Username</div>
+                                        <div class="vf-value"><i class="fas fa-at text-muted me-1" style="font-size:.75rem"></i>@Model.Username</div>
+                                    </div>
+                                    <input type="hidden" name="Username" value="@Model.Username" />
+                                }
+                                else
+                                {
+                                    <label asp-for="Username" class="form-label">Username <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light"><i class="fas fa-at text-muted"></i></span>
+                                        <input asp-for="Username" class="form-control" placeholder="e.g. john.doe" required maxlength="50" />
+                                    </div>
+                                    <span asp-validation-for="Username" class="text-danger small"></span>
+                                }
+                            </div>
+                            <div class="col-sm-6">
+                                @if (isView)
+                                {
+                                    <div class="vf-field">
+                                        <div class="vf-label">Email</div>
+                                        <div class="vf-value @(string.IsNullOrWhiteSpace(Model.Email) ? "empty" : "")">
+                                            @if (!string.IsNullOrWhiteSpace(Model.Email)) {
+                                                <i class="fas fa-envelope text-muted me-1" style="font-size:.75rem"></i>@Model.Email
+                                            } else { @:—
+                                            }
+                                        </div>
+                                    </div>
+                                    <input type="hidden" name="Email" value="@Model.Email" />
+                                }
+                                else
+                                {
+                                    <label asp-for="Email" class="form-label">Email</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light"><i class="fas fa-envelope text-muted"></i></span>
+                                        <input asp-for="Email" class="form-control" type="email" placeholder="user@example.com" maxlength="100" />
+                                    </div>
+                                    <span asp-validation-for="Email" class="text-danger small"></span>
+                                }
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Body -->
-                <div class="card-body p-4" style="background: #ffffff;">
-                    @if (TempData["ResultMessage"] != null)
-                    {
-                        <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
-                            <i class="bi bi-check-circle-fill me-2"></i>
-                            @TempData["ResultMessage"]
-                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                        </div>
-                    }
-                    @if (!ViewData.ModelState.IsValid)
-                    {
-                        <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
-                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                            <strong>Please correct the following errors:</strong>
-                            <ul class="mb-0 mt-2 small">
-                                @foreach (var entry in ViewData.ModelState)
+                <!-- ── Personal Information ──────────────────── -->
+                <div class="uf-section-card card">
+                    <div class="card-header">
+                        <span class="sec-icon" style="background:#f0fdf4"><i class="fas fa-user" style="color:#16a34a"></i></span>
+                        <span class="sec-title">Personal Information</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                @if (isView)
                                 {
-                                    foreach (var error in entry.Value.Errors)
+                                    <div class="vf-field">
+                                        <div class="vf-label">First Name</div>
+                                        <div class="vf-value">@Model.FirstName</div>
+                                    </div>
+                                    <input type="hidden" name="FirstName" value="@Model.FirstName" />
+                                }
+                                else
+                                {
+                                    <label asp-for="FirstName" class="form-label">First Name <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light"><i class="fas fa-user text-muted"></i></span>
+                                        <input asp-for="FirstName" class="form-control" placeholder="First name" required maxlength="50" />
+                                    </div>
+                                    <span asp-validation-for="FirstName" class="text-danger small"></span>
+                                }
+                            </div>
+                            <div class="col-sm-6">
+                                @if (isView)
+                                {
+                                    <div class="vf-field">
+                                        <div class="vf-label">Last Name</div>
+                                        <div class="vf-value @(string.IsNullOrWhiteSpace(Model.LastName) ? "empty" : "")">
+                                            @(string.IsNullOrWhiteSpace(Model.LastName) ? "—" : Model.LastName)
+                                        </div>
+                                    </div>
+                                    <input type="hidden" name="LastName" value="@Model.LastName" />
+                                }
+                                else
+                                {
+                                    <label asp-for="LastName" class="form-label">Last Name</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light"><i class="fas fa-user text-muted"></i></span>
+                                        <input asp-for="LastName" class="form-control" placeholder="Last name" maxlength="50" />
+                                    </div>
+                                    <span asp-validation-for="LastName" class="text-danger small"></span>
+                                }
+                            </div>
+                            <div class="col-sm-6">
+                                @if (isView)
+                                {
+                                    <div class="vf-field">
+                                        <div class="vf-label">Phone Number</div>
+                                        <div class="vf-value @(string.IsNullOrWhiteSpace(Model.Phone) ? "empty" : "")">
+                                            @if (!string.IsNullOrWhiteSpace(Model.Phone)) {
+                                                <i class="fas fa-phone text-muted me-1" style="font-size:.75rem"></i>@Model.Phone
+                                            } else { @:—
+                                            }
+                                        </div>
+                                    </div>
+                                    <input type="hidden" name="Phone" value="@Model.Phone" />
+                                }
+                                else
+                                {
+                                    <label asp-for="Phone" class="form-label">Phone Number</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light"><i class="fas fa-phone text-muted"></i></span>
+                                        <input asp-for="Phone" class="form-control" placeholder="e.g. 9876543210" maxlength="20" />
+                                    </div>
+                                    <span asp-validation-for="Phone" class="text-danger small"></span>
+                                }
+                            </div>
+                            <div class="col-sm-6">
+                                <label asp-for="IsActive" class="form-label">Account Status</label>
+                                @if (isView)
+                                {
+                                    <div class="vf-value" style="background:@(Model.IsActive ? "#f0fdf4" : "#f8fafc");border-color:@(Model.IsActive ? "#bbf7d0" : "#e9eef5")">
+                                        @if (Model.IsActive)
+                                        {
+                                            <span style="width:8px;height:8px;border-radius:50%;background:#16a34a;display:inline-block;margin-right:5px"></span>
+                                            <span style="color:#15803d;font-weight:600">Active</span>
+                                        }
+                                        else
+                                        {
+                                            <span style="width:8px;height:8px;border-radius:50%;background:#94a3b8;display:inline-block;margin-right:5px"></span>
+                                            <span style="color:#64748b;font-weight:600">Inactive</span>
+                                        }
+                                    </div>
+                                    <input type="hidden" name="IsActive" value="@(Model.IsActive ? "true" : "false")" />
+                                }
+                                else
+                                {
+                                    <div class="d-flex align-items-center gap-3 mt-1" style="min-height:36px">
+                                        <div class="form-check form-switch mb-0">
+                                            <input asp-for="IsActive" class="form-check-input" type="checkbox"
+                                                   role="switch" id="switchActive" style="width:2.8em;height:1.4em" />
+                                        </div>
+                                        <label class="form-check-label fw-semibold" for="switchActive" id="statusLabel"
+                                               style="color:@(Model.IsActive ? "#15803d" : "#64748b")">
+                                            @(Model.IsActive ? "Active" : "Inactive")
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Branch & Role Access ──────────────────── -->
+                <div class="uf-section-card card">
+                    <div class="card-header">
+                        <span class="sec-icon" style="background:#fef3c7"><i class="fas fa-sitemap" style="color:#d97706"></i></span>
+                        <span class="sec-title">Branch &amp; Role Access</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <label asp-for="SelectedBranchIds" class="form-label">Branch Access</label>
+                                @if (isView)
+                                {
+                                    <div class="vf-value" style="min-height:44px;align-items:flex-start;padding-top:.5rem">
+                                        @{
+                                            bool anyBranch = false;
+                                            foreach (var branch in ViewBag.AllBranches)
+                                            {
+                                                bool sel = Model.SelectedBranchIds?.Contains((int)branch.BranchId) ?? false;
+                                                if (sel) {
+                                                    anyBranch = true;
+                                                    string bLabel = string.IsNullOrWhiteSpace((string)branch.BranchCode) ? (string)branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}";
+                                                    <span class="br-pill"><i class="fas fa-map-marker-alt" style="font-size:.6rem"></i>@bLabel</span>
+                                                }
+                                            }
+                                            if (!anyBranch) { <span class="empty">No branches assigned</span> }
+                                        }
+                                    </div>
+                                    <select id="selectedBranches" class="d-none" multiple>
+                                        @foreach (var branch in ViewBag.AllBranches)
+                                        {
+                                            bool sel = Model.SelectedBranchIds?.Contains((int)branch.BranchId) ?? false;
+                                            string bLabel = string.IsNullOrWhiteSpace((string)branch.BranchCode) ? (string)branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}";
+                                            <option value="@branch.BranchId" data-branch-label="@bLabel" selected="@sel">@bLabel</option>
+                                        }
+                                    </select>
+                                    @if (Model.SelectedBranchIds != null)
                                     {
-                                        <li>@error.ErrorMessage</li>
+                                        foreach (var branchId in Model.SelectedBranchIds)
+                                        {
+                                            <input type="hidden" name="selectedBranches" value="@branchId" />
+                                        }
                                     }
                                 }
-                            </ul>
-                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                        </div>
-                    }
-
-                    <form asp-action="SaveUser" method="post" id="userForm" autocomplete="off" novalidate>
-                        <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
-                        <input type="hidden" asp-for="Id" />
-                        <input type="hidden" id="branchRoleAssignmentsJson" name="branchRoleAssignmentsJson" value='@Html.Raw(selectedBranchRolesJson)' />
-
-                        <!-- Account Information Section -->
-                        <div class="card border-0 shadow-sm mb-3">
-                            <div class="card-header bg-white border-bottom py-2 px-3">
-                                <h6 class="mb-0 text-primary fw-semibold">
-                                    <i class="bi bi-person-badge me-2"></i>Account Information
-                                </h6>
-                            </div>
-                            <div class="card-body p-3">
-                                <div class="row g-2">
-                                    <div class="col-md-6">
-                                        <label asp-for="Username" class="form-label small fw-semibold mb-1">
-                                            Username <span class="text-danger">*</span>
-                                        </label>
-                                        @if (isView)
-                                        {
-                                            <input asp-for="Username" class="form-control" disabled />
-                                            <input type="hidden" name="Username" value="@Model.Username" />
-                                        }
-                                        else
-                                        {
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light"><i class="bi bi-person"></i></span>
-                                                <input asp-for="Username" class="form-control" placeholder="Enter username" required maxlength="50" />
-                                            </div>
-                                            <span asp-validation-for="Username" class="text-danger small"></span>
-                                        }
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label asp-for="Email" class="form-label small fw-semibold mb-1">
-                                            Email
-                                        </label>
-                                        @if (isView)
-                                        {
-                                            <input asp-for="Email" class="form-control" type="email" disabled />
-                                            <input type="hidden" name="Email" value="@Model.Email" />
-                                        }
-                                        else
-                                        {
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light"><i class="bi bi-envelope"></i></span>
-                                                <input asp-for="Email" class="form-control" type="email" placeholder="user@example.com" maxlength="100" />
-                                            </div>
-                                            <span asp-validation-for="Email" class="text-danger small"></span>
-                                        }
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Personal Information Section -->
-                        <div class="card border-0 shadow-sm mb-3">
-                            <div class="card-header bg-white border-bottom py-2 px-3">
-                                <h6 class="mb-0 text-primary fw-semibold">
-                                    <i class="bi bi-person-lines-fill me-2"></i>Personal Information
-                                </h6>
-                            </div>
-                            <div class="card-body p-3">
-                                <div class="row g-2">
-                                    <div class="col-md-6">
-                                        <label asp-for="FirstName" class="form-label small fw-semibold mb-1">
-                                            First Name <span class="text-danger">*</span>
-                                        </label>
-                                        @if (isView)
-                                        {
-                                            <input asp-for="FirstName" class="form-control" disabled />
-                                            <input type="hidden" name="FirstName" value="@Model.FirstName" />
-                                        }
-                                        else
-                                        {
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light"><i class="bi bi-card-text"></i></span>
-                                                <input asp-for="FirstName" class="form-control" placeholder="Enter first name" required maxlength="50" />
-                                            </div>
-                                            <span asp-validation-for="FirstName" class="text-danger small"></span>
-                                        }
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label asp-for="LastName" class="form-label small fw-semibold mb-1">
-                                            Last Name
-                                        </label>
-                                        @if (isView)
-                                        {
-                                            <input asp-for="LastName" class="form-control" disabled />
-                                            <input type="hidden" name="LastName" value="@Model.LastName" />
-                                        }
-                                        else
-                                        {
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light"><i class="bi bi-card-text"></i></span>
-                                                <input asp-for="LastName" class="form-control" placeholder="Enter last name" maxlength="50" />
-                                            </div>
-                                            <span asp-validation-for="LastName" class="text-danger small"></span>
-                                        }
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label asp-for="Phone" class="form-label small fw-semibold mb-1">
-                                            Phone Number
-                                        </label>
-                                        @if (isView)
-                                        {
-                                            <input asp-for="Phone" class="form-control" disabled />
-                                            <input type="hidden" name="Phone" value="@Model.Phone" />
-                                        }
-                                        else
-                                        {
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light"><i class="bi bi-telephone"></i></span>
-                                                <input asp-for="Phone" class="form-control" placeholder="Enter phone number" maxlength="20" />
-                                            </div>
-                                            <span asp-validation-for="Phone" class="text-danger small"></span>
-                                        }
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label asp-for="SelectedBranchIds" class="form-label small fw-semibold mb-1">
-                                            Branch Access
-                                        </label>
-                                        @if (isView)
-                                        {
-                                            <select id="selectedBranches" class="form-select" multiple disabled style="height: 100px;">
-                                                @foreach (var branch in ViewBag.AllBranches)
-                                                {
-                                                    <option value="@branch.BranchId" data-branch-label="@(string.IsNullOrWhiteSpace(branch.BranchCode) ? branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}")" selected="@(Model.SelectedBranchIds?.Contains(branch.BranchId) ?? false)">@(string.IsNullOrWhiteSpace(branch.BranchCode) ? branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}")</option>
-                                                }
-                                            </select>
-                                            @if (Model.SelectedBranchIds != null)
+                                else
+                                {
+                                    <div class="dropdown" data-bs-auto-close="outside">
+                                        <button class="btn btn-outline-secondary w-100 text-start d-flex justify-content-between align-items-center" type="button" id="selectedBranchesDropdownBtn" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <span id="selectedBranchesSummary">Select branch access</span>
+                                            <i class="fas fa-chevron-down text-muted" style="font-size:.7rem"></i>
+                                        </button>
+                                        <div class="dropdown-menu w-100 p-2 multi-select-dropdown-menu" id="selectedBranchesDropdownMenu">
+                                            @foreach (var branch in ViewBag.AllBranches)
                                             {
-                                                foreach (var branchId in Model.SelectedBranchIds)
-                                                {
-                                                    <input type="hidden" name="selectedBranches" value="@branchId" />
-                                                }
+                                                var branchLabel = string.IsNullOrWhiteSpace((string)branch.BranchCode) ? (string)branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}";
+                                                var isChecked = Model.SelectedBranchIds?.Contains((int)branch.BranchId) ?? false;
+                                                var isNonMainCreateLocked = !canAssignMultipleBranches && Model.Id == 0;
+                                                var isAllowedForNonMainCreate = activeBranchId.HasValue && activeBranchId.Value == (int)branch.BranchId;
+                                                <div class="form-check mb-1">
+                                                    <input class="form-check-input branch-checkbox" type="checkbox" id="branch_@branch.BranchId" value="@branch.BranchId" data-branch-label="@branchLabel" checked="@isChecked" disabled="@(isNonMainCreateLocked && !isAllowedForNonMainCreate)">
+                                                    <label class="form-check-label small" for="branch_@branch.BranchId">@branchLabel</label>
+                                                </div>
                                             }
-                                        }
-                                        else
-                                        {
-                                            <div class="dropdown" data-bs-auto-close="outside">
-                                                <button class="btn btn-outline-secondary w-100 text-start d-flex justify-content-between align-items-center" type="button" id="selectedBranchesDropdownBtn" data-bs-toggle="dropdown" aria-expanded="false">
-                                                    <span id="selectedBranchesSummary">Select branch access</span>
-                                                    <i class="bi bi-chevron-down"></i>
-                                                </button>
-                                                <div class="dropdown-menu w-100 p-2 multi-select-dropdown-menu" id="selectedBranchesDropdownMenu">
-                                                    @foreach (var branch in ViewBag.AllBranches)
+                                        </div>
+                                    </div>
+                                    <div id="selectedBranchesHiddenContainer"></div>
+                                    <div class="form-text">@(canAssignMultipleBranches ? "Select one or more branches" : "Non-main branch: active branch only")</div>
+                                }
+                                <span asp-validation-for="SelectedBranchIds" class="text-danger small"></span>
+                            </div>
+                            <div class="col-sm-6">
+                                <label asp-for="SelectedRoleIds" class="form-label">Branch-wise Roles</label>
+                                @if (isView)
+                                {
+                                    <div class="vf-value" style="min-height:44px;align-items:flex-start;padding-top:.5rem;flex-direction:column;gap:6px">
+                                        @{
+                                            var branchRolesData = JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(selectedBranchRolesJson);
+                                            bool anyRole = false;
+                                            if (branchRolesData != null)
+                                            {
+                                                foreach (var kvp in branchRolesData)
+                                                {
+                                                    if (int.TryParse(kvp.Key, out int bId))
                                                     {
-                                                        var branchLabel = string.IsNullOrWhiteSpace(branch.BranchCode) ? branch.BranchName : $"{branch.BranchCode} - {branch.BranchName}";
-                                                        var isChecked = Model.SelectedBranchIds?.Contains(branch.BranchId) ?? false;
-                                                        var isNonMainCreateLocked = !canAssignMultipleBranches && Model.Id == 0;
-                                                        var isAllowedForNonMainCreate = activeBranchId.HasValue && activeBranchId.Value == branch.BranchId;
-                                                        <div class="form-check mb-1">
-                                                            <input class="form-check-input branch-checkbox" type="checkbox" id="branch_@branch.BranchId" value="@branch.BranchId" data-branch-label="@branchLabel" checked="@isChecked" disabled="@(isNonMainCreateLocked && !isAllowedForNonMainCreate)">
-                                                            <label class="form-check-label small" for="branch_@branch.BranchId">@branchLabel</label>
-                                                        </div>
+                                                        string bName = "Branch " + bId;
+                                                        foreach (var branch in ViewBag.AllBranches)
+                                                        {
+                                                            if ((int)branch.BranchId == bId)
+                                                            {
+                                                                bName = string.IsNullOrWhiteSpace((string)branch.BranchCode)
+                                                                    ? (string)branch.BranchName
+                                                                    : $"{branch.BranchCode} - {branch.BranchName}";
+                                                                break;
+                                                            }
+                                                        }
+                                                        var roleIds = kvp.Value.EnumerateArray().Select(e => e.GetInt32()).ToList();
+                                                        if (roleIds.Any())
+                                                        {
+                                                            anyRole = true;
+                                                            <div>
+                                                                <div style="font-size:.68rem;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">
+                                                                    <i class="fas fa-map-marker-alt me-1"></i>@bName
+                                                                </div>
+                                                                <div class="d-flex flex-wrap gap-1">
+                                                                    @foreach (var role in ViewBag.AllRoles)
+                                                                    {
+                                                                        if (roleIds.Contains((int)role.Id))
+                                                                        {
+                                                                            <span class="rl-pill"><i class="fas fa-shield-alt" style="font-size:.6rem"></i>@role.Name</span>
+                                                                        }
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        }
                                                     }
-                                                </div>
-                                            </div>
-                                            <div id="selectedBranchesHiddenContainer"></div>
-                                            <small class="text-muted">@(canAssignMultipleBranches ? "Select one or more branches from the dropdown" : "Non-main branch can create user only for active branch")</small>
-                                        }
-                                        <span asp-validation-for="SelectedBranchIds" class="text-danger small"></span>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label asp-for="SelectedRoleIds" class="form-label small fw-semibold mb-1">
-                                            Branch-wise Roles
-                                        </label>
-                                        @if (isView)
-                                        {
-                                            <select id="branchRoleMulti" class="form-select" multiple style="height: 160px;" disabled>
-                                            </select>
-                                        }
-                                        else
-                                        {
-                                            <div class="dropdown" data-bs-auto-close="outside">
-                                                <button class="btn btn-outline-secondary w-100 text-start d-flex justify-content-between align-items-center" type="button" id="branchRolesDropdownBtn" data-bs-toggle="dropdown" aria-expanded="false">
-                                                    <span id="branchRolesSummary">Select branch access first</span>
-                                                    <i class="bi bi-chevron-down"></i>
-                                                </button>
-                                                <div class="dropdown-menu w-100 p-2 multi-select-dropdown-menu" id="branchRolesDropdownMenu"></div>
-                                            </div>
-                                        }
-                                        <small class="text-muted">Select role(s) for each selected branch</small>
-                                        @if (isView && Model.SelectedRoleIds != null)
-                                        {
-                                            foreach (var roleId in Model.SelectedRoleIds)
-                                            {
-                                                <input type="hidden" name="selectedRoles" value="@roleId" />
+                                                }
                                             }
+                                            if (!anyRole) { <span class="empty">No roles assigned</span> }
                                         }
-                                        <span asp-validation-for="SelectedRoleIds" class="text-danger small"></span>
                                     </div>
-                                </div>
+                                    <select id="branchRoleMulti" class="d-none" multiple></select>
+                                    @if (isView && Model.SelectedRoleIds != null)
+                                    {
+                                        foreach (var roleId in Model.SelectedRoleIds)
+                                        {
+                                            <input type="hidden" name="selectedRoles" value="@roleId" />
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="dropdown" data-bs-auto-close="outside">
+                                        <button class="btn btn-outline-secondary w-100 text-start d-flex justify-content-between align-items-center" type="button" id="branchRolesDropdownBtn" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <span id="branchRolesSummary">Select branch access first</span>
+                                            <i class="fas fa-chevron-down text-muted" style="font-size:.7rem"></i>
+                                        </button>
+                                        <div class="dropdown-menu w-100 p-2 multi-select-dropdown-menu" id="branchRolesDropdownMenu"></div>
+                                    </div>
+                                    <div class="form-text">Select role(s) for each selected branch</div>
+                                }
+                                <span asp-validation-for="SelectedRoleIds" class="text-danger small"></span>
                             </div>
                         </div>
+                    </div>
+                </div>
 
-                        <!-- Security Section -->
-                        @if (!isView)
-                        {
-                            <div class="card border-0 shadow-sm mb-3">
-                                <div class="card-header bg-white border-bottom py-2 px-3">
-                                    <h6 class="mb-0 text-primary fw-semibold">
-                                        <i class="bi bi-shield-lock me-2"></i>Security
-                                    </h6>
-                                </div>
-                                <div class="card-body p-3">
-                                    <div class="row g-2">
-                                        <div class="col-md-6">
-                                            <label for="password" class="form-label small fw-semibold mb-1">
-                                                Password @if (Model.Id == 0) { <span class="text-danger">*</span> }
-                                            </label>
-                                            @if (Model.Id == 0)
-                                            {
-                                                <div class="input-group">
-                                                    <span class="input-group-text bg-light"><i class="bi bi-lock"></i></span>
-                                                    <input asp-for="Password" id="password" name="password" class="form-control" type="password" placeholder="Enter password" maxlength="100" required />
-                                                    <button class="btn btn-outline-secondary" type="button" id="togglePassword">
-                                                        <i class="bi bi-eye" id="togglePasswordIcon"></i>
-                                                    </button>
-                                                </div>
-                                                <div class="mt-1">
-                                                    <div class="progress" style="height: 4px;">
-                                                        <div class="progress-bar" id="passwordStrength" role="progressbar" style="width: 0%"></div>
-                                                    </div>
-                                                    <small class="text-muted" id="passwordStrengthText">Min 8 characters</small>
-                                                </div>
-                                            }
-                                            else
-                                            {
-                                                <div class="input-group">
-                                                    <span class="input-group-text bg-light"><i class="bi bi-lock"></i></span>
-                                                    <input asp-for="Password" id="password" name="password" class="form-control" type="password" placeholder="Leave blank to keep current" maxlength="100" disabled />
-                                                    <button type="button" class="btn btn-outline-primary" id="enablePasswordBtn">
-                                                        <i class="bi bi-pencil"></i> Change
-                                                    </button>
-                                                </div>
-                                                <small class="form-text text-muted">Leave blank to keep current password</small>
-                                            }
-                                            <span asp-validation-for="Password" class="text-danger small"></span>
-                                            <div class="invalid-feedback" id="passwordFeedback"></div>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label asp-for="ConfirmPassword" class="form-label small fw-semibold mb-1">
-                                                Confirm Password @if (Model.Id == 0) { <span class="text-danger">*</span> }
-                                            </label>
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light"><i class="bi bi-lock-fill"></i></span>
-                                                @if (Model.Id == 0)
-                                                {
-                                                    <input asp-for="ConfirmPassword" id="confirmPassword" class="form-control" type="password" placeholder="Re-enter password" maxlength="100" required />
-                                                }
-                                                else
-                                                {
-                                                    <input asp-for="ConfirmPassword" id="confirmPassword" class="form-control" type="password" placeholder="Re-enter password" maxlength="100" />
-                                                }
-                                                <button class="btn btn-outline-secondary" type="button" id="toggleConfirmPassword">
-                                                    <i class="bi bi-eye" id="toggleConfirmPasswordIcon"></i>
-                                                </button>
-                                            </div>
-                                            <span asp-validation-for="ConfirmPassword" class="text-danger small"></span>
-                                            <div class="invalid-feedback" id="confirmPasswordFeedback"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        }
-
-                        <!-- Status Section -->
-                        <div class="card border-0 shadow-sm mb-3">
-                            <div class="card-header bg-white border-bottom py-2 px-3">
-                                <h6 class="mb-0 text-primary fw-semibold">
-                                    <i class="bi bi-toggles me-2"></i>Status
-                                </h6>
-                            </div>
-                            <div class="card-body p-3">
-                                <div class="form-check form-switch">
-                                    @if (isView)
+                <!-- ── Security ──────────────────────────────── -->
+                @if (!isView)
+                {
+                    <div class="uf-section-card card">
+                        <div class="card-header">
+                            <span class="sec-icon" style="background:#fdf2f8"><i class="fas fa-lock" style="color:#db2777"></i></span>
+                            <span class="sec-title">Security</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row g-3">
+                                <div class="col-sm-6">
+                                    <label for="password" class="form-label">
+                                        Password @if (isNew) { <span class="text-danger">*</span> }
+                                    </label>
+                                    @if (isNew)
                                     {
-                                        <input asp-for="IsActive" class="form-check-input" style="width: 2.5rem; height: 1.25rem; cursor: pointer;" disabled />
-                                        <input type="hidden" name="IsActive" value="@(Model.IsActive ? "true" : "false")" />
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-light"><i class="fas fa-lock text-muted"></i></span>
+                                            <input asp-for="Password" id="password" name="password" class="form-control" type="password" placeholder="Min 8 characters" maxlength="100" required />
+                                            <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                                                <i class="fas fa-eye" id="togglePasswordIcon"></i>
+                                            </button>
+                                        </div>
+                                        <div class="mt-1">
+                                            <div class="progress" style="height:3px;border-radius:2px">
+                                                <div class="progress-bar" id="passwordStrength" role="progressbar" style="width:0%;transition:width .3s"></div>
+                                            </div>
+                                            <small class="text-muted" id="passwordStrengthText">Enter at least 8 characters</small>
+                                        </div>
                                     }
                                     else
                                     {
-                                        <input asp-for="IsActive" class="form-check-input" style="width: 2.5rem; height: 1.25rem; cursor: pointer;" />
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-light"><i class="fas fa-lock text-muted"></i></span>
+                                            <input asp-for="Password" id="password" name="password" class="form-control" type="password" placeholder="Leave blank to keep current" maxlength="100" disabled />
+                                            <button type="button" class="btn btn-outline-primary" id="enablePasswordBtn">
+                                                <i class="fas fa-pencil-alt me-1"></i>Change
+                                            </button>
+                                        </div>
+                                        <div class="form-text">Leave blank to keep existing password.</div>
                                     }
-                                    <label asp-for="IsActive" class="form-check-label ms-2 fw-semibold">
-                                        Account Active
-                                        <small class="text-muted d-block fw-normal">Enable or disable user access</small>
+                                    <span asp-validation-for="Password" class="text-danger small"></span>
+                                    <div class="invalid-feedback" id="passwordFeedback"></div>
+                                </div>
+                                <div class="col-sm-6">
+                                    <label asp-for="ConfirmPassword" class="form-label">
+                                        Confirm Password @if (isNew) { <span class="text-danger">*</span> }
                                     </label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light"><i class="fas fa-lock text-muted"></i></span>
+                                        @if (isNew)
+                                        {
+                                            <input asp-for="ConfirmPassword" id="confirmPassword" class="form-control" type="password" placeholder="Re-enter password" maxlength="100" required />
+                                        }
+                                        else
+                                        {
+                                            <input asp-for="ConfirmPassword" id="confirmPassword" class="form-control" type="password" placeholder="Re-enter new password" maxlength="100" />
+                                        }
+                                        <button class="btn btn-outline-secondary" type="button" id="toggleConfirmPassword">
+                                            <i class="fas fa-eye" id="toggleConfirmPasswordIcon"></i>
+                                        </button>
+                                    </div>
+                                    <span asp-validation-for="ConfirmPassword" class="text-danger small"></span>
+                                    <div class="invalid-feedback" id="confirmPasswordFeedback"></div>
                                 </div>
                             </div>
                         </div>
+                    </div>
+                }
 
-                        <!-- Action Buttons -->
-                        <div class="d-flex justify-content-between align-items-center mt-3">
-                            <a asp-action="UserList" class="btn btn-outline-secondary rounded-pill px-4">
-                                <i class="bi bi-arrow-left me-1"></i>Back
-                            </a>
-                            @if (!isView)
-                            {
-                                <button type="submit" class="btn btn-primary rounded-pill px-5 shadow" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
-                                    <i class="bi bi-check-circle me-1"></i>Save User
-                                </button>
-                            }
+                <!-- ── Action Bar ─────────────────────────────── -->
+                <div class="uf-action-bar">
+                    <a asp-action="UserList" class="btn btn-outline-secondary px-4">
+                        <i class="fas fa-arrow-left me-1"></i>Back
+                    </a>
+                    @if (isView)
+                    {
+                        <a asp-action="UserForm" asp-route-id="@Model.Id" class="btn btn-primary px-5">
+                            <i class="fas fa-user-edit me-1"></i>Edit This User
+                        </a>
+                    }
+                    else
+                    {
+                        <button type="submit" class="btn btn-primary px-5">
+                            <i class="fas fa-save me-1"></i>@(isNew ? "Create User" : "Save Changes")
+                        </button>
+                    }
+                </div>
+            </form>
+        </div>
+
+        <!-- ── Sidebar (profile summary) ─────────────────── -->
+        <div class="col-lg-4">
+            <div class="profile-card card">
+                <div class="profile-card-header">
+                    <div class="profile-avatar-lg">@initials</div>
+                    <div class="profile-name">@(isNew ? "New User" : fullName)</div>
+                    @if (!string.IsNullOrWhiteSpace(Model.Username) && !isNew)
+                    {
+                        <div class="profile-username">@@Model.Username</div>
+                    }
+                    <div class="mt-2">
+                        @if (isNew)
+                        {
+                            <span class="badge" style="background:rgba(255,255,255,.2);font-size:.7rem">
+                                <i class="fas fa-user-plus me-1"></i>Creating New Account
+                            </span>
+                        }
+                        else if (isView)
+                        {
+                            <span class="badge" style="background:rgba(255,255,255,.2);font-size:.7rem">
+                                <i class="fas fa-eye me-1"></i>View Only
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge" style="background:rgba(255,255,255,.2);font-size:.7rem">
+                                <i class="fas fa-pencil-alt me-1"></i>Editing
+                            </span>
+                        }
+                    </div>
+                </div>
+                <div class="profile-card-body">
+                    @if (!isNew)
+                    {
+                        <div class="profile-row">
+                            <span class="pr-icon"><i class="fas fa-envelope"></i></span>
+                            <span class="pr-val">@(string.IsNullOrWhiteSpace(Model.Email) ? "No email" : Model.Email)</span>
                         </div>
-                    </form>
+                        <div class="profile-row">
+                            <span class="pr-icon"><i class="fas fa-phone"></i></span>
+                            <span class="pr-val">@(string.IsNullOrWhiteSpace(Model.Phone) ? "No phone" : Model.Phone)</span>
+                        </div>
+                        <div class="profile-row">
+                            <span class="pr-icon"><i class="fas fa-toggle-on"></i></span>
+                            <span class="pr-val">
+                                @if (Model.IsActive)
+                                {
+                                    <span class="badge" style="background:#dcfce7;color:#15803d;font-size:.72rem">
+                                        <i class="fas fa-circle" style="font-size:.45rem;vertical-align:middle"></i> Active
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge" style="background:#f1f5f9;color:#64748b;font-size:.72rem">
+                                        <i class="fas fa-circle" style="font-size:.45rem;vertical-align:middle"></i> Inactive
+                                    </span>
+                                }
+                            </span>
+                        </div>
+                        @if (Model.Branches != null && Model.Branches.Any())
+                        {
+                            <div class="profile-row" style="align-items:flex-start">
+                                <span class="pr-icon" style="margin-top:2px"><i class="fas fa-code-branch"></i></span>
+                                <div class="d-flex flex-wrap gap-1">
+                                    @foreach (var b in Model.Branches)
+                                    {
+                                        <span class="br-pill">@(string.IsNullOrWhiteSpace(b.BranchCode) ? b.BranchName : b.BranchCode)</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                        @if (Model.Roles != null && Model.Roles.Any())
+                        {
+                            <div class="profile-row" style="align-items:flex-start">
+                                <span class="pr-icon" style="margin-top:2px"><i class="fas fa-shield-alt"></i></span>
+                                <div class="d-flex flex-wrap gap-1">
+                                    @foreach (var r in Model.Roles)
+                                    {
+                                        <span class="rl-pill">@r.Name</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="text-center py-3 text-muted">
+                            <i class="fas fa-user-circle fa-3x mb-2 d-block opacity-25"></i>
+                            <small>Profile details will appear<br>after saving the user.</small>
+                        </div>
+                    }
+                </div>
+
+                @if (!isNew && isView)
+                {
+                    <div class="p-3 border-top">
+                        <a asp-action="UserForm" asp-route-id="@Model.Id"
+                           class="btn btn-primary w-100 btn-sm">
+                            <i class="fas fa-user-edit me-1"></i>Edit This User
+                        </a>
+                    </div>
+                }
+            </div>
+
+            <!-- Quick-help card -->
+            <div class="card border-0 mt-3" style="border-radius:.75rem;background:#fffbeb;border:1px solid #fde68a!important">
+                <div class="card-body py-2 px-3">
+                    <div class="fw-semibold mb-1" style="font-size:.75rem;color:#92400e">
+                        <i class="fas fa-lightbulb me-1 text-warning"></i>Tips
+                    </div>
+                    @if (isNew)
+                    {
+                        <ul class="mb-0 ps-3" style="font-size:.72rem;color:#78350f">
+                            <li>Username must be unique across the system.</li>
+                            <li>Assign at least one branch with one role.</li>
+                            <li>Password must be at least 8 characters.</li>
+                        </ul>
+                    }
+                    else if (isView)
+                    {
+                        <ul class="mb-0 ps-3" style="font-size:.72rem;color:#78350f">
+                            <li>This page is read-only. Click <strong>Edit</strong> to make changes.</li>
+                            <li>Roles are assigned per branch.</li>
+                        </ul>
+                    }
+                    else
+                    {
+                        <ul class="mb-0 ps-3" style="font-size:.72rem;color:#78350f">
+                            <li>Leave the password blank to keep the current one.</li>
+                            <li>Each branch requires at least one role assigned.</li>
+                        </ul>
+                    }
                 </div>
             </div>
         </div>
-    </div>
+
+    </div><!-- /row -->
 </div>
 
 @section Scripts {
     @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    
-    <style>
-        .form-control:focus, .form-select:focus {
-            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
-            border-color: #667eea;
-        }
-        
-        .form-check-input:checked {
-            background-color: #667eea;
-            border-color: #667eea;
-        }
-        
-        .form-switch-lg .form-check-input {
-            cursor: pointer;
-        }
-        
-        .is-invalid {
-            border-color: #dc3545 !important;
-        }
-        
-        .is-valid {
-            border-color: #28a745 !important;
-        }
-
-        .multi-select-dropdown-menu {
-            max-height: 260px;
-            overflow-y: auto;
-        }
-
-        .multi-select-dropdown-menu .form-check {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding-left: 0;
-        }
-
-        .multi-select-dropdown-menu .form-check-input {
-            float: none;
-            margin: 0;
-            position: static;
-            flex-shrink: 0;
-        }
-
-        .multi-select-dropdown-menu .form-check-label {
-            margin-bottom: 0;
-            cursor: pointer;
-        }
-
-        .btn.is-invalid {
-            border-color: #dc3545 !important;
-        }
-        
-        .invalid-feedback {
-            display: block;
-        }
-    </style>
-
     <script>
         $(document).ready(function() {
-            const passwordInput = $('#password');
+            const passwordInput      = $('#password');
             const confirmPasswordInput = $('#confirmPassword');
-            const form = $('#userForm');
-            const isEditMode = @(Model.Id != 0 ? "true" : "false");
-            const isViewMode = @(isView ? "true" : "false");
+            const form               = $('#userForm');
+            const isEditMode         = @(Model.Id != 0 ? "true" : "false");
+            const isViewMode         = @(isView ? "true" : "false");
             const canAssignMultipleBranches = @(canAssignMultipleBranches ? "true" : "false");
-            const activeBranchId = @((activeBranchId.HasValue ? activeBranchId.Value.ToString() : "null"));
+            const activeBranchId     = @((activeBranchId.HasValue ? activeBranchId.Value.ToString() : "null"));
             const allRoles = [
                 @foreach (var role in ViewBag.AllRoles)
                 {
@@ -440,13 +808,19 @@
             ];
             let selectedBranchRoles = @Html.Raw(selectedBranchRolesJson);
 
+            // Status label dynamic update
+            $('#switchActive')?.on('change', function() {
+                var lbl = $('#statusLabel');
+                lbl.text(this.checked ? 'Active' : 'Inactive');
+                lbl.css('color', this.checked ? '#15803d' : '#64748b');
+            });
+
             function getSelectedBranchIds() {
                 if (!isViewMode) {
                     return $('.branch-checkbox:checked').map(function() {
                         return parseInt($(this).val(), 10);
                     }).get().filter(v => !isNaN(v));
                 }
-
                 return ($('#selectedBranches').val() || []).map(v => parseInt(v, 10)).filter(v => !isNaN(v));
             }
 
@@ -455,57 +829,35 @@
                     const checkbox = $('.branch-checkbox[value="' + branchId + '"]');
                     return checkbox.data('branch-label') || ('Branch ' + branchId);
                 }
-
                 const option = $('#selectedBranches option[value="' + branchId + '"]');
                 return option.data('branch-label') || option.text() || ('Branch ' + branchId);
             }
 
             function syncSelectedBranchesHidden() {
-                if (isViewMode) {
-                    return;
-                }
-
+                if (isViewMode) return;
                 const container = $('#selectedBranchesHiddenContainer');
                 container.empty();
-
                 getSelectedBranchIds().forEach(function(branchId) {
                     container.append('<input type="hidden" name="selectedBranches" value="' + branchId + '">');
                 });
             }
 
             function updateSelectedBranchesSummary() {
-                if (isViewMode) {
-                    return;
-                }
-
+                if (isViewMode) return;
                 const selectedBranchIds = getSelectedBranchIds();
                 const summary = $('#selectedBranchesSummary');
-
-                if (selectedBranchIds.length === 0) {
-                    summary.text('Select branch access');
-                    return;
-                }
-
-                if (selectedBranchIds.length <= 2) {
-                    summary.text(selectedBranchIds.map(getBranchLabel).join(', '));
-                    return;
-                }
-
+                if (selectedBranchIds.length === 0) { summary.text('Select branch access'); return; }
+                if (selectedBranchIds.length <= 2)  { summary.text(selectedBranchIds.map(getBranchLabel).join(', ')); return; }
                 summary.text(selectedBranchIds.length + ' branches selected');
             }
 
             function ensureBranchRoleDefaults(selectedBranchIds) {
                 selectedBranchIds.forEach(function(branchId) {
-                    if (!selectedBranchRoles[branchId]) {
-                        selectedBranchRoles[branchId] = [];
-                    }
+                    if (!selectedBranchRoles[branchId]) selectedBranchRoles[branchId] = [];
                 });
-
                 Object.keys(selectedBranchRoles).forEach(function(key) {
                     const id = parseInt(key, 10);
-                    if (!selectedBranchIds.includes(id)) {
-                        delete selectedBranchRoles[key];
-                    }
+                    if (!selectedBranchIds.includes(id)) delete selectedBranchRoles[key];
                 });
             }
 
@@ -516,34 +868,29 @@
                 if (isViewMode) {
                     const roleMulti = $('#branchRoleMulti');
                     roleMulti.empty();
-
                     if (selectedBranchIds.length === 0) {
                         roleMulti.append('<option value="" disabled>No branch assignments</option>');
                         roleMulti.prop('disabled', true);
                         return;
                     }
-
                     selectedBranchIds.forEach(function(branchId) {
                         const branchLabel = getBranchLabel(branchId);
                         const selectedRolesForBranch = (selectedBranchRoles[branchId] || []).map(x => parseInt(x, 10));
                         const optgroup = $('<optgroup></optgroup>').attr('label', branchLabel);
-
                         allRoles.forEach(function(role) {
                             if (selectedRolesForBranch.includes(parseInt(role.id, 10))) {
                                 optgroup.append($('<option></option>').val(branchId + '|' + role.id).text(role.name).attr('selected', 'selected'));
                             }
                         });
-
                         roleMulti.append(optgroup);
                     });
-
                     roleMulti.prop('disabled', true);
                     return;
                 }
 
-                const roleMenu = $('#branchRolesDropdownMenu');
+                const roleMenu    = $('#branchRolesDropdownMenu');
                 const roleSummary = $('#branchRolesSummary');
-                const roleButton = $('#branchRolesDropdownBtn');
+                const roleButton  = $('#branchRolesDropdownBtn');
                 roleMenu.empty();
 
                 if (selectedBranchIds.length === 0) {
@@ -555,61 +902,45 @@
 
                 roleButton.removeClass('disabled').removeAttr('aria-disabled');
                 let totalSelectedRoles = 0;
-
                 selectedBranchIds.forEach(function(branchId, index) {
                     const branchLabel = getBranchLabel(branchId);
                     const selectedRolesForBranch = (selectedBranchRoles[branchId] || []).map(x => parseInt(x, 10));
                     totalSelectedRoles += selectedRolesForBranch.length;
-
                     roleMenu.append('<div class="dropdown-header text-primary fw-semibold small px-2">' + branchLabel + '</div>');
-
                     allRoles.forEach(function(role) {
-                        const roleId = parseInt(role.id, 10);
+                        const roleId    = parseInt(role.id, 10);
                         const checkboxId = 'role_' + branchId + '_' + roleId;
-                        const checked = selectedRolesForBranch.includes(roleId) ? 'checked' : '';
-                        const itemHtml =
+                        const checked   = selectedRolesForBranch.includes(roleId) ? 'checked' : '';
+                        roleMenu.append(
                             '<div class="form-check mb-1 px-2">' +
                                 '<input class="form-check-input role-checkbox" type="checkbox" id="' + checkboxId + '" data-branch-id="' + branchId + '" data-role-id="' + roleId + '" ' + checked + '>' +
                                 '<label class="form-check-label small" for="' + checkboxId + '">' + role.name + '</label>' +
-                            '</div>';
-                        roleMenu.append(itemHtml);
+                            '</div>');
                     });
-
-                    if (index < selectedBranchIds.length - 1) {
-                        roleMenu.append('<hr class="dropdown-divider my-1">');
-                    }
+                    if (index < selectedBranchIds.length - 1) roleMenu.append('<hr class="dropdown-divider my-1">');
                 });
 
-                if (totalSelectedRoles === 0) {
-                    roleSummary.text('Select branch-wise roles');
-                } else {
-                    roleSummary.text(totalSelectedRoles + ' role assignments selected');
-                }
+                roleSummary.text(totalSelectedRoles === 0 ? 'Select branch-wise roles' : totalSelectedRoles + ' role assignments selected');
             }
 
             function syncBranchRoleAssignmentsToHidden() {
                 const selectedBranchIds = getSelectedBranchIds();
                 const finalMap = {};
-
                 let selectedRolePairs = [];
+
                 if (isViewMode) {
-                    selectedRolePairs = ($('#branchRoleMulti').val() || []).map(function(v) {
-                        return String(v);
-                    });
+                    selectedRolePairs = ($('#branchRoleMulti').val() || []).map(String);
                 } else {
                     selectedRolePairs = $('.role-checkbox:checked').map(function() {
-                        const branchId = parseInt($(this).data('branch-id'), 10);
-                        const roleId = parseInt($(this).data('role-id'), 10);
-                        return branchId + '|' + roleId;
+                        return $(this).data('branch-id') + '|' + $(this).data('role-id');
                     }).get();
                 }
 
                 selectedBranchIds.forEach(function(branchId) {
                     const rolesForBranch = selectedRolePairs
-                        .filter(function(pair) { return pair.startsWith(branchId + '|'); })
-                        .map(function(pair) { return parseInt(pair.split('|')[1], 10); })
-                        .filter(function(roleId) { return !isNaN(roleId); });
-
+                        .filter(p => p.startsWith(branchId + '|'))
+                        .map(p => parseInt(p.split('|')[1], 10))
+                        .filter(r => !isNaN(r));
                     finalMap[branchId] = rolesForBranch;
                 });
 
@@ -622,12 +953,10 @@
                     $('.branch-checkbox').each(function() {
                         const branchId = parseInt($(this).val(), 10);
                         const isActiveBranch = branchId === activeBranchId;
-                        $(this).prop('checked', isActiveBranch);
-                        $(this).prop('disabled', !isActiveBranch);
+                        $(this).prop('checked', isActiveBranch).prop('disabled', !isActiveBranch);
                     });
                     $('#selectedBranchesDropdownBtn').prop('disabled', true);
                 }
-
                 $('.branch-checkbox').on('change', function() {
                     updateSelectedBranchesSummary();
                     syncSelectedBranchesHidden();
@@ -635,7 +964,6 @@
                     syncBranchRoleAssignmentsToHidden();
                     $('#selectedBranchesDropdownBtn').removeClass('is-invalid');
                 });
-
                 $(document).on('change', '.role-checkbox', function() {
                     syncBranchRoleAssignmentsToHidden();
                     renderBranchRoleAssignments();
@@ -643,261 +971,114 @@
                 });
             }
 
-            $('#selectedBranches').on('change', function() {
-                renderBranchRoleAssignments();
-                syncBranchRoleAssignmentsToHidden();
-            });
-
-            $('#branchRoleMulti').on('change', function() {
-                syncBranchRoleAssignmentsToHidden();
-            });
+            $('#selectedBranches').on('change', function() { renderBranchRoleAssignments(); syncBranchRoleAssignmentsToHidden(); });
+            $('#branchRoleMulti').on('change', function() { syncBranchRoleAssignmentsToHidden(); });
 
             updateSelectedBranchesSummary();
             syncSelectedBranchesHidden();
             renderBranchRoleAssignments();
             syncBranchRoleAssignmentsToHidden();
-            
+
             // Toggle password visibility
             $('#togglePassword').on('click', function() {
-                const type = passwordInput.attr('type') === 'password' ? 'text' : 'password';
-                passwordInput.attr('type', type);
-                $('#togglePasswordIcon').toggleClass('bi-eye bi-eye-slash');
+                const t = passwordInput.attr('type') === 'password' ? 'text' : 'password';
+                passwordInput.attr('type', t);
+                $('#togglePasswordIcon').toggleClass('fa-eye fa-eye-slash');
             });
-            
             $('#toggleConfirmPassword').on('click', function() {
-                const type = confirmPasswordInput.attr('type') === 'password' ? 'text' : 'password';
-                confirmPasswordInput.attr('type', type);
-                $('#toggleConfirmPasswordIcon').toggleClass('bi-eye bi-eye-slash');
+                const t = confirmPasswordInput.attr('type') === 'password' ? 'text' : 'password';
+                confirmPasswordInput.attr('type', t);
+                $('#toggleConfirmPasswordIcon').toggleClass('fa-eye fa-eye-slash');
             });
-            
+
             // Enable password change for edit mode
             $('#enablePasswordBtn').on('click', function() {
-                passwordInput.prop('disabled', false);
-                passwordInput.focus();
-                passwordInput.attr('required', 'required');
+                passwordInput.prop('disabled', false).focus().attr('required', 'required');
                 confirmPasswordInput.attr('required', 'required');
-                $(this).html('<i class="bi bi-lock"></i> Lock').removeClass('btn-outline-primary').addClass('btn-outline-danger');
+                $(this).html('<i class="fas fa-lock me-1"></i>Lock').removeClass('btn-outline-primary').addClass('btn-outline-danger');
                 $(this).off('click').on('click', function() {
-                    passwordInput.prop('disabled', true);
-                    passwordInput.val('');
-                    confirmPasswordInput.val('');
-                    passwordInput.removeAttr('required');
-                    confirmPasswordInput.removeAttr('required');
-                    $(this).html('<i class="bi bi-pencil"></i> Change').removeClass('btn-outline-danger').addClass('btn-outline-primary');
-                    passwordInput.removeClass('is-invalid is-valid');
-                    confirmPasswordInput.removeClass('is-invalid is-valid');
-                    $('#passwordFeedback').text('');
-                    $('#confirmPasswordFeedback').text('');
+                    passwordInput.prop('disabled', true).val('').removeAttr('required').removeClass('is-invalid is-valid');
+                    confirmPasswordInput.val('').removeAttr('required').removeClass('is-invalid is-valid');
+                    $(this).html('<i class="fas fa-pencil-alt me-1"></i>Change').removeClass('btn-outline-danger').addClass('btn-outline-primary');
+                    $('#passwordFeedback,#confirmPasswordFeedback').text('');
                     $('#passwordStrength').css('width', '0%').removeClass('bg-danger bg-warning bg-info bg-success');
                     $('#passwordStrengthText').text('');
                 });
             });
-            
-            // Password strength indicator
+
+            // Password strength
             function updatePasswordStrength(password) {
-                if (!password) {
-                    $('#passwordStrength').css('width', '0%').removeClass('bg-danger bg-warning bg-info bg-success');
-                    $('#passwordStrengthText').text('Password must be at least 8 characters');
-                    return;
-                }
-                
-                let strength = 0;
-                if (password.length >= 8) strength++;
-                if (password.length >= 12) strength++;
-                if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++;
-                if (/\d/.test(password)) strength++;
-                if (/[^a-zA-Z0-9]/.test(password)) strength++;
-                
-                const strengthBar = $('#passwordStrength');
-                const strengthText = $('#passwordStrengthText');
-                
-                strengthBar.removeClass('bg-danger bg-warning bg-info bg-success');
-                
-                if (strength <= 1) {
-                    strengthBar.css('width', '20%').addClass('bg-danger');
-                    strengthText.text('Weak password').css('color', '#dc3545');
-                } else if (strength === 2) {
-                    strengthBar.css('width', '40%').addClass('bg-warning');
-                    strengthText.text('Fair password').css('color', '#ffc107');
-                } else if (strength === 3) {
-                    strengthBar.css('width', '60%').addClass('bg-info');
-                    strengthText.text('Good password').css('color', '#17a2b8');
-                } else if (strength === 4) {
-                    strengthBar.css('width', '80%').addClass('bg-success');
-                    strengthText.text('Strong password').css('color', '#28a745');
-                } else {
-                    strengthBar.css('width', '100%').addClass('bg-success');
-                    strengthText.text('Very strong password').css('color', '#28a745');
-                }
+                if (!password) { $('#passwordStrength').css('width','0%').removeClass('bg-danger bg-warning bg-info bg-success'); $('#passwordStrengthText').text('Enter at least 8 characters'); return; }
+                let s = 0;
+                if (password.length >= 8)  s++;
+                if (password.length >= 12) s++;
+                if (/[a-z]/.test(password) && /[A-Z]/.test(password)) s++;
+                if (/\d/.test(password)) s++;
+                if (/[^a-zA-Z0-9]/.test(password)) s++;
+                const bar = $('#passwordStrength'), txt = $('#passwordStrengthText');
+                bar.removeClass('bg-danger bg-warning bg-info bg-success');
+                const levels = [ [1,'20%','bg-danger','Weak','#dc3545'], [2,'40%','bg-warning','Fair','#d97706'], [3,'60%','bg-info','Good','#0ea5e9'], [4,'80%','bg-success','Strong','#16a34a'], [5,'100%','bg-success','Very Strong','#16a34a'] ];
+                const level = levels[Math.min(s, 5) - 1] || levels[0];
+                bar.css('width', level[1]).addClass(level[2]);
+                txt.text(level[3] + ' password').css('color', level[4]);
             }
-            
-            // Real-time password validation
+
             passwordInput.on('input', function() {
-                const password = $(this).val();
-                const confirmPassword = confirmPasswordInput.val();
-                
-                updatePasswordStrength(password);
-                
-                // Validate password length
-                if (password.length > 0 && password.length < 8) {
-                    $(this).addClass('is-invalid').removeClass('is-valid');
-                    $('#passwordFeedback').text('Password must be at least 8 characters long');
-                } else if (password.length >= 8) {
-                    $(this).addClass('is-valid').removeClass('is-invalid');
-                    $('#passwordFeedback').text('');
-                } else {
-                    $(this).removeClass('is-invalid is-valid');
-                    $('#passwordFeedback').text('');
-                }
-                
-                // Check confirm password match
-                if (confirmPassword && password !== confirmPassword) {
-                    confirmPasswordInput.addClass('is-invalid').removeClass('is-valid');
-                    $('#confirmPasswordFeedback').text('Passwords do not match');
-                } else if (confirmPassword && password === confirmPassword) {
-                    confirmPasswordInput.addClass('is-valid').removeClass('is-invalid');
-                    $('#confirmPasswordFeedback').text('');
-                }
+                const p = $(this).val(), c = confirmPasswordInput.val();
+                updatePasswordStrength(p);
+                if (p.length > 0 && p.length < 8) { $(this).addClass('is-invalid').removeClass('is-valid'); $('#passwordFeedback').text('Min 8 characters'); }
+                else if (p.length >= 8)            { $(this).addClass('is-valid').removeClass('is-invalid'); $('#passwordFeedback').text(''); }
+                else                               { $(this).removeClass('is-invalid is-valid'); $('#passwordFeedback').text(''); }
+                if (c) { confirmPasswordInput.toggleClass('is-invalid', p !== c).toggleClass('is-valid', p === c); $('#confirmPasswordFeedback').text(p !== c ? 'Passwords do not match' : ''); }
             });
-            
-            // Real-time confirm password validation
+
             confirmPasswordInput.on('input', function() {
-                const password = passwordInput.val();
-                const confirmPassword = $(this).val();
-                
-                if (confirmPassword === '') {
-                    $(this).removeClass('is-invalid is-valid');
-                    $('#confirmPasswordFeedback').text('');
-                } else if (password !== confirmPassword) {
-                    $(this).addClass('is-invalid').removeClass('is-valid');
-                    $('#confirmPasswordFeedback').text('Passwords do not match');
-                } else {
-                    $(this).addClass('is-valid').removeClass('is-invalid');
-                    $('#confirmPasswordFeedback').text('');
-                }
+                const p = passwordInput.val(), c = $(this).val();
+                if (!c)      { $(this).removeClass('is-invalid is-valid'); $('#confirmPasswordFeedback').text(''); }
+                else if (p !== c) { $(this).addClass('is-invalid').removeClass('is-valid'); $('#confirmPasswordFeedback').text('Passwords do not match'); }
+                else         { $(this).addClass('is-valid').removeClass('is-invalid'); $('#confirmPasswordFeedback').text(''); }
             });
-            
-            // Form submission validation
+
+            // Form submit validation
             form.on('submit', function(e) {
                 let isValid = true;
-                
-                // Check required fields
-                const username = $('#Username').val().trim();
-                const firstName = $('#FirstName').val().trim();
-                
-                if (!username) {
-                    $('#Username').addClass('is-invalid');
-                    isValid = false;
-                } else {
-                    $('#Username').removeClass('is-invalid');
-                }
-                
-                if (!firstName) {
-                    $('#FirstName').addClass('is-invalid');
-                    isValid = false;
-                } else {
-                    $('#FirstName').removeClass('is-invalid');
-                }
+                const username = $('#Username').val()?.trim();
+                const firstName = $('#FirstName').val()?.trim();
+                if (!username)   { $('#Username').addClass('is-invalid');   isValid = false; } else { $('#Username').removeClass('is-invalid'); }
+                if (!firstName)  { $('#FirstName').addClass('is-invalid');  isValid = false; } else { $('#FirstName').removeClass('is-invalid'); }
 
-                const selectedBranches = getSelectedBranchIds();
-                if (selectedBranches.length === 0) {
-                    if (isViewMode) {
-                        $('#selectedBranches').addClass('is-invalid');
-                    } else {
-                        $('#selectedBranchesDropdownBtn').addClass('is-invalid');
-                    }
-                    isValid = false;
-                } else {
-                    if (isViewMode) {
-                        $('#selectedBranches').removeClass('is-invalid');
-                    } else {
-                        $('#selectedBranchesDropdownBtn').removeClass('is-invalid');
-                    }
-                }
+                const selBranches = getSelectedBranchIds();
+                if (selBranches.length === 0) { (isViewMode ? $('#selectedBranches') : $('#selectedBranchesDropdownBtn')).addClass('is-invalid'); isValid = false; }
+                else                          { (isViewMode ? $('#selectedBranches') : $('#selectedBranchesDropdownBtn')).removeClass('is-invalid'); }
 
                 syncBranchRoleAssignmentsToHidden();
-                if (isViewMode) {
-                    $('#branchRoleMulti').removeClass('is-invalid');
-                } else {
-                    $('#branchRolesDropdownBtn').removeClass('is-invalid');
-                }
-                selectedBranches.forEach(function(branchId) {
-                    const roles = selectedBranchRoles[branchId] || [];
-                    if (roles.length === 0) {
+                (isViewMode ? $('#branchRoleMulti') : $('#branchRolesDropdownBtn')).removeClass('is-invalid');
+                selBranches.forEach(function(bId) {
+                    if ((selectedBranchRoles[bId] || []).length === 0) {
                         isValid = false;
-                        if (isViewMode) {
-                            $('#branchRoleMulti').addClass('is-invalid');
-                        } else {
-                            $('#branchRolesDropdownBtn').addClass('is-invalid');
-                        }
+                        (isViewMode ? $('#branchRoleMulti') : $('#branchRolesDropdownBtn')).addClass('is-invalid');
                     }
                 });
-                
-                // Password validation for new users or when changing password
+
                 if (!passwordInput.prop('disabled')) {
-                    const password = passwordInput.val();
-                    const confirmPassword = confirmPasswordInput.val();
-                    
-                    if (!isEditMode || password) {
-                        // For new users or editing password
-                        if (!password || password.length < 8) {
-                            passwordInput.addClass('is-invalid');
-                            $('#passwordFeedback').text('Password is required and must be at least 8 characters');
-                            isValid = false;
-                        }
-                        
-                        if (!confirmPassword) {
-                            confirmPasswordInput.addClass('is-invalid');
-                            $('#confirmPasswordFeedback').text('Please confirm your password');
-                            isValid = false;
-                        } else if (password !== confirmPassword) {
-                            confirmPasswordInput.addClass('is-invalid');
-                            $('#confirmPasswordFeedback').text('Passwords do not match');
-                            isValid = false;
-                        }
+                    const p = passwordInput.val(), c = confirmPasswordInput.val();
+                    if (!isEditMode || p) {
+                        if (!p || p.length < 8) { passwordInput.addClass('is-invalid'); $('#passwordFeedback').text('Password required, min 8 chars'); isValid = false; }
+                        if (!c)                 { confirmPasswordInput.addClass('is-invalid'); $('#confirmPasswordFeedback').text('Please confirm password'); isValid = false; }
+                        else if (p !== c)       { confirmPasswordInput.addClass('is-invalid'); $('#confirmPasswordFeedback').text('Passwords do not match');  isValid = false; }
                     }
                 }
-                
+
                 if (!isValid) {
                     e.preventDefault();
-                    
-                    // Scroll to first error
-                    $('html, body').animate({
-                        scrollTop: $('.is-invalid').first().offset().top - 100
-                    }, 500);
-                    
-                    // Show alert
-                    if ($('.alert-danger').length === 0) {
-                        const alertHtml = `
-                            <div class="alert alert-danger alert-dismissible fade show rounded-3 shadow-sm" role="alert">
-                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                                <strong>Please correct the validation errors before submitting.</strong>
-                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                            </div>
-                        `;
-                        $(alertHtml).insertAfter('.card-header');
-                    }
-                    
+                    $('html,body').animate({ scrollTop: $('.is-invalid').first().offset().top - 100 }, 400);
                     return false;
                 }
             });
-            
-            // Clear invalid state on input
-            $('.form-control').on('input', function() {
-                if ($(this).val().trim()) {
-                    $(this).removeClass('is-invalid');
-                }
-            });
 
-            $('#branchRoleMulti').on('change', function() {
-                if (($(this).val() || []).length > 0) {
-                    $(this).removeClass('is-invalid');
-                }
-            });
-
-            $('#selectedBranchesDropdownBtn, #branchRolesDropdownBtn').on('click', function() {
-                $(this).removeClass('is-invalid');
-            });
+            $('.form-control').on('input', function() { if ($(this).val()?.trim()) $(this).removeClass('is-invalid'); });
+            $('#branchRoleMulti').on('change', function() { if (($(this).val() || []).length > 0) $(this).removeClass('is-invalid'); });
+            $('#selectedBranchesDropdownBtn, #branchRolesDropdownBtn').on('click', function() { $(this).removeClass('is-invalid'); });
         });
     </script>
 }
