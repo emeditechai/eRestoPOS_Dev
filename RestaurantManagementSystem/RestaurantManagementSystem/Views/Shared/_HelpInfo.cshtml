@@ -1,11 +1,884 @@
-@* Global Help Modal: Hotkeys + Workflow Summary *@
+@* Global Help Modal: SOP & Support Guide *@
+<style>
+  /* ── Help Modal Custom Styles ────────────────────────────────────────── */
+  #appHelpModal .help-tab-nav .nav-link { border-radius:0; border-bottom:3px solid transparent; color:#495057; font-size:.78rem; font-weight:600; letter-spacing:.4px; text-transform:uppercase; padding:.55rem .85rem; }
+  #appHelpModal .help-tab-nav .nav-link.active { border-bottom-color:#0d6efd; color:#0d6efd; background:#eef3ff; }
+  #appHelpModal .help-tab-nav .nav-link:hover:not(.active) { background:#f5f5f5; }
+  #appHelpModal .sop-step { counter-increment:sop; position:relative; padding-left:2.5rem; margin-bottom:1rem; }
+  #appHelpModal .sop-step::before { content:counter(sop); position:absolute; left:0; top:.05rem; width:1.7rem; height:1.7rem; background:#0d6efd; color:#fff; border-radius:50%; font-size:.72rem; font-weight:700; display:flex; align-items:center; justify-content:center; }
+  #appHelpModal .sop-list { counter-reset:sop; }
+  #appHelpModal .sop-step.sop-warn::before { background:#fd7e14; }
+  #appHelpModal .sop-step.sop-check::before { background:#198754; }
+  #appHelpModal .badge-severity-high { background:#dc3545; }
+  #appHelpModal .badge-severity-med  { background:#fd7e14; }
+  #appHelpModal .badge-severity-low  { background:#198754; }
+  #appHelpModal .card-sop { border-left:4px solid #0d6efd; background:#f8fbff; }
+  #appHelpModal .card-sop-warn { border-left:4px solid #fd7e14; background:#fff8f2; }
+  #appHelpModal .card-sop-success { border-left:4px solid #198754; background:#f2fff6; }
+  #appHelpModal .card-sop-danger { border-left:4px solid #dc3545; background:#fff5f5; }
+  #appHelpModal .help-search-hl { background:#fff3cd; border-radius:2px; }
+  #appHelpModal .section-lead { font-size:.82rem; color:#555; line-height:1.55; }
+  #appHelpModal table.sop-table th { background:#344054; color:#fff; font-size:.73rem; font-weight:600; letter-spacing:.3px; white-space:nowrap; }
+  #appHelpModal table.sop-table td { font-size:.78rem; vertical-align:top; }
+  #appHelpModal .kbd-pill { display:inline-block; background:#e9ecef; border:1px solid #ced4da; border-radius:4px; padding:.1rem .4rem; font-family:monospace; font-size:.76rem; font-weight:700; color:#212529; box-shadow:0 1px 0 #adb5bd; }
+  #appHelpModal .faq-q { font-weight:600; color:#212529; font-size:.83rem; }
+  #appHelpModal .faq-a { font-size:.8rem; color:#444; }
+  #appHelpModal .module-chip { display:inline-block; font-size:.7rem; font-weight:700; padding:.15rem .55rem; border-radius:12px; vertical-align:middle; }
+</style>
+
 <div class="modal fade" id="appHelpModal" tabindex="-1" aria-labelledby="appHelpModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-fullscreen-md-down modal-xl modal-dialog-scrollable">
+  <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
     <div class="modal-content">
-      <div class="modal-header" style="background:linear-gradient(90deg,#0d6efd,#6610f2);">
-        <h5 class="modal-title text-white" id="appHelpModalLabel"><i class="fas fa-question-circle me-2"></i>Help Center • Hotkeys & Workflow Guide</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      <div class="modal-header py-2" style="background:linear-gradient(100deg,#0d6efd 0%,#4e17c7 60%,#6f42c1 100%);">
+        <div class="d-flex align-items-center gap-3 flex-grow-1">
+          <div>
+            <h5 class="modal-title text-white mb-0" id="appHelpModalLabel">
+              <i class="fas fa-life-ring me-2"></i>eRestoPOS — Help &amp; SOP Guide
+            </h5>
+            <div class="text-white-50" style="font-size:.72rem;">Standard Operating Procedures · Troubleshooting · Quick Reference</div>
+          </div>
+          <div class="ms-auto d-flex align-items-center gap-2">
+            <div class="input-group input-group-sm" style="width:220px;">
+              <span class="input-group-text bg-white bg-opacity-10 border-0 text-white"><i class="fas fa-search"></i></span>
+              <input type="text" id="helpSearchBox" class="form-control border-0 bg-white bg-opacity-10 text-white placeholder-white" placeholder="Search help…" style="color:#fff !important;" oninput="helpSearch(this.value)" autocomplete="off" />
+            </div>
+            <button type="button" class="btn-close btn-close-white ms-1" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+        </div>
       </div>
+
+      <!-- Tab Navigation -->
+      <div class="border-bottom bg-white">
+        <ul class="nav help-tab-nav flex-nowrap overflow-auto mb-0 px-2" id="helpTabs" role="tablist" style="gap:.1rem;">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tab-sop-btn" data-bs-toggle="tab" data-bs-target="#tab-sop" type="button" role="tab">
+              <i class="fas fa-clipboard-list me-1"></i>Daily SOP
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-orders-btn" data-bs-toggle="tab" data-bs-target="#tab-orders" type="button" role="tab">
+              <i class="fas fa-concierge-bell me-1"></i>Orders
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-payments-btn" data-bs-toggle="tab" data-bs-target="#tab-payments" type="button" role="tab">
+              <i class="fas fa-credit-card me-1"></i>Payments
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-kitchen-btn" data-bs-toggle="tab" data-bs-target="#tab-kitchen" type="button" role="tab">
+              <i class="fas fa-fire me-1"></i>Kitchen &amp; BOT
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-reports-btn" data-bs-toggle="tab" data-bs-target="#tab-reports" type="button" role="tab">
+              <i class="fas fa-chart-bar me-1"></i>Reports
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-trouble-btn" data-bs-toggle="tab" data-bs-target="#tab-trouble" type="button" role="tab">
+              <i class="fas fa-tools me-1"></i>Troubleshooting
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-admin-btn" data-bs-toggle="tab" data-bs-target="#tab-admin" type="button" role="tab">
+              <i class="fas fa-cog me-1"></i>Settings &amp; Admin
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-hotkeys-btn" data-bs-toggle="tab" data-bs-target="#tab-hotkeys" type="button" role="tab">
+              <i class="fas fa-keyboard me-1"></i>Hotkeys
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-faq-btn" data-bs-toggle="tab" data-bs-target="#tab-faq" type="button" role="tab">
+              <i class="fas fa-question me-1"></i>FAQ
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <div class="modal-body p-0 bg-light" id="helpSearchTarget">
+        <div class="tab-content">
+
+          <!-- ===== TAB 1 : DAILY SOP ===== -->
+          <div class="tab-pane fade show active p-4" id="tab-sop" role="tabpanel">
+            <div class="row g-3 mb-3">
+              <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                  <div class="card-body py-2 px-3 d-flex align-items-center gap-3" style="background:linear-gradient(90deg,#e8f0fe,#f3e8ff);">
+                    <i class="fas fa-info-circle text-primary fa-lg"></i>
+                    <span class="small"><strong>Purpose:</strong> This SOP defines the mandatory sequence of actions every shift to ensure accurate financial records, kitchen performance, guest satisfaction, and system integrity. All roles must follow it in order.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="row g-3">
+              <!-- Morning -->
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm h-100">
+                  <div class="card-header py-2 d-flex align-items-center gap-2" style="background:#fff3cd; border-bottom:2px solid #ffc107;">
+                    <i class="fas fa-sun text-warning"></i>
+                    <strong class="small text-uppercase">SOP-01 · Morning Opening</strong>
+                    <span class="ms-auto badge bg-warning text-dark" style="font-size:.65rem;">MANAGER + CASHIER</span>
+                  </div>
+                  <div class="card-body p-3">
+                    <ol class="sop-list ps-0 mb-0 list-unstyled">
+                      <div class="sop-step"><strong>Manager Login</strong><br/><span class="text-muted small">Log in with manager credentials. Verify branch &amp; role selection. Confirm system date is correct.</span></div>
+                      <div class="sop-step"><strong>Check Previous Day Status</strong><br/><span class="text-muted small">Navigate to <em>Settings → Day Closing</em>. Confirm previous business day is <span class="badge bg-success">LOCKED</span>. If not locked, resolve carryover variances first before proceeding.</span></div>
+                      <div class="sop-step sop-warn"><strong>Open Cashier Float</strong><br/><span class="text-muted small">Click <em>Open Float</em>, select cashier, enter physical cash denominations. System records the Opening Balance. This step <strong>must</strong> occur before any orders are created.</span></div>
+                      <div class="sop-step"><strong>Verify Menu Availability</strong><br/><span class="text-muted small">Check <em>Menu → Items</em> that daily specials are active. Mark unavailable items as inactive to prevent guest-facing errors.</span></div>
+                      <div class="sop-step sop-check"><strong>Confirm Kitchen / BOT Stations</strong><br/><span class="text-muted small">Ensure KDS (Kitchen Display) and BOT Dashboard are accessible. Assign kitchen station roles if applicable.</span></div>
+                      <div class="sop-step"><strong>Brief Front-of-House Team</strong><br/><span class="text-muted small">Communicate specials, 86'd items, large reservation blocks, and any system changes from the previous day.</span></div>
+                    </ol>
+                    <div class="alert alert-warning py-2 mb-0 mt-3 small"><i class="fas fa-exclamation-triangle me-1"></i><strong>Critical:</strong> Never open for service unless Float is recorded. Cash variance at closing will be unresolvable.</div>
+                  </div>
+                </div>
+              </div>
+              <!-- Service -->
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm h-100">
+                  <div class="card-header py-2 d-flex align-items-center gap-2" style="background:#d1ecf1; border-bottom:2px solid #17a2b8;">
+                    <i class="fas fa-utensils text-info"></i>
+                    <strong class="small text-uppercase">SOP-02 · Service Hours</strong>
+                    <span class="ms-auto badge bg-info text-dark" style="font-size:.65rem;">ALL ROLES</span>
+                  </div>
+                  <div class="card-body p-3">
+                    <ol class="sop-list ps-0 mb-0 list-unstyled">
+                      <div class="sop-step"><strong>Seat Guests</strong><br/><span class="text-muted small">Use <em>Table Dashboard</em> to assign table, enter party size, assign server. Table status updates to <span class="badge bg-warning text-dark">OCCUPIED</span> automatically.</span></div>
+                      <div class="sop-step"><strong>Create Order</strong><br/><span class="text-muted small">Press <span class="kbd-pill">Shift+F</span> (Food) or <span class="kbd-pill">Shift+B</span> (BAR) from Home. Select order type, link table, add guest notes. <strong>Save</strong> the order before adding items.</span></div>
+                      <div class="sop-step"><strong>Add Menu Items</strong><br/><span class="text-muted small">Press <span class="kbd-pill">Space</span> to focus search → type item name → use arrows to select → <span class="kbd-pill">Enter</span> for quantity → <span class="kbd-pill">Enter</span> to add. Repeat for each item.</span></div>
+                      <div class="sop-step sop-warn"><strong>Save &amp; Fire Order</strong><br/><span class="text-muted small">Press <span class="kbd-pill">Ctrl+S</span> to save, then <span class="kbd-pill">Ctrl+F</span> to fire. <em>Firing</em> sends KOT (Kitchen) and BOT (Bar) tickets. <strong>Do not print bill before firing.</strong></span></div>
+                      <div class="sop-step"><strong>Monitor Tickets</strong><br/><span class="text-muted small">Kitchen staff update ticket status via KDS: <em>New → In Prep → Ready → Served</em>. Bar staff use BOT Dashboard: <em>New → In Progress → Ready → Billed</em>.</span></div>
+                      <div class="sop-step sop-check"><strong>Process Payment</strong><br/><span class="text-muted small">Press <span class="kbd-pill">Ctrl+P</span> to open payment screen. All fired items must be in order. Apply discounts / complementary with manager approval if needed. Settle and print bill.</span></div>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+              <!-- Closing -->
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm h-100">
+                  <div class="card-header py-2 d-flex align-items-center gap-2" style="background:#f8d7da; border-bottom:2px solid #dc3545;">
+                    <i class="fas fa-moon text-danger"></i>
+                    <strong class="small text-uppercase">SOP-03 · Evening Closing</strong>
+                    <span class="ms-auto badge bg-danger" style="font-size:.65rem;">MANAGER + CASHIER</span>
+                  </div>
+                  <div class="card-body p-3">
+                    <ol class="sop-list ps-0 mb-0 list-unstyled">
+                      <div class="sop-step sop-warn"><strong>Stop New Orders</strong><br/><span class="text-muted small">Announce last-order time. Do NOT process new orders after this. Ensure all active tables have been settled or transferred.</span></div>
+                      <div class="sop-step"><strong>Settle All Open Checks</strong><br/><span class="text-muted small">Go to <em>Order Dashboard</em>. Filter by status <em>Active</em>. All orders must reach <span class="badge bg-success">COMPLETED</span> or be voided with reason before closure.</span></div>
+                      <div class="sop-step"><strong>Cashier Cash Count</strong><br/><span class="text-muted small">Count physical cash. Record denominations in <em>Day Closing → Cash Count</em>. System auto-calculates expected vs declared variance.</span></div>
+                      <div class="sop-step sop-warn"><strong>Resolve Variances</strong><br/><span class="text-muted small">If variance exceeds configured threshold, Manager must review and approve before lock is permitted. Document reason for variance.</span></div>
+                      <div class="sop-step"><strong>Lock Business Day</strong><br/><span class="text-muted small">Click <em>Lock Day</em> when all checks pass. This action is <strong>irreversible</strong>. System timestamps the lock and generates financial summaries.</span></div>
+                      <div class="sop-step sop-check"><strong>Generate &amp; Archive Reports</strong><br/><span class="text-muted small">Print / export: Collection Register, GST Breakup Report, Cash Closing Summary, Sales Report. File electronically and physically per your retention policy.</span></div>
+                    </ol>
+                    <div class="alert alert-danger py-2 mb-0 mt-3 small"><i class="fas fa-lock me-1"></i><strong>Day Lock is final.</strong> No orders or payments can be modified after locking. Verify everything before clicking Lock.</div>
+                  </div>
+                </div>
+              </div>
+              <!-- Escalation -->
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm h-100">
+                  <div class="card-header py-2 d-flex align-items-center gap-2" style="background:#d4edda; border-bottom:2px solid #28a745;">
+                    <i class="fas fa-shield-alt text-success"></i>
+                    <strong class="small text-uppercase">SOP-04 · Escalation &amp; Exceptions</strong>
+                    <span class="ms-auto badge bg-success" style="font-size:.65rem;">MANAGER</span>
+                  </div>
+                  <div class="card-body p-3">
+                    <table class="table table-sm sop-table mb-3">
+                      <thead><tr><th>Scenario</th><th>Escalation Path</th><th>System Action</th></tr></thead>
+                      <tbody class="small">
+                        <tr><td>Discount &gt; configured limit</td><td>Manager Approval prompt appears</td><td>Order held; approval token required</td></tr>
+                        <tr><td>Complementary order</td><td>Manager must authorise before settlement</td><td>Zero-value bill logged with reason code</td></tr>
+                        <tr><td>Void order after fire</td><td>Manager override required</td><td>KOT/BOT marked Void; inventory restored</td></tr>
+                        <tr><td>Day closing variance &gt; threshold</td><td>Manager review &amp; approve variance</td><td>Lock blocked until approved</td></tr>
+                        <tr><td>Email not sending</td><td>Check <em>Settings → Mail Config</em></td><td>Review SMTP credentials &amp; branch mail link</td></tr>
+                        <tr><td>User access issues</td><td>Admin reassigns role &amp; branch</td><td>Session re-login required by affected user</td></tr>
+                        <tr><td>System performance slow</td><td>IT team notified</td><td>Check concurrent logins; clear browser cache</td></tr>
+                      </tbody>
+                    </table>
+                    <div class="card card-sop p-2 small mb-0"><strong><i class="fas fa-phone me-1 text-primary"></i>Internal Escalation:</strong> For unresolvable system issues, screenshot the error, note the time &amp; user, and contact your system administrator with full context.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== TAB 2 : ORDERS ===== -->
+          <div class="tab-pane fade p-4" id="tab-orders" role="tabpanel">
+            <div class="row g-3">
+              <div class="col-lg-7">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase bg-primary text-white">Order Lifecycle — Complete Flow</div>
+                  <div class="card-body p-3">
+                    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                      <span class="badge bg-secondary">DRAFT</span> <i class="fas fa-arrow-right text-muted" style="font-size:.7rem;"></i>
+                      <span class="badge bg-warning text-dark">SAVED</span> <i class="fas fa-arrow-right text-muted" style="font-size:.7rem;"></i>
+                      <span class="badge bg-info text-dark">FIRED</span> <i class="fas fa-arrow-right text-muted" style="font-size:.7rem;"></i>
+                      <span class="badge bg-primary">IN PREP</span> <i class="fas fa-arrow-right text-muted" style="font-size:.7rem;"></i>
+                      <span class="badge bg-success">SERVED</span> <i class="fas fa-arrow-right text-muted" style="font-size:.7rem;"></i>
+                      <span class="badge bg-dark">PAID / COMPLETED</span>
+                    </div>
+                    <table class="table table-sm sop-table mb-0">
+                      <thead><tr><th>Stage</th><th>Who</th><th>Action</th><th>Blocked Until</th></tr></thead>
+                      <tbody>
+                        <tr><td><span class="badge bg-secondary">DRAFT</span></td><td>Waiter / Cashier</td><td>Order form opened, items not yet saved</td><td>—</td></tr>
+                        <tr><td><span class="badge bg-warning text-dark">SAVED</span></td><td>Waiter / Cashier</td><td><span class="kbd-pill">Ctrl+S</span> pressed; items persisted</td><td>Items must exist on order</td></tr>
+                        <tr><td><span class="badge bg-info text-dark">FIRED</span></td><td>Waiter / Cashier</td><td><span class="kbd-pill">Ctrl+F</span> pressed; KOT/BOT tickets sent</td><td>Order must be SAVED</td></tr>
+                        <tr><td><span class="badge bg-primary">IN PREP</span></td><td>Kitchen / Bar</td><td>Staff mark tickets In Progress on KDS/BOT</td><td>Tickets generated</td></tr>
+                        <tr><td><span class="badge bg-success">SERVED</span></td><td>Kitchen / Bar</td><td>All tickets marked Ready or Served</td><td>All items in prep</td></tr>
+                        <tr><td><span class="badge bg-dark">COMPLETED</span></td><td>Cashier</td><td>Payment settled, bill printed</td><td>Order FIRED + all items served</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div class="card border-0 shadow-sm">
+                  <div class="card-header py-2 small fw-bold text-uppercase bg-info text-dark">Order Types &amp; Routing</div>
+                  <div class="card-body p-3">
+                    <table class="table table-sm sop-table mb-0">
+                      <thead><tr><th>Order Type</th><th>KOT Sent?</th><th>BOT Sent?</th><th>Table Required?</th><th>Notes</th></tr></thead>
+                      <tbody>
+                        <tr><td><span class="badge bg-primary module-chip">Dine In</span></td><td>✅</td><td>✅ (bar items)</td><td>Yes</td><td>Standard table service. Fire separates food vs bar.</td></tr>
+                        <tr><td><span class="badge bg-success module-chip">Take Away</span></td><td>✅</td><td>✅ (bar items)</td><td>No</td><td>Walk-in pickup. No table assigned.</td></tr>
+                        <tr><td><span class="badge bg-warning text-dark module-chip">Delivery</span></td><td>✅</td><td>✅ (bar items)</td><td>No</td><td>Requires guest address. May integrate with online order.</td></tr>
+                        <tr><td><span class="badge bg-dark module-chip">BAR Order</span></td><td>❌</td><td>✅</td><td>Optional</td><td>Beverages only. Uses BAR Dashboard flow.</td></tr>
+                        <tr><td><span class="badge bg-info text-dark module-chip">Online</span></td><td>✅</td><td>❌</td><td>No</td><td>Received via API webhook. Syncs to local order automatically.</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-5">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#e8f0fe;">Adding Items — Step by Step</div>
+                  <div class="card-body p-3">
+                    <ol class="sop-list ps-0 mb-0 list-unstyled">
+                      <div class="sop-step">Open order <em>Details</em> page for a Saved order.</div>
+                      <div class="sop-step">Press <span class="kbd-pill">Space</span> to jump to the menu search bar (skips if an input is already focused).</div>
+                      <div class="sop-step">Type the item name or category. Dropdown results appear instantly.</div>
+                      <div class="sop-step">Use <span class="kbd-pill">↑</span> / <span class="kbd-pill">↓</span> arrow keys or mouse to highlight the desired item.</div>
+                      <div class="sop-step">Press <span class="kbd-pill">Enter</span>. A quantity prompt appears.</div>
+                      <div class="sop-step">Type the quantity and press <span class="kbd-pill">Enter</span> again. Item is added to the order table.</div>
+                      <div class="sop-step">Repeat for additional items. The order total updates live.</div>
+                      <div class="sop-step sop-warn">Press <span class="kbd-pill">Ctrl+S</span> to persist changes, then <span class="kbd-pill">Ctrl+F</span> to fire to kitchen/bar.</div>
+                    </ol>
+                  </div>
+                </div>
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#fff3cd;">Modifying a Fired Order</div>
+                  <div class="card-body p-3 small">
+                    <div class="alert alert-warning py-2 mb-2 small"><i class="fas fa-exclamation-triangle me-1"></i>Items already fired and in preparation cannot be deleted without a <strong>void reason</strong>. Always communicate with kitchen before voiding.</div>
+                    <ul class="ps-3 mb-0">
+                      <li>To add new items → simply add and re-fire (<span class="kbd-pill">Ctrl+F</span>); only new items go to kitchen.</li>
+                      <li>To remove a fired item → use the <em>Void Item</em> action, enter reason; kitchen is notified.</li>
+                      <li>To change quantity of unfired items → edit inline and re-save.</li>
+                      <li>To apply a discount → use the Discount button; manager approval auto-triggers if above limit.</li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="card border-0 shadow-sm">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#d4edda;">Order Notes &amp; Special Instructions</div>
+                  <div class="card-body p-3 small">
+                    <ul class="ps-3 mb-0">
+                      <li><strong>Order Note:</strong> Visible on KOT header (e.g., "No AC", "Birthday — bring candle").</li>
+                      <li><strong>Item Note / Modifier:</strong> Visible per item line on KOT (e.g., "Extra spicy", "No onion").</li>
+                      <li><strong>Guest Name:</strong> Appears on bill header for personalised guest experience.</li>
+                      <li>Notes are printed on KOT/BOT tickets and preserved in reports for audit.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== TAB 3 : PAYMENTS ===== -->
+          <div class="tab-pane fade p-4" id="tab-payments" role="tabpanel">
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase bg-success text-white">Standard Payment Flow</div>
+                  <div class="card-body p-3">
+                    <ol class="sop-list ps-0 mb-0 list-unstyled">
+                      <div class="sop-step">Confirm all items are fired &amp; served. Payment button activates only after items are in FIRED state.</div>
+                      <div class="sop-step">Press <span class="kbd-pill">Ctrl+P</span> or click <em>Process Payment</em> to open the payment screen.</div>
+                      <div class="sop-step">Verify the bill summary: items, quantities, sub-total, GST breakup, and any applied discounts.</div>
+                      <div class="sop-step sop-warn">Select <strong>Payment Mode</strong>: Cash, UPI, Card, or combination (Split Payment).</div>
+                      <div class="sop-step">Enter tendered amount. For cash, system calculates change due automatically.</div>
+                      <div class="sop-step">Click <em>Settle Payment</em>. System marks order as COMPLETED and generates bill.</div>
+                      <div class="sop-step sop-check">Press <span class="kbd-pill">Shift+P</span> or click <em>Print Bill</em> to print POS receipt. A PDF copy can be emailed to the guest if email is on file.</div>
+                    </ol>
+                  </div>
+                </div>
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#e2d9f3; color:#4e17c7;">Split Payment</div>
+                  <div class="card-body p-3 small">
+                    <p class="mb-2 section-lead">Split Payment allows a single bill to be settled across <strong>multiple payment modes</strong> (e.g., ₹500 Cash + ₹300 UPI).</p>
+                    <ol class="sop-list ps-0 mb-0 list-unstyled">
+                      <div class="sop-step">On the Payment screen, click <em>Split Payment</em>.</div>
+                      <div class="sop-step">Add each payment mode and its amount. Remaining balance updates live.</div>
+                      <div class="sop-step">All payment splits must sum to the total bill amount before settlement is permitted.</div>
+                      <div class="sop-step sop-check">Confirm Split — each mode is recorded individually in Collection Register for accurate cash reconciliation.</div>
+                    </ol>
+                    <div class="alert alert-info py-2 mb-0 mt-2 small"><i class="fas fa-info-circle me-1"></i>Round-off up to <strong>±₹0.50</strong> is applied automatically to the final payment split to avoid paise discrepancies.</div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#fff3cd; color:#856404;">Discounts &amp; Approvals</div>
+                  <div class="card-body p-3 small">
+                    <table class="table table-sm sop-table mb-2">
+                      <thead><tr><th>Discount Type</th><th>Who Can Apply</th><th>Approval Required?</th></tr></thead>
+                      <tbody>
+                        <tr><td>Standard % Discount</td><td>Cashier / Waiter</td><td>If &gt; configured % limit → Manager</td></tr>
+                        <tr><td>Fixed Amount Discount</td><td>Cashier / Waiter</td><td>Always requires Manager approval</td></tr>
+                        <tr><td>Complementary (Full)</td><td>Manager Only</td><td>Manager must authorise with reason</td></tr>
+                        <tr><td>Happy Hour / Promo</td><td>System auto-applies</td><td>No (pre-configured)</td></tr>
+                        <tr><td>Loyalty Redemption</td><td>System auto-applies</td><td>No (guest card validated)</td></tr>
+                      </tbody>
+                    </table>
+                    <div class="alert alert-warning py-2 mb-0 small"><i class="fas fa-user-shield me-1"></i><strong>Audit Trail:</strong> All discount approvals are logged with approver name, timestamp, and reason. Visible in Discount Report.</div>
+                  </div>
+                </div>
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#d4edda;">Complementary Order Process</div>
+                  <div class="card-body p-3">
+                    <ol class="sop-list ps-0 mb-0 list-unstyled">
+                      <div class="sop-step">Create order as normal; add all items and fire to kitchen.</div>
+                      <div class="sop-step">On Payment screen, click <em>Complementary</em>.</div>
+                      <div class="sop-step sop-warn">Enter mandatory reason (e.g., "Guest Complaint — Manager Discretion"). This appears on reports.</div>
+                      <div class="sop-step">Manager authenticates via their PIN or credentials.</div>
+                      <div class="sop-step sop-check">Order settles at ₹0. Inventory is consumed. Cost appears in Complementary Report for management review.</div>
+                    </ol>
+                  </div>
+                </div>
+                <div class="card border-0 shadow-sm">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#f8d7da; color:#721c24;">GST &amp; Tax</div>
+                  <div class="card-body p-3 small">
+                    <ul class="ps-3 mb-0">
+                      <li>GST rates are configured per <strong>Menu Item</strong> in the Item Master (CGST + SGST or IGST).</li>
+                      <li>The bill auto-calculates GST breakup based on item-level rates.</li>
+                      <li>GST Breakup Report (end-of-day) provides CGST / SGST / IGST summary for filing.</li>
+                      <li>For B2B invoices, ensure the <em>Company / GSTIN</em> field on the order is populated before payment.</li>
+                      <li>Discount is applied <strong>before</strong> GST calculation (net pricing method).</li>
+                      <li>Complementary orders: GST is ₹0 as taxable value = ₹0.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== TAB 4 : KITCHEN & BOT ===== -->
+          <div class="tab-pane fade p-4" id="tab-kitchen" role="tabpanel">
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase bg-danger text-white"><i class="fas fa-fire me-1"></i>Kitchen Order Ticket (KOT) Flow</div>
+                  <div class="card-body p-3">
+                    <div class="d-flex flex-wrap gap-2 align-items-center mb-3 small">
+                      <span class="badge bg-secondary">NEW</span><i class="fas fa-arrow-right text-muted" style="font-size:.6rem;"></i>
+                      <span class="badge bg-info text-dark">IN PREP</span><i class="fas fa-arrow-right text-muted" style="font-size:.6rem;"></i>
+                      <span class="badge bg-warning text-dark">READY</span><i class="fas fa-arrow-right text-muted" style="font-size:.6rem;"></i>
+                      <span class="badge bg-success">SERVED</span>
+                      <span class="text-muted ms-2">OR</span>
+                      <span class="badge bg-dark">VOIDED</span>
+                    </div>
+                    <table class="table table-sm sop-table mb-2">
+                      <thead><tr><th>Status</th><th>Action By</th><th>Meaning</th></tr></thead>
+                      <tbody>
+                        <tr><td><span class="badge bg-secondary">NEW</span></td><td>System (auto)</td><td>Ticket received from POS; awaiting prep start</td></tr>
+                        <tr><td><span class="badge bg-info text-dark">IN PREP</span></td><td>Chef / KDS</td><td>Preparation started; timer begins</td></tr>
+                        <tr><td><span class="badge bg-warning text-dark">READY</span></td><td>Chef / KDS</td><td>Dish plated; waiting for runner/waiter</td></tr>
+                        <tr><td><span class="badge bg-success">SERVED</span></td><td>Waiter / Cashier</td><td>Delivered to table; ticket closed</td></tr>
+                        <tr><td><span class="badge bg-dark">VOIDED</span></td><td>Manager</td><td>Cancelled after firing; reason recorded</td></tr>
+                      </tbody>
+                    </table>
+                    <div class="alert alert-info py-2 mb-0 small"><i class="fas fa-clock me-1"></i>Use <em>Kitchen Dashboard</em> to see all active tickets with <strong>prep-time highlighting</strong>: yellow = exceeding SLA, red = overdue.</div>
+                  </div>
+                </div>
+                <div class="card border-0 shadow-sm">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#e8f0fe;">Kitchen Station Routing</div>
+                  <div class="card-body p-3 small">
+                    <p class="section-lead mb-2">Items can be tagged to a <strong>Kitchen Station</strong> (e.g., Cold Station, Hot Station, Tandoor, Grill). On firing, tickets route only to the relevant station KDS.</p>
+                    <ul class="ps-3 mb-0">
+                      <li>Configure stations in <em>Settings → Kitchen Stations</em>.</li>
+                      <li>Assign items to stations via <em>Menu → Item Master → Kitchen Station</em> field.</li>
+                      <li>If an item has no station assigned, it appears on the main/default KDS screen.</li>
+                      <li>Multi-station orders: each station gets its own ticket for the items assigned to it.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#f3e8ff; color:#6f42c1;"><i class="fas fa-cocktail me-1"></i>BOT (Beverage Order Ticket) Flow</div>
+                  <div class="card-body p-3">
+                    <div class="d-flex flex-wrap gap-2 align-items-center mb-3 small">
+                      <span class="badge bg-secondary">NEW</span><i class="fas fa-arrow-right text-muted" style="font-size:.6rem;"></i>
+                      <span class="badge" style="background:#6f42c1;">IN PROGRESS</span><i class="fas fa-arrow-right text-muted" style="font-size:.6rem;"></i>
+                      <span class="badge bg-success">READY</span><i class="fas fa-arrow-right text-muted" style="font-size:.6rem;"></i>
+                      <span class="badge bg-dark">BILLED</span>
+                      <span class="text-muted ms-2">OR</span>
+                      <span class="badge bg-danger">VOID</span>
+                    </div>
+                    <table class="table table-sm sop-table mb-2">
+                      <thead><tr><th>Action</th><th>By</th><th>Effect</th></tr></thead>
+                      <tbody>
+                        <tr><td>Start</td><td>Bar Staff</td><td>Status → In Progress. Prep timer begins.</td></tr>
+                        <tr><td>Mark Ready</td><td>Bar Staff</td><td>Status → Ready. Service notified.</td></tr>
+                        <tr><td>Mark Billed</td><td>Cashier</td><td>Status → Billed. Linked to payment record.</td></tr>
+                        <tr><td>Void</td><td>Manager</td><td>Status → Void. Reason logged. No charge.</td></tr>
+                      </tbody>
+                    </table>
+                    <div class="alert alert-warning py-2 mb-0 small"><i class="fas fa-exclamation-triangle me-1"></i><strong>BOT stuck In Progress?</strong> Bar staff must click <em>Mark Ready</em> on the BOT Dashboard. The system does not auto-advance BOT status.</div>
+                  </div>
+                </div>
+                <div class="card border-0 shadow-sm">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#fff3cd;">Best Practices — Kitchen &amp; BOT</div>
+                  <div class="card-body p-3 small">
+                    <ul class="ps-3 mb-0">
+                      <li><strong>Fire early</strong> — never hold items for batching. Each fire creates a new ticket; multiple fires for the same order are normal.</li>
+                      <li><strong>Item Comments:</strong> Chefs can add prep notes per item on the KDS. These persist in the order record.</li>
+                      <li><strong>Voiding after fire:</strong> Always communicate with kitchen staff before voiding. Food already in preparation cannot be recovered.</li>
+                      <li><strong>BOT &amp; KOT are independent</strong> — a table can have food ready but bar still in prep. Check both dashboards if guest is waiting.</li>
+                      <li>Use <em>Performance Reports</em> to track avg. ticket prep time per station and identify bottlenecks.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== TAB 5 : REPORTS ===== -->
+          <div class="tab-pane fade p-4" id="tab-reports" role="tabpanel">
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase bg-secondary text-white">Daily / Operational Reports</div>
+                  <div class="card-body p-0">
+                    <table class="table table-sm sop-table mb-0">
+                      <thead><tr><th>Report</th><th>When to Run</th><th>Purpose</th></tr></thead>
+                      <tbody>
+                        <tr><td><strong>Collection Register</strong></td><td>End of day (post-lock)</td><td>Summarises total collections by payment mode per cashier &amp; branch</td></tr>
+                        <tr><td><strong>GST Breakup</strong></td><td>End of day / Monthly</td><td>CGST / SGST / IGST column-wise for return filing</td></tr>
+                        <tr><td><strong>Cash Closing Report</strong></td><td>End of day</td><td>Opening float, total cash sales, denominations, closing balance, variance</td></tr>
+                        <tr><td><strong>Sales Report</strong></td><td>Daily / Weekly</td><td>Item-wise and category-wise revenue, quantity, average ticket size</td></tr>
+                        <tr><td><strong>Feedback Survey Report</strong></td><td>Weekly / Monthly</td><td>Rating trends, comments, NPS tracking</td></tr>
+                        <tr><td><strong>Discount Report</strong></td><td>Daily / Audit</td><td>Discount history with approver log — compliance and fraud control</td></tr>
+                        <tr><td><strong>Complementary Report</strong></td><td>Daily / Audit</td><td>All zero-value orders with reason and manager name</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#e8f0fe;">Report Access &amp; Pre-Conditions</div>
+                  <div class="card-body p-3 small">
+                    <div class="alert alert-warning py-2 mb-2 small"><i class="fas fa-lock me-1"></i><strong>Key Rule:</strong> Most financial reports populate accurately only <strong>after Day Lock</strong>. Running reports on an unlocked day shows incomplete data.</div>
+                    <table class="table table-sm sop-table mb-0">
+                      <thead><tr><th>Report</th><th>Requires Day Lock?</th><th>Role</th></tr></thead>
+                      <tbody>
+                        <tr><td>Collection Register</td><td>✅ Yes</td><td>Manager / Admin</td></tr>
+                        <tr><td>GST Breakup</td><td>✅ Yes</td><td>Manager / Accounts</td></tr>
+                        <tr><td>Cash Closing</td><td>✅ Yes</td><td>Manager / Cashier</td></tr>
+                        <tr><td>Sales Report</td><td>✅ Recommended</td><td>All roles</td></tr>
+                        <tr><td>Discount Report</td><td>❌ No (live)</td><td>Manager</td></tr>
+                        <tr><td>Feedback Report</td><td>❌ No (live)</td><td>Manager</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div class="card border-0 shadow-sm">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#d4edda;">Branch-wise &amp; Consolidated Reports</div>
+                  <div class="card-body p-3 small">
+                    <p class="section-lead mb-2">Multi-branch deployments support <strong>consolidated reporting</strong> across all branches.</p>
+                    <ul class="ps-3 mb-0">
+                      <li>Select <em>All Branches</em> in the branch filter on supported reports.</li>
+                      <li>Branch-wise Collection Register splits totals column-by-column per branch.</li>
+                      <li>Individual branch reports use the currently active branch session (switch branch from top nav).</li>
+                      <li>Only Admin-level users can access cross-branch consolidated reports.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== TAB 6 : TROUBLESHOOTING ===== -->
+          <div class="tab-pane fade p-4" id="tab-trouble" role="tabpanel">
+            <div class="alert alert-primary py-2 small mb-3">
+              <i class="fas fa-info-circle me-1"></i>
+              <strong>Before escalating:</strong> (1) Refresh the page. (2) Log out &amp; log back in. (3) Clear browser cache. (4) Try a different browser. If the issue persists after these steps, escalate via your configured channel.
+            </div>
+            <div class="card border-0 shadow-sm mb-3">
+              <div class="card-header py-2 small fw-bold text-uppercase bg-danger text-white">Troubleshooting Matrix</div>
+              <div class="card-body p-0">
+                <table class="table table-sm sop-table mb-0">
+                  <thead>
+                    <tr>
+                      <th style="width:20%">Issue / Symptom</th>
+                      <th style="width:10%">Severity</th>
+                      <th style="width:24%">Likely Cause(s)</th>
+                      <th style="width:30%">Resolution Steps</th>
+                      <th style="width:16%">Role Required</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>Payment button disabled / greyed out</strong></td>
+                      <td><span class="badge badge-severity-med" style="background:#fd7e14;">MEDIUM</span></td>
+                      <td>Order not saved, no items added, or no items fired</td>
+                      <td>1. Add &amp; save items (<span class="kbd-pill">Ctrl+S</span>)<br/>2. Fire items (<span class="kbd-pill">Ctrl+F</span>)<br/>3. Refresh page if still blocked</td>
+                      <td>Cashier</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Day Closing blocked / Lock button disabled</strong></td>
+                      <td><span class="badge badge-severity-high" style="background:#dc3545;">HIGH</span></td>
+                      <td>Open orders exist, variance exceeds threshold, or previous day not locked</td>
+                      <td>1. Settle all open orders<br/>2. Verify cash count matches system expected<br/>3. Manager approves variance if acceptable<br/>4. If previous day open, lock it first</td>
+                      <td>Manager</td>
+                    </tr>
+                    <tr>
+                      <td><strong>BOT ticket stuck "In Progress"</strong></td>
+                      <td><span class="badge badge-severity-med" style="background:#fd7e14;">MEDIUM</span></td>
+                      <td>Bar staff did not click Mark Ready on BOT Dashboard</td>
+                      <td>1. Open BOT Dashboard<br/>2. Locate the ticket<br/>3. Click <em>Mark Ready</em><br/>4. Cashier then marks Billed after payment</td>
+                      <td>Bar Staff / Manager</td>
+                    </tr>
+                    <tr>
+                      <td><strong>KOT ticket not received in kitchen</strong></td>
+                      <td><span class="badge badge-severity-high" style="background:#dc3545;">HIGH</span></td>
+                      <td>Order not fired, network issue, or KDS not connected</td>
+                      <td>1. Confirm order is in FIRED status on POS<br/>2. Check KDS network connection<br/>3. Refresh KDS page<br/>4. If urgent, take manual order slip to kitchen</td>
+                      <td>Cashier/IT</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Print bill fails / blank receipt</strong></td>
+                      <td><span class="badge badge-severity-med" style="background:#fd7e14;">MEDIUM</span></td>
+                      <td>Bill not generated, printer offline, or browser popup blocked</td>
+                      <td>1. Ensure payment was settled (order status = COMPLETED)<br/>2. Check printer is online and paper loaded<br/>3. Allow pop-ups for this site in browser settings<br/>4. Re-open the order and use the Print button</td>
+                      <td>Cashier</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Email not sending (bill / reset password)</strong></td>
+                      <td><span class="badge badge-severity-med" style="background:#fd7e14;">MEDIUM</span></td>
+                      <td>SMTP config missing, inactive, or wrong credentials</td>
+                      <td>1. Go to <em>Settings → Mail Configuration</em><br/>2. Verify host, port, username, password, SSL settings<br/>3. Click <em>Test Email</em> to validate<br/>4. Ensure config is marked <em>Active</em> and linked to the branch</td>
+                      <td>Admin</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Missing data in reports</strong></td>
+                      <td><span class="badge badge-severity-low" style="background:#198754;">LOW</span></td>
+                      <td>Day not locked, wrong date range, or wrong branch selected</td>
+                      <td>1. Check date range filter in report<br/>2. Verify branch selector matches expected branch<br/>3. Complete Day Closing and lock the day<br/>4. Re-generate report after lock</td>
+                      <td>Manager</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Discount approval loop (can't settle)</strong></td>
+                      <td><span class="badge badge-severity-med" style="background:#fd7e14;">MEDIUM</span></td>
+                      <td>Discount exceeds configured limit; waiting for manager token</td>
+                      <td>1. Manager must be physically present<br/>2. Open approval prompt and enter manager credentials<br/>3. Alternatively, reduce discount to within auto-approve limit</td>
+                      <td>Manager</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Login slow / branch select slow</strong></td>
+                      <td><span class="badge badge-severity-low" style="background:#198754;">LOW</span></td>
+                      <td>First login after server restart (cache warming), slow network</td>
+                      <td>1. First login is slower due to schema cache warm-up (normal)<br/>2. Subsequent logins in same session will be fast (30-min cache)<br/>3. For persistent slowness, check server resources with IT</td>
+                      <td>IT</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Hotkey not working</strong></td>
+                      <td><span class="badge badge-severity-low" style="background:#198754;">LOW</span></td>
+                      <td>Input field focused, wrong page context, or browser override</td>
+                      <td>1. Click in an empty area of the page to deselect any input<br/>2. Verify you are on the correct page (see Hotkeys tab)<br/>3. Check browser isn't intercepting the shortcut (e.g., Ctrl+F in some browsers)</td>
+                      <td>Cashier</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Order shows wrong table / section</strong></td>
+                      <td><span class="badge badge-severity-med" style="background:#fd7e14;">MEDIUM</span></td>
+                      <td>Table was assigned on create but not updated after guest move</td>
+                      <td>1. Open order details<br/>2. Use <em>Transfer Table</em> option<br/>3. Select correct table<br/>4. Save; Table Dashboard updates automatically</td>
+                      <td>Waiter / Cashier</td>
+                    </tr>
+                    <tr>
+                      <td><strong>GST not showing on bill</strong></td>
+                      <td><span class="badge badge-severity-med" style="background:#fd7e14;">MEDIUM</span></td>
+                      <td>GST rates not configured on Menu Items</td>
+                      <td>1. Go to <em>Menu → Item Master</em><br/>2. Edit the item and set CGST / SGST rates<br/>3. Future orders will reflect the correct GST<br/><em>Note: Historical orders cannot be retroactively updated.</em></td>
+                      <td>Admin / Manager</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Cannot void / cancel order</strong></td>
+                      <td><span class="badge badge-severity-high" style="background:#dc3545;">HIGH</span></td>
+                      <td>Order already COMPLETED (payment settled), or day locked</td>
+                      <td>1. If order is paid, it cannot be voided — issue a refund manually<br/>2. If day locked, contact system admin<br/>3. For unfired orders: Delete directly from order details page</td>
+                      <td>Manager / Admin</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== TAB 7 : SETTINGS & ADMIN ===== -->
+          <div class="tab-pane fade p-4" id="tab-admin" role="tabpanel">
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase bg-dark text-white">Initial Setup Checklist (New Deployment)</div>
+                  <div class="card-body p-3">
+                    <ol class="sop-list ps-0 mb-0 list-unstyled">
+                      <div class="sop-step"><strong>Branch &amp; Organisation Setup</strong><br/><span class="text-muted small">Settings → Branches: Add branch name, address, GSTIN, contact. Assign the branch to all users.</span></div>
+                      <div class="sop-step"><strong>User Roles</strong><br/><span class="text-muted small">Admin → Users: Create accounts for Manager, Cashier, Kitchen, Bar Staff. Assign correct roles &amp; branch(es).</span></div>
+                      <div class="sop-step"><strong>Menu Structure</strong><br/><span class="text-muted small">Masters → Categories → SubCategories → Items. Set GST rates, prices, kitchen station, and UOM per item.</span></div>
+                      <div class="sop-step"><strong>Table Layout</strong><br/><span class="text-muted small">Settings → Tables &amp; Sections: Create sections (e.g., Ground Floor, Rooftop) and assign tables with capacity.</span></div>
+                      <div class="sop-step"><strong>Kitchen Stations</strong><br/><span class="text-muted small">Settings → Kitchen Stations: Create stations and link menu items for intelligent KOT routing.</span></div>
+                      <div class="sop-step"><strong>Payment Configuration</strong><br/><span class="text-muted small">Settings → Payment Modes: Enable Cash, UPI, Card, etc. Configure discount thresholds and GST number.</span></div>
+                      <div class="sop-step"><strong>Mail Configuration</strong><br/><span class="text-muted small">Settings → Mail Config: Enter SMTP details. Click Test to verify. Link config to branch. Required for bill email &amp; password reset.</span></div>
+                      <div class="sop-step sop-check"><strong>Day Closing Thresholds</strong><br/><span class="text-muted small">Settings → Day Closing: Set variance tolerance (₹ or %) above which manager approval is mandatory before locking.</span></div>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#e8f0fe;">User &amp; Role Management</div>
+                  <div class="card-body p-3 small">
+                    <table class="table table-sm sop-table mb-2">
+                      <thead><tr><th>Role</th><th>Key Capabilities</th><th>Restrictions</th></tr></thead>
+                      <tbody>
+                        <tr><td><span class="badge bg-danger">Admin</span></td><td>All settings, all branches, user management</td><td>–</td></tr>
+                        <tr><td><span class="badge bg-primary">Manager</span></td><td>Approve discounts/voids, run reports, lock day</td><td>Cannot manage system settings</td></tr>
+                        <tr><td><span class="badge bg-success">Cashier</span></td><td>Create/manage orders, process payments</td><td>Cannot approve discounts &gt; limit</td></tr>
+                        <tr><td><span class="badge bg-info text-dark">Waiter</span></td><td>Create orders, add items, fire tickets</td><td>Cannot process payments</td></tr>
+                        <tr><td><span class="badge bg-warning text-dark">Kitchen</span></td><td>View KDS, update ticket status</td><td>POS access only; no financials</td></tr>
+                        <tr><td><span class="badge" style="background:#6f42c1; color:#fff;">Bar</span></td><td>View BOT Dashboard, update ticket status</td><td>POS access only; no financials</td></tr>
+                      </tbody>
+                    </table>
+                    <div class="card card-sop-warn p-2 small mb-0"><i class="fas fa-key me-1 text-warning"></i><strong>Multi-Branch:</strong> A user can be assigned to multiple branches. They select the active branch at login. Branch-switching mid-session is available via the top navigation.</div>
+                  </div>
+                </div>
+                <div class="card border-0 shadow-sm">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#f8d7da; color:#721c24;">Data Maintenance</div>
+                  <div class="card-body p-3 small">
+                    <ul class="ps-3 mb-0">
+                      <li><strong>Transaction Cleanup:</strong> Run <code>clean_transaction_data_dependency_safe.sql</code> to safely purge transaction data (orders, payments, tickets) while preserving master data (menu, tables, users). Always backup before running.</li>
+                      <li><strong>Inactive Items:</strong> Do not delete menu items that appear in historical orders — mark them <em>Inactive</em> instead to preserve reporting integrity.</li>
+                      <li><strong>Archive Reports:</strong> Export and archive Day Closing reports monthly. They cannot be regenerated after database cleanup.</li>
+                      <li><strong>Email Logs:</strong> Review <code>tbl_EmailLog</code> periodically to confirm delivery of bill emails, OTPs, and notifications.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== TAB 8 : HOTKEYS ===== -->
+          <div class="tab-pane fade p-4" id="tab-hotkeys" role="tabpanel">
+            <div class="row g-3">
+              <div class="col-lg-7">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#e9ecef;">Complete Hotkey Reference</div>
+                  <div class="card-body p-0">
+                    <table class="table table-sm sop-table mb-0">
+                      <thead>
+                        <tr><th>Shortcut</th><th>Action</th><th>Page Context</th><th>Behaviour &amp; Notes</th></tr>
+                      </thead>
+                      <tbody>
+                        <tr><td><span class="kbd-pill">Shift + F</span></td><td>New Food Order</td><td>Home / Dashboard</td><td>Navigates to Food Order create form. Requires cashier session active.</td></tr>
+                        <tr><td><span class="kbd-pill">Shift + B</span></td><td>New BAR Order</td><td>Home / Dashboard</td><td>Navigates to BAR Order create form.</td></tr>
+                        <tr><td><span class="kbd-pill">Shift + K</span></td><td>Kitchen Dashboard</td><td>Home</td><td>Opens KDS screen to monitor KOT ticket status.</td></tr>
+                        <tr><td><span class="kbd-pill">Shift + T</span></td><td>Table Dashboard</td><td>Home</td><td>Opens table layout for seating and management.</td></tr>
+                        <tr><td><span class="kbd-pill">Shift + P</span></td><td>Print Bill</td><td>Payment Index</td><td>Triggers browser print for settled bill. Requires completed payment.</td></tr>
+                        <tr><td><span class="kbd-pill">Ctrl + S</span></td><td>Save Order Draft</td><td>Order Details</td><td>Validates all items and persists to database. Prevents double-save.</td></tr>
+                        <tr><td><span class="kbd-pill">Ctrl + F</span></td><td>Fire Items to Kitchen/Bar</td><td>Order Details</td><td>Generates KOT and BOT tickets. Only un-fired items are sent.</td></tr>
+                        <tr><td><span class="kbd-pill">Ctrl + P</span></td><td>Open Payment</td><td>Order Details / Payment</td><td>Opens payment screen if order is FIRED. Processes tender if on payment page.</td></tr>
+                        <tr><td><span class="kbd-pill">Ctrl + O</span></td><td>Submit Order Form</td><td>Create Order</td><td>Submits the new order creation form. Prevents multiple submissions.</td></tr>
+                        <tr><td><span class="kbd-pill">Space</span></td><td>Focus Menu Search</td><td>Order Details</td><td>Jumps cursor to search box. No-op if any input is already focused.</td></tr>
+                        <tr><td><span class="kbd-pill">↑</span> / <span class="kbd-pill">↓</span></td><td>Navigate Search Results</td><td>Order Details</td><td>Move through dropdown results after searching for an item.</td></tr>
+                        <tr><td><span class="kbd-pill">Enter</span></td><td>Select Item / Confirm Qty</td><td>Order Details</td><td>First Enter selects item; second Enter confirms quantity.</td></tr>
+                        <tr><td><span class="kbd-pill">Esc</span></td><td>Cancel / Close Modal</td><td>Global</td><td>Standard Bootstrap modal dismiss.</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-5">
+                <div class="card border-0 shadow-sm mb-3">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#d4edda;">Hotkey Design Rules</div>
+                  <div class="card-body p-3 small">
+                    <ul class="ps-3 mb-2">
+                      <li><strong><span class="kbd-pill">Shift</span> combos</strong> = Navigation (move to a different screen)</li>
+                      <li><strong><span class="kbd-pill">Ctrl</span> combos</strong> = In-page actions (save, fire, pay)</li>
+                      <li>All hotkeys auto-disable when any <em>input / textarea / select</em> element is focused — except <span class="kbd-pill">Space</span> which has special search-focus logic.</li>
+                      <li>Hotkeys perform a no-op if the target action button is absent on the current page.</li>
+                    </ul>
+                    <div class="alert alert-info py-2 mb-0 small"><strong>Adding Custom Hotkeys:</strong> Edit <code>Views/Shared/_Layout.cshtml</code> inside the main <code>keydown</code> handler. Follow Shift = navigation, Ctrl = action convention and update this guide.</div>
+                  </div>
+                </div>
+                <div class="card border-0 shadow-sm">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#fff3cd;">Quick Add — Item Flow Diagram</div>
+                  <div class="card-body p-3 small text-center">
+                    <div class="d-flex flex-column gap-1 align-items-center">
+                      <span class="badge bg-secondary px-3 py-2">Open Order Details</span>
+                      <i class="fas fa-arrow-down text-muted" style="font-size:.7rem;"></i>
+                      <span class="badge bg-primary px-3 py-2"><span class="kbd-pill" style="color:#000;">Space</span> → Focus Search</span>
+                      <i class="fas fa-arrow-down text-muted" style="font-size:.7rem;"></i>
+                      <span class="badge bg-info text-dark px-3 py-2">Type item name</span>
+                      <i class="fas fa-arrow-down text-muted" style="font-size:.7rem;"></i>
+                      <span class="badge px-3 py-2" style="background:#6f42c1; color:#fff;"><span class="kbd-pill" style="color:#000;">↑↓</span> or click to select</span>
+                      <i class="fas fa-arrow-down text-muted" style="font-size:.7rem;"></i>
+                      <span class="badge bg-warning text-dark px-3 py-2"><span class="kbd-pill" style="color:#000;">Enter</span> → Type qty → <span class="kbd-pill" style="color:#000;">Enter</span></span>
+                      <i class="fas fa-arrow-down text-muted" style="font-size:.7rem;"></i>
+                      <span class="badge bg-success px-3 py-2">Item added ✓</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== TAB 9 : FAQ ===== -->
+          <div class="tab-pane fade p-4" id="tab-faq" role="tabpanel">
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm h-100">
+                  <div class="card-header py-2 small fw-bold text-uppercase bg-primary text-white">Operations FAQ</div>
+                  <div class="card-body p-3">
+                    <div class="accordion accordion-flush" id="faqOpsAccordion">
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faq1">Can I add items to an order after it has been fired?</button></h2>
+                        <div id="faq1" class="accordion-collapse collapse" data-bs-parent="#faqOpsAccordion"><div class="accordion-body py-2 faq-a">Yes. Add new items to the order and press <span class="kbd-pill">Ctrl+F</span> again. Only the <em>newly added, un-fired items</em> will be sent to kitchen/bar. Previously fired items are not re-sent, so there is no duplication risk.</div></div>
+                      </div>
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faq2">What happens if I forget to open the float?</button></h2>
+                        <div id="faq2" class="accordion-collapse collapse" data-bs-parent="#faqOpsAccordion"><div class="accordion-body py-2 faq-a">You can still create and process orders, but the Cash Closing Report will show Opening Balance as ₹0, causing a closing variance equal to the actual float amount. Always open float before the first order. If missed, a manager can manually adjust the opening balance before day lock.</div></div>
+                      </div>
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faq3">Can I reopen a locked business day?</button></h2>
+                        <div id="faq3" class="accordion-collapse collapse" data-bs-parent="#faqOpsAccordion"><div class="accordion-body py-2 faq-a">No. Day lock is a permanent financial control measure. Once locked, no orders or payments for that day can be modified. If an error was made, it must be corrected in the next available business day as an adjustment, documented with proper reason.</div></div>
+                      </div>
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faq4">How do I handle a split bill between two guests?</button></h2>
+                        <div id="faq4" class="accordion-collapse collapse" data-bs-parent="#faqOpsAccordion"><div class="accordion-body py-2 faq-a">On the Payment screen, click <em>Split Payment</em>. Allocate the amount per payment mode or enter amounts for each payer. The total of all splits must equal the bill total. Each split is recorded independently in the Collection Register.</div></div>
+                      </div>
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faq5">Why can't I see my menu items in the order?</button></h2>
+                        <div id="faq5" class="accordion-collapse collapse" data-bs-parent="#faqOpsAccordion"><div class="accordion-body py-2 faq-a">Menu items may be marked <em>Inactive</em> or not assigned to the current branch. Check <em>Menu → Item Master</em>: ensure the item is Active and linked to the correct branch. Items in inactive categories are also hidden.</div></div>
+                      </div>
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faq6">Can a cashier process a refund?</button></h2>
+                        <div id="faq6" class="accordion-collapse collapse" data-bs-parent="#faqOpsAccordion"><div class="accordion-body py-2 faq-a">Paid orders cannot be modified. Refunds are handled as a manual cash adjustment (give cash back) and must be documented by the manager. Record the refund reason in the next available order log or as a negative adjustment note during Day Closing variance explanation.</div></div>
+                      </div>
+                      <div class="accordion-item">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faq7">How is GST calculated on discounted bills?</button></h2>
+                        <div id="faq7" class="accordion-collapse collapse" data-bs-parent="#faqOpsAccordion"><div class="accordion-body py-2 faq-a">Discount is applied to the base (pre-tax) item price first. GST is then calculated on the discounted taxable value. This follows the standard GST net-pricing methodology. Example: ₹500 item – ₹50 discount = ₹450 taxable value → GST applied on ₹450.</div></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-6">
+                <div class="card border-0 shadow-sm h-100">
+                  <div class="card-header py-2 small fw-bold text-uppercase" style="background:#e2d9f3; color:#4e17c7;">Technical &amp; Admin FAQ</div>
+                  <div class="card-body p-3">
+                    <div class="accordion accordion-flush" id="faqTechAccordion">
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faqt1">Why is first login slow after a server restart?</button></h2>
+                        <div id="faqt1" class="accordion-collapse collapse" data-bs-parent="#faqTechAccordion"><div class="accordion-body py-2 faq-a">On first login after a restart, the system performs branch schema detection (checking ~13 database features). Results are cached for 30 minutes. Subsequent logins within the cache window are immediate. This is normal and expected behaviour.</div></div>
+                      </div>
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faqt2">How do I set up email for bill delivery?</button></h2>
+                        <div id="faqt2" class="accordion-collapse collapse" data-bs-parent="#faqTechAccordion"><div class="accordion-body py-2 faq-a">1. Go to <em>Settings → Mail Configuration</em>. 2. Enter SMTP server, port, username, password. 3. Enable SSL/TLS as per your provider. 4. Click <em>Test Email</em> to confirm delivery. 5. Mark the config Active and link it to the branch. Guest email field on the order must be populated to trigger bill email.</div></div>
+                      </div>
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faqt3">How do I switch my active branch or role?</button></h2>
+                        <div id="faqt3" class="accordion-collapse collapse" data-bs-parent="#faqTechAccordion"><div class="accordion-body py-2 faq-a">Use the Branch / Role switcher in the top navigation bar. Switching branch re-scopes all dashboards, orders, and reports to the selected branch. Switching role changes your permissions within the same branch. A brief page reload occurs after switching.</div></div>
+                      </div>
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faqt4">What data does the Transaction Cleanup script delete?</button></h2>
+                        <div id="faqt4" class="accordion-collapse collapse" data-bs-parent="#faqTechAccordion"><div class="accordion-body py-2 faq-a">The <code>_dependency_safe</code> script deletes: Orders, OrderItems, Payments, KOT/BOT Tickets, Day Closing records, Feedback, Email Logs, Loyalty Transactions, and all related child tables — in FK-safe order using DELETE (not TRUNCATE). Master data (Menu, Tables, Users, Settings) is <strong>never touched</strong>. A full cleanup + date-range mode is supported.</div></div>
+                      </div>
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faqt5">Can I run the system on multiple devices simultaneously?</button></h2>
+                        <div id="faqt5" class="accordion-collapse collapse" data-bs-parent="#faqTechAccordion"><div class="accordion-body py-2 faq-a">Yes. The system is web-based and supports concurrent users. Each user logs in with their own credentials. Use separate user accounts (not shared credentials) to maintain audit trail integrity. Kitchen and BOT displays can be open on dedicated tablets or monitors without affecting POS performance.</div></div>
+                      </div>
+                      <div class="accordion-item border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faqt6">How do I prevent an item from appearing on the menu QR?</button></h2>
+                        <div id="faqt6" class="accordion-collapse collapse" data-bs-parent="#faqTechAccordion"><div class="accordion-body py-2 faq-a">Mark the item as <em>Inactive</em> in <em>Menu → Item Master</em>. Inactive items do not appear on the digital menu QR page, in search results on the POS, or in new order item selection. They remain visible in historical reports and orders.</div></div>
+                      </div>
+                      <div class="accordion-item">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-2 faq-q" type="button" data-bs-toggle="collapse" data-bs-target="#faqt7">How are loyalty points accumulated and redeemed?</button></h2>
+                        <div id="faqt7" class="accordion-collapse collapse" data-bs-parent="#faqTechAccordion"><div class="accordion-body py-2 faq-a">Points accumulate per order based on the configured earning rate (e.g., 1 point per ₹100 spent). On the payment screen, if a guest card number is entered and sufficient points exist, a redemption option appears. Redemption is applied as a discount before GST. All transactions log to <code>GuestLoyaltyTransaction</code> for audit.</div></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /.tab-content -->
+      </div><!-- /#helpSearchTarget /.modal-body -->
+
+      <div class="modal-footer py-2 d-flex align-items-center">
+        <div class="text-muted small me-auto"><i class="fas fa-code me-1"></i>eRestoPOS v2 &nbsp;·&nbsp; <span id="helpCurrentTab"></span>Support Guide &nbsp;·&nbsp; <i class="fas fa-calendar-alt me-1"></i>Rev. March 2026</div>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary btn-sm" data-bs-dismiss="modal"><i class="fas fa-check me-1"></i>Got it</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── Help Modal Scripts ──────────────────────────────────────────────── */
+(function () {
+  // Search highlight
+  window.helpSearch = function (val) {
+    var target = document.getElementById('helpSearchTarget');
+    if (!target) return;
+    var items = target.querySelectorAll('td, li, p, .accordion-body, .sop-step, .faq-a, .faq-q');
+    var q = (val || '').trim().toLowerCase();
+    items.forEach(function (el) {
+      var html = el.getAttribute('data-original') || el.innerHTML;
+      if (!el.getAttribute('data-original')) el.setAttribute('data-original', html);
+      if (!q) { el.innerHTML = html; return; }
+      var highlighted = html.replace(new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'), '<mark class="help-search-hl">$1</mark>');
+      el.innerHTML = highlighted;
+    });
+    // Auto-switch to first tab that has a match
+    if (q.length >= 2) {
+      var tabs = document.querySelectorAll('#helpTabs .nav-link');
+      for (var i = 0; i < tabs.length; i++) {
+        var paneId = tabs[i].getAttribute('data-bs-target');
+        var pane = document.querySelector(paneId);
+        if (pane && pane.innerHTML.toLowerCase().indexOf(q) !== -1) {
+          bootstrap.Tab.getOrCreateInstance(tabs[i]).show();
+          break;
+        }
+      }
+    }
+  };
+
+  // Clear search highlights when modal closes
+  document.addEventListener('DOMContentLoaded', function () {
+    var modal = document.getElementById('appHelpModal');
+    if (!modal) return;
+    modal.addEventListener('hidden.bs.modal', function () {
+      var box = document.getElementById('helpSearchBox');
+      if (box) { box.value = ''; window.helpSearch(''); }
+    });
+    // Show current tab name in footer
+    modal.addEventListener('shown.bs.tab', function (e) {
+      var label = document.getElementById('helpCurrentTab');
+      if (label && e.target) label.textContent = (e.target.textContent.trim() || '') + ' — ';
+    });
+  });
+})();
+</script>
       <div class="modal-body p-0">
         <div class="row g-0">
           <div class="col-lg-5 border-end" style="background:linear-gradient(180deg,#f8f9fa,#eef2ff);">
