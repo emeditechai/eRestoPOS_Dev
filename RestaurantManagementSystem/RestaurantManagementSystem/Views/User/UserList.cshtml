@@ -2,77 +2,402 @@
 @{
     ViewData["Title"] = "User Management";
     var canManageProtectedAdminUser = (ViewBag.CanManageProtectedAdminUser as bool?) ?? false;
+
+    var userList    = Model.ToList();
+    int totalUsers  = userList.Count;
+    int activeUsers = userList.Count(u => u.IsActive);
+    int inactiveUsers = totalUsers - activeUsers;
+    int totalRoles  = userList.SelectMany(u => u.Roles ?? Enumerable.Empty<RestaurantManagementSystem.Models.Role>())
+                              .Select(r => r.Name).Distinct().Count();
+
+    // Avatar colour palette (cycles by index)
+    var avatarColors = new[] { "#4f46e5","#0ea5e9","#10b981","#f59e0b","#ef4444","#8b5cf6","#ec4899","#14b8a6" };
+    int aidx = 0;
+
+    string Initials(RestaurantManagementSystem.Models.User u) {
+        var f = u.FirstName?.Trim();
+        var l = u.LastName?.Trim();
+        if (!string.IsNullOrEmpty(f) && !string.IsNullOrEmpty(l))
+            return $"{f[0]}{l[0]}".ToUpper();
+        if (!string.IsNullOrEmpty(f)) return f[0].ToString().ToUpper();
+        return u.Username?.Length > 0 ? u.Username[0].ToString().ToUpper() : "?";
+    }
+
+    var roleBadgeColors = new[] { "primary","success","info","warning","secondary","danger" };
+    int rbidx = 0;
 }
 
-<div class="container">
-    <div class="row my-3">
-        <div class="col-md-6">
-            <h2>Users</h2>
-        </div>
-        <div class="col-md-6 text-md-end">
-            <a asp-action="UserForm" class="btn btn-primary">Create New</a>
-        </div>
-    </div>
+<style>
+    /* ── Hero header ─────────────────────────────────────── */
+    .um-hero {
+        background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #0ea5e9 100%);
+        border-radius: 1rem;
+        padding: 1.6rem 2rem;
+        color: #fff;
+        margin-bottom: 1.5rem;
+        position: relative;
+        overflow: hidden;
+    }
+    .um-hero::before {
+        content: '';
+        position: absolute; top: -40px; right: -40px;
+        width: 180px; height: 180px;
+        background: rgba(255,255,255,.07);
+        border-radius: 50%;
+    }
+    .um-hero::after {
+        content: '';
+        position: absolute; bottom: -30px; right: 80px;
+        width: 100px; height: 100px;
+        background: rgba(255,255,255,.05);
+        border-radius: 50%;
+    }
+    .um-hero h2 { font-size: 1.6rem; font-weight: 700; margin: 0; }
+    .um-hero p  { font-size: .85rem; opacity: .8; margin:0; }
+
+    /* ── Stat cards ──────────────────────────────────────── */
+    .stat-card {
+        border-radius: .85rem;
+        border: none;
+        padding: 1.1rem 1.4rem;
+        display: flex; align-items: center; gap: 1rem;
+        box-shadow: 0 2px 14px rgba(0,0,0,.07);
+        transition: transform .15s, box-shadow .15s;
+        background: #fff;
+    }
+    .stat-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+    .stat-icon {
+        width: 52px; height: 52px; border-radius: .65rem;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.35rem; flex-shrink: 0;
+    }
+    .stat-card .stat-num  { font-size: 1.7rem; font-weight: 700; line-height: 1; }
+    .stat-card .stat-lbl  { font-size: .75rem; color: #6b7280; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
+
+    /* ── Table card ──────────────────────────────────────── */
+    .user-table-card {
+        border-radius: .85rem;
+        border: none;
+        box-shadow: 0 2px 14px rgba(0,0,0,.07);
+        overflow: hidden;
+    }
+    .user-table-card .card-header {
+        background: #fff;
+        border-bottom: 1px solid #f1f5f9;
+        padding: .9rem 1.4rem;
+    }
+
+    /* ── Avatar circle ───────────────────────────────────── */
+    .user-avatar {
+        width: 36px; height: 36px; border-radius: 50%;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: .75rem; font-weight: 700; color: #fff;
+        flex-shrink: 0;
+    }
+
+    /* ── Table tweaks ────────────────────────────────────── */
+    #userTable thead th {
+        background: #f8fafc;
+        font-size: .72rem; text-transform: uppercase;
+        letter-spacing: .06em; color: #64748b;
+        font-weight: 600; border-bottom: 2px solid #e2e8f0;
+        white-space: nowrap;
+    }
+    #userTable tbody tr { vertical-align: middle; }
+    #userTable tbody tr:hover { background: #f0f7ff; }
+    #userTable td { font-size: .875rem; border-color: #f1f5f9; }
+
+    /* ── Role badge ──────────────────────────────────────── */
+    .role-badge {
+        font-size: .68rem; padding: .22em .55em;
+        border-radius: 4px; font-weight: 600;
+        white-space: nowrap;
+    }
+
+    /* ── Branch pill ─────────────────────────────────────── */
+    .branch-pill {
+        font-size: .68rem; padding: .2em .6em;
+        border-radius: 20px; background: #eff6ff;
+        color: #2563eb; font-weight: 500; white-space: nowrap;
+        display: inline-block; margin: 1px;
+    }
+
+    /* ── Status badge ────────────────────────────────────── */
+    .status-badge {
+        display: inline-flex; align-items: center; gap: .3rem;
+        padding: .25em .7em; border-radius: 20px;
+        font-size: .72rem; font-weight: 600;
+    }
+    .status-badge .dot {
+        width: 6px; height: 6px; border-radius: 50%;
+    }
+    .status-active   { background: #dcfce7; color: #15803d; }
+    .status-active .dot { background: #16a34a; }
+    .status-inactive { background: #f1f5f9; color: #64748b; }
+    .status-inactive .dot { background: #94a3b8; }
+
+    /* ── Action buttons ──────────────────────────────────── */
+    .btn-action {
+        width: 30px; height: 30px; padding: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 6px; font-size: .8rem;
+        transition: transform .12s;
+    }
+    .btn-action:hover { transform: scale(1.12); }
+
+    /* ── DataTables override ─────────────────────────────── */
+    .dataTables_wrapper .dataTables_length select,
+    .dataTables_wrapper .dataTables_filter input {
+        border-radius: 6px !important; border: 1px solid #e2e8f0 !important;
+        padding: .3rem .6rem !important; font-size: .82rem !important;
+    }
+    .dataTables_wrapper .dataTables_filter input:focus { outline: none; border-color: #2563eb !important; }
+    .dataTables_wrapper .dataTables_paginate .paginate_button.current {
+        background: #2563eb !important; color: #fff !important;
+        border-color: #2563eb !important; border-radius: 5px !important;
+    }
+    .dataTables_wrapper .dataTables_info { font-size: .8rem; color: #6b7280; }
+</style>
+
+<div class="container-fluid px-0" style="max-width:1200px">
 
     @if (TempData["ResultMessage"] != null)
     {
-        <div class="alert alert-info">@TempData["ResultMessage"]</div>
+        <div class="alert alert-info alert-dismissible fade show py-2 mb-3">
+            <i class="fas fa-info-circle me-2"></i>@TempData["ResultMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
     }
     @if (ViewBag.ErrorMessage != null)
     {
-        <div class="alert alert-danger">@ViewBag.ErrorMessage</div>
+        <div class="alert alert-danger alert-dismissible fade show py-2 mb-3">
+            <i class="fas fa-exclamation-circle me-2"></i>@ViewBag.ErrorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
     }
 
-    <div class="table-responsive">
-        <table class="table table-striped" id="userTable">
-            <thead>
-                <tr>
-                    <th>Username</th>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Phone</th>
-                    <th>Role</th>
-                    <th>Branch</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var user in Model)
-                {
-                    var isProtectedAdminRow = !string.IsNullOrWhiteSpace(user.Username) && user.Username.Equals("admin", StringComparison.OrdinalIgnoreCase);
-                    var disableActions = isProtectedAdminRow && !canManageProtectedAdminUser;
-                    <tr>
-                        <td>@user.Username</td>
-                        <td>@user.FirstName @user.LastName</td>
-                        <td>@user.Email</td>
-                        <td>@user.Phone</td>
-                        <td>@(user.Roles != null && user.Roles.Any() ? string.Join(", ", user.Roles.Select(r => r.Name)) : "-")</td>
-                        <td>@(user.Branches != null && user.Branches.Any() ? string.Join(", ", user.Branches.Select(b => string.IsNullOrWhiteSpace(b.BranchCode) ? b.BranchName : $"{b.BranchCode} - {b.BranchName}")) : "-")</td>
-                        <td>@(user.IsActive ? "Active" : "Inactive")</td>
-                        <td>
-                            @if (disableActions)
-                            {
-                                <button type="button" class="btn btn-sm btn-secondary" disabled title="Only admin login can edit admin user">Edit</button>
-                                <button type="button" class="btn btn-sm btn-secondary" disabled title="Only admin login can view admin user">View</button>
-                            }
-                            else
-                            {
-                                <a asp-action="UserForm" asp-route-id="@user.Id" class="btn btn-sm btn-primary">Edit</a>
-                                <a asp-action="UserForm" asp-route-id="@user.Id" asp-route-isView="true" class="btn btn-sm btn-info">View</a>
-                            }
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+    <!-- ── Hero Header ─────────────────────────────────────── -->
+    <div class="um-hero mb-4">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div>
+                <h2><i class="fas fa-users me-2" style="opacity:.85"></i>User Management</h2>
+                <p class="mt-1">Manage system users, roles and branch access from one place.</p>
+            </div>
+            <a asp-action="UserForm" class="btn btn-light fw-semibold px-4 shadow-sm" style="color:#1e3a5f">
+                <i class="fas fa-user-plus me-2"></i>Create New User
+            </a>
+        </div>
+    </div>
+
+    <!-- ── Stat Cards ──────────────────────────────────────── -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon" style="background:#eff6ff">
+                    <i class="fas fa-users" style="color:#2563eb"></i>
+                </div>
+                <div>
+                    <div class="stat-num" style="color:#1e3a5f">@totalUsers</div>
+                    <div class="stat-lbl">Total Users</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon" style="background:#dcfce7">
+                    <i class="fas fa-user-check" style="color:#16a34a"></i>
+                </div>
+                <div>
+                    <div class="stat-num" style="color:#15803d">@activeUsers</div>
+                    <div class="stat-lbl">Active Users</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon" style="background:#fef3c7">
+                    <i class="fas fa-user-times" style="color:#d97706"></i>
+                </div>
+                <div>
+                    <div class="stat-num" style="color:#b45309">@inactiveUsers</div>
+                    <div class="stat-lbl">Inactive Users</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon" style="background:#f3e8ff">
+                    <i class="fas fa-shield-alt" style="color:#7c3aed"></i>
+                </div>
+                <div>
+                    <div class="stat-num" style="color:#6d28d9">@totalRoles</div>
+                    <div class="stat-lbl">Distinct Roles</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── User Table Card ─────────────────────────────────── -->
+    <div class="card user-table-card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <div class="fw-semibold" style="color:#1e3a5f">
+                <i class="fas fa-table me-2 text-primary"></i>All Users
+            </div>
+            <span class="badge rounded-pill" style="background:#eff6ff;color:#2563eb;font-size:.75rem">
+                @totalUsers @(totalUsers == 1 ? "record" : "records")
+            </span>
+        </div>
+        <div class="card-body p-3">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" id="userTable">
+                    <thead>
+                        <tr>
+                            <th style="width:42px">#</th>
+                            <th>User</th>
+                            <th>Contact</th>
+                            <th>Roles</th>
+                            <th>Branches</th>
+                            <th>Status</th>
+                            <th class="text-center" style="width:90px">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{ int rowNum = 0; }
+                        @foreach (var user in userList)
+                        {
+                            rowNum++;
+                            var isProtectedAdminRow = !string.IsNullOrWhiteSpace(user.Username) && user.Username.Equals("admin", StringComparison.OrdinalIgnoreCase);
+                            var disableActions = isProtectedAdminRow && !canManageProtectedAdminUser;
+                            var avatarColor = avatarColors[aidx++ % avatarColors.Length];
+                            var fullName = $"{user.FirstName} {user.LastName}".Trim();
+                            var roles = user.Roles?.ToList() ?? new List<RestaurantManagementSystem.Models.Role>();
+                            var branches = user.Branches?.ToList() ?? new List<RestaurantManagementSystem.Models.BranchMaster>();
+                            <tr>
+                                <td class="text-muted small">@rowNum</td>
+                                <td>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="user-avatar" style="background:@avatarColor">@Initials(user)</span>
+                                        <div>
+                                            <div class="fw-semibold" style="line-height:1.2;color:#1e293b">
+                                                @(string.IsNullOrWhiteSpace(fullName) ? user.Username : fullName)
+                                            </div>
+                                            <div class="text-muted" style="font-size:.75rem">
+                                                <i class="fas fa-at" style="font-size:.65rem"></i> @user.Username
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(user.Email))
+                                    {
+                                        <div style="font-size:.8rem"><i class="fas fa-envelope text-muted me-1" style="font-size:.7rem"></i>@user.Email</div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(user.Phone))
+                                    {
+                                        <div style="font-size:.8rem"><i class="fas fa-phone text-muted me-1" style="font-size:.7rem"></i>@user.Phone</div>
+                                    }
+                                </td>
+                                <td>
+                                    @if (roles.Any())
+                                    {
+                                        @foreach (var role in roles)
+                                        {
+                                            var rbc = roleBadgeColors[rbidx++ % roleBadgeColors.Length];
+                                            <span class="badge role-badge bg-@rbc bg-opacity-10 text-@rbc border border-@rbc border-opacity-25 me-1">
+                                                @role.Name
+                                            </span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (branches.Any())
+                                    {
+                                        @foreach (var branch in branches)
+                                        {
+                                            var bLabel = string.IsNullOrWhiteSpace(branch.BranchCode)
+                                                ? branch.BranchName
+                                                : $"{branch.BranchCode} - {branch.BranchName}";
+                                            <span class="branch-pill">
+                                                <i class="fas fa-map-marker-alt" style="font-size:.6rem;margin-right:2px"></i>@bLabel
+                                            </span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (user.IsActive)
+                                    {
+                                        <span class="status-badge status-active">
+                                            <span class="dot"></span>Active
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-inactive">
+                                            <span class="dot"></span>Inactive
+                                        </span>
+                                    }
+                                </td>
+                                <td class="text-center">
+                                    @if (disableActions)
+                                    {
+                                        <button class="btn btn-action btn-outline-secondary me-1" disabled title="Only admin login can edit this user">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button class="btn btn-action btn-outline-secondary" disabled title="Only admin login can view this user">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <a asp-action="UserForm" asp-route-id="@user.Id"
+                                           class="btn btn-action btn-outline-primary me-1" title="Edit User">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <a asp-action="UserForm" asp-route-id="@user.Id" asp-route-isView="true"
+                                           class="btn btn-action btn-outline-secondary" title="View User">
+                                            <i class="fas fa-eye"></i>
+                                        </a>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 
 @section Scripts {
-    <script>
-        $(document).ready(function () {
-            $('#userTable').DataTable();
+<script>
+    $(document).ready(function () {
+        $('#userTable').DataTable({
+            pageLength: 10,
+            lengthMenu: [5, 10, 25, 50],
+            order: [[1, 'asc']],
+            columnDefs: [
+                { orderable: false, targets: [6] }
+            ],
+            language: {
+                search: '',
+                searchPlaceholder: 'Search users...',
+                lengthMenu: 'Show _MENU_ users',
+                info: 'Showing _START_ to _END_ of _TOTAL_ users',
+                infoEmpty: 'No users found',
+                zeroRecords: '<div class="text-center py-4 text-muted"><i class="fas fa-search fa-2x mb-2 d-block opacity-50"></i>No matching users found</div>'
+            },
+            dom: "<'row align-items-center mb-3'<'col-sm-6'l><'col-sm-6 text-end'f>>" +
+                 "<'row'<'col-12'tr>>" +
+                 "<'row align-items-center mt-3'<'col-sm-5'i><'col-sm-7 text-end'p>>"
         });
-    </script>
+    });
+</script>
 }
