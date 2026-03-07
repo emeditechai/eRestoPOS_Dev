@@ -146,9 +146,20 @@ namespace RestaurantManagementSystem.Services
                 await connection.OpenAsync();
 
                 var hasMailBranch = await HasColumnAsync(connection, "tbl_MailConfiguration", "BranchId");
+
+                // When the BranchId column exists but no branch context is available (e.g. pre-login
+                // flows such as ForgotPassword), fall back to the first active mail configuration
+                // (lowest BranchId) instead of failing hard.  This is the "main branch" fallback.
                 if (hasMailBranch && !activeBranchId.HasValue)
                 {
-                    return null;
+                    // Resolve the lowest-Id active branch from tbl_MailConfiguration as the default.
+                    using var fallbackCmd = new SqlCommand(
+                        "SELECT TOP 1 BranchId FROM tbl_MailConfiguration WHERE IsActive = 1 ORDER BY BranchId ASC",
+                        connection);
+                    var fallbackBranch = await fallbackCmd.ExecuteScalarAsync();
+                    if (fallbackBranch != null && fallbackBranch != DBNull.Value)
+                        activeBranchId = Convert.ToInt32(fallbackBranch);
+                    // If still no result, proceed without a filter (single-branch legacy setup).
                 }
 
                 var branchFilter = hasMailBranch && activeBranchId.HasValue ? "AND BranchId = @BranchId" : string.Empty;
