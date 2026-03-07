@@ -275,6 +275,24 @@ BEGIN TRY
 		PRINT '   - BOT_Header deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
 	END
 
+	-- BarTickets / BarTicketItems (non-BOT bar KOT tickets linked to Orders)
+	IF OBJECT_ID('dbo.BarTicketItems','U') IS NOT NULL
+	BEGIN
+		DELETE bti
+		FROM dbo.BarTicketItems bti
+		INNER JOIN dbo.BarTickets bt ON bt.Id = bti.BarTicketId
+		INNER JOIN #OrderIds o ON o.Id = bt.OrderId;
+		PRINT '   - BarTicketItems deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
+	END
+
+	IF OBJECT_ID('dbo.BarTickets','U') IS NOT NULL
+	BEGIN
+		DELETE bt
+		FROM dbo.BarTickets bt
+		INNER JOIN #OrderIds o ON o.Id = bt.OrderId;
+		PRINT '   - BarTickets deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
+	END
+
 	---------------------------------------------------------------------------
 	-- 2) Kitchen / Food + Bar stations (KitchenTickets*)
 	---------------------------------------------------------------------------
@@ -328,6 +346,14 @@ BEGIN TRY
 	---------------------------------------------------------------------------
 	PRINT '';
 	PRINT '3) Cleaning Payments / Split bills...';
+
+	IF OBJECT_ID('dbo.PaymentSplits','U') IS NOT NULL
+	BEGIN
+		DELETE ps
+		FROM dbo.PaymentSplits ps
+		INNER JOIN #OrderIds o ON o.Id = ps.OrderId;
+		PRINT '   - PaymentSplits deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
+	END
 
 	IF OBJECT_ID('dbo.SplitBillItems','U') IS NOT NULL
 	BEGIN
@@ -505,6 +531,17 @@ BEGIN TRY
 		PRINT '   - OrderAuditTrail deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
 	END
 
+	IF OBJECT_ID('dbo.AuditLogs','U') IS NOT NULL
+	BEGIN
+		IF @IsFullCleanup = 1
+			DELETE FROM dbo.AuditLogs;
+		ELSE
+			DELETE al FROM dbo.AuditLogs al
+			WHERE (@FromDate IS NULL OR al.CreatedAt >= @FromDate)
+			  AND (@ToDate   IS NULL OR al.CreatedAt <  @ToDate);
+		PRINT '   - AuditLogs deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
+	END
+
 	IF OBJECT_ID('dbo.OrderTables','U') IS NOT NULL
 	BEGIN
 		DELETE ot
@@ -607,6 +644,30 @@ BEGIN TRY
 		PRINT '   - GuestFeedback deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
 	END
 
+	-- Feedback / FeedbackResponses (separate survey-style feedback module)
+	IF OBJECT_ID('dbo.FeedbackResponses','U') IS NOT NULL
+	BEGIN
+		IF @IsFullCleanup = 1
+			DELETE FROM dbo.FeedbackResponses;
+		ELSE
+			DELETE fr FROM dbo.FeedbackResponses fr
+			INNER JOIN dbo.Feedback f ON f.Id = fr.FeedbackId
+			WHERE (@FromDate IS NULL OR f.CreatedAt >= @FromDate)
+			  AND (@ToDate   IS NULL OR f.CreatedAt <  @ToDate);
+		PRINT '   - FeedbackResponses deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
+	END
+
+	IF OBJECT_ID('dbo.Feedback','U') IS NOT NULL
+	BEGIN
+		IF @IsFullCleanup = 1
+			DELETE FROM dbo.Feedback;
+		ELSE
+			DELETE f FROM dbo.Feedback f
+			WHERE (@FromDate IS NULL OR f.CreatedAt >= @FromDate)
+			  AND (@ToDate   IS NULL OR f.CreatedAt <  @ToDate);
+		PRINT '   - Feedback deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
+	END
+
 	---------------------------------------------------------------------------
 	-- 8) Day closing / cashier close (transactional)
 	---------------------------------------------------------------------------
@@ -644,6 +705,53 @@ BEGIN TRY
 			WHERE (@FromDate IS NULL OR CAST(cdo.BusinessDate AS DATETIME) >= @FromDate)
 			  AND (@ToDate   IS NULL OR CAST(cdo.BusinessDate AS DATETIME) <  @ToDate);
 		PRINT '   - CashierDayOpening deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
+	END
+
+	IF OBJECT_ID('dbo.DayClosingRecords','U') IS NOT NULL
+	BEGIN
+		IF @IsFullCleanup = 1
+			DELETE FROM dbo.DayClosingRecords;
+		ELSE
+			DELETE dcr FROM dbo.DayClosingRecords dcr
+			WHERE (@FromDate IS NULL OR CAST(dcr.BusinessDate AS DATETIME) >= @FromDate)
+			  AND (@ToDate   IS NULL OR CAST(dcr.BusinessDate AS DATETIME) <  @ToDate);
+		PRINT '   - DayClosingRecords deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
+	END
+
+	IF OBJECT_ID('dbo.CashierClosingRecords','U') IS NOT NULL
+	BEGIN
+		IF @IsFullCleanup = 1
+			DELETE FROM dbo.CashierClosingRecords;
+		ELSE
+			DELETE ccr FROM dbo.CashierClosingRecords ccr
+			WHERE (@FromDate IS NULL OR CAST(ccr.ClosingDate AS DATETIME) >= @FromDate)
+			  AND (@ToDate   IS NULL OR CAST(ccr.ClosingDate AS DATETIME) <  @ToDate);
+		PRINT '   - CashierClosingRecords deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
+	END
+
+	---------------------------------------------------------------------------
+	-- 8b) Email log / Loyalty transactions
+	---------------------------------------------------------------------------
+	IF OBJECT_ID('dbo.tbl_EmailLog','U') IS NOT NULL
+	BEGIN
+		IF @IsFullCleanup = 1
+			DELETE FROM dbo.tbl_EmailLog;
+		ELSE
+			DELETE el FROM dbo.tbl_EmailLog el
+			WHERE (@FromDate IS NULL OR el.SentAt >= @FromDate)
+			  AND (@ToDate   IS NULL OR el.SentAt <  @ToDate);
+		PRINT '   - tbl_EmailLog deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
+	END
+
+	IF OBJECT_ID('dbo.GuestLoyaltyTransaction','U') IS NOT NULL
+	BEGIN
+		IF @IsFullCleanup = 1
+			DELETE FROM dbo.GuestLoyaltyTransaction;
+		ELSE
+			DELETE glt FROM dbo.GuestLoyaltyTransaction glt
+			WHERE (@FromDate IS NULL OR glt.TxnDate >= @FromDate)
+			  AND (@ToDate   IS NULL OR glt.TxnDate <  @ToDate);
+		PRINT '   - GuestLoyaltyTransaction deleted: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
 	END
 
 	---------------------------------------------------------------------------
@@ -734,6 +842,17 @@ BEGIN TRY
 		IF OBJECT_ID('dbo.CashierDayOpening','U') IS NOT NULL DBCC CHECKIDENT ('dbo.CashierDayOpening', RESEED, 0);
 		IF OBJECT_ID('dbo.CashierDayClose','U') IS NOT NULL DBCC CHECKIDENT ('dbo.CashierDayClose', RESEED, 0);
 		IF OBJECT_ID('dbo.DayLockAudit','U') IS NOT NULL DBCC CHECKIDENT ('dbo.DayLockAudit', RESEED, 0);
+
+		IF OBJECT_ID('dbo.BarTickets','U') IS NOT NULL DBCC CHECKIDENT ('dbo.BarTickets', RESEED, 0);
+		IF OBJECT_ID('dbo.BarTicketItems','U') IS NOT NULL DBCC CHECKIDENT ('dbo.BarTicketItems', RESEED, 0);
+		IF OBJECT_ID('dbo.PaymentSplits','U') IS NOT NULL DBCC CHECKIDENT ('dbo.PaymentSplits', RESEED, 0);
+		IF OBJECT_ID('dbo.AuditLogs','U') IS NOT NULL DBCC CHECKIDENT ('dbo.AuditLogs', RESEED, 0);
+		IF OBJECT_ID('dbo.Feedback','U') IS NOT NULL DBCC CHECKIDENT ('dbo.Feedback', RESEED, 0);
+		IF OBJECT_ID('dbo.FeedbackResponses','U') IS NOT NULL DBCC CHECKIDENT ('dbo.FeedbackResponses', RESEED, 0);
+		IF OBJECT_ID('dbo.DayClosingRecords','U') IS NOT NULL DBCC CHECKIDENT ('dbo.DayClosingRecords', RESEED, 0);
+		IF OBJECT_ID('dbo.CashierClosingRecords','U') IS NOT NULL DBCC CHECKIDENT ('dbo.CashierClosingRecords', RESEED, 0);
+		IF OBJECT_ID('dbo.tbl_EmailLog','U') IS NOT NULL DBCC CHECKIDENT ('dbo.tbl_EmailLog', RESEED, 0);
+		IF OBJECT_ID('dbo.GuestLoyaltyTransaction','U') IS NOT NULL DBCC CHECKIDENT ('dbo.GuestLoyaltyTransaction', RESEED, 0);
 
 		PRINT '   - Identity reseed complete.';
 	END
