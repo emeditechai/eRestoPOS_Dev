@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -29,6 +30,14 @@ namespace RestaurantManagementSystem.Controllers
             _connectionString = _configuration.GetConnectionString("DefaultConnection")!;
         }
 
+        private int? GetActiveBranchId() => User.GetActiveBranchId();
+
+        private IActionResult NoBranchRedirect()
+        {
+            TempData["ErrorMessage"] = "Please select an active branch first.";
+            return RedirectToAction("Index", "Home");
+        }
+
         // ═══════════════════════════════════════════════════════════════
         //  BOM LIST  –  all menu items with BOM status
         // ═══════════════════════════════════════════════════════════════
@@ -36,8 +45,12 @@ namespace RestaurantManagementSystem.Controllers
         [HttpGet]
         public IActionResult BOMList()
         {
+            var branchId = GetActiveBranchId();
+            if (!branchId.HasValue) return NoBranchRedirect();
+
             EnsureBOMTablesReady();
-            var list = LoadBOMList();
+            var list = LoadBOMList(branchId.Value);
+            ViewBag.ActiveBranchId = branchId.Value;
             return View(list);
         }
 
@@ -48,16 +61,20 @@ namespace RestaurantManagementSystem.Controllers
         [HttpGet]
         public IActionResult BOMConfigure(int id)
         {
+            var branchId = GetActiveBranchId();
+            if (!branchId.HasValue) return NoBranchRedirect();
+
             EnsureBOMTablesReady();
 
-            var vm = LoadBOMConfigure(id);
+            var vm = LoadBOMConfigure(id, branchId.Value);
             if (vm == null)
             {
-                TempData["ErrorMessage"] = "Menu item not found.";
+                TempData["ErrorMessage"] = "Menu item not found in the active branch.";
                 return RedirectToAction(nameof(BOMList));
             }
 
             ViewBag.IngredientDropdown = LoadIngredientDropdown();
+            ViewBag.ActiveBranchId = branchId.Value;
             return View(vm);
         }
 
@@ -111,6 +128,12 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
             if (req == null || req.MenuItemId == 0)
                 return Json(new { success = false, message = "Invalid request." });
 
+            var branchId = GetActiveBranchId();
+            if (!branchId.HasValue)
+                return Json(new { success = false, message = "No active branch selected." });
+            if (!MenuItemBelongsToBranch(req.MenuItemId, branchId.Value))
+                return Json(new { success = false, message = "Access denied: item not in active branch." });
+
             if (req.Yield < 1 || req.Yield > 100)
                 return Json(new { success = false, message = "Portions served must be 1–100." });
 
@@ -158,6 +181,12 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
             if (req.Quantity <= 0)
                 return Json(new { success = false, message = "Quantity must be greater than 0." });
 
+            var branchId = GetActiveBranchId();
+            if (!branchId.HasValue)
+                return Json(new { success = false, message = "No active branch selected." });
+            if (!MenuItemBelongsToBranch(req.MenuItemId, branchId.Value))
+                return Json(new { success = false, message = "Access denied: item not in active branch." });
+
             try
             {
                 EnsureBOMTablesReady();
@@ -201,11 +230,18 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
             if (req == null || req.LineId == 0)
                 return Json(new { success = false, message = "Invalid line ID." });
 
+            var branchId = GetActiveBranchId();
+            if (!branchId.HasValue)
+                return Json(new { success = false, message = "No active branch selected." });
+
             try
             {
                 int menuItemId = GetMenuItemIdForLine(req.LineId);
                 if (menuItemId == 0)
                     return Json(new { success = false, message = "BOM line not found." });
+
+                if (!MenuItemBelongsToBranch(menuItemId, branchId.Value))
+                    return Json(new { success = false, message = "Access denied: item not in active branch." });
 
                 DeleteLine(req.LineId);
                 RecalcBOMCost(menuItemId);
@@ -242,6 +278,12 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
             if (req == null || req.MenuItemId == 0)
                 return Json(new { success = false, message = "Invalid request." });
 
+            var branchId = GetActiveBranchId();
+            if (!branchId.HasValue)
+                return Json(new { success = false, message = "No active branch selected." });
+            if (!MenuItemBelongsToBranch(req.MenuItemId, branchId.Value))
+                return Json(new { success = false, message = "Access denied: item not in active branch." });
+
             try
             {
                 EnsureBOMTablesReady();
@@ -272,7 +314,7 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
         //  PRIVATE HELPERS
         // ═══════════════════════════════════════════════════════════════
 
-        private List<BOMListItemViewModel> LoadBOMList()
+        private List<BOMListItemViewModel> LoadBOMList(int branchId)
         {
             var list = new List<BOMListItemViewModel>();
             using var conn = new SqlConnection(_connectionString);
@@ -295,7 +337,9 @@ LEFT JOIN (
     GROUP  BY MenuItemId
 )                        bomCount ON bomCount.MenuItemId = mi.Id
 WHERE  ISNULL(mi.IsAvailable, 1) = 1
+  AND  mi.BranchId = @BranchId
 ORDER  BY c.Name, mi.Name", conn);
+            cmd.Parameters.AddWithValue("@BranchId", branchId);
 
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
@@ -322,12 +366,12 @@ ORDER  BY c.Name, mi.Name", conn);
             return list;
         }
 
-        private BOMConfigureViewModel? LoadBOMConfigure(int menuItemId)
+        private BOMConfigureViewModel? LoadBOMConfigure(int menuItemId, int branchId)
         {
             using var conn = new SqlConnection(_connectionString);
             conn.Open();
 
-            // 1. Load MenuItem + Recipe header
+            // 1. Load MenuItem + Recipe header (branch-scoped)
             BOMConfigureViewModel? vm = null;
             using (var cmd = new SqlCommand(@"
 SELECT
@@ -342,9 +386,11 @@ SELECT
 FROM  dbo.MenuItems mi
 LEFT JOIN dbo.Categories c ON c.Id = mi.CategoryId
 LEFT JOIN dbo.Recipes    r ON r.MenuItemId = mi.Id
-WHERE mi.Id = @MenuItemId", conn))
+WHERE mi.Id = @MenuItemId
+  AND mi.BranchId = @BranchId", conn))
             {
                 cmd.Parameters.AddWithValue("@MenuItemId", menuItemId);
+                cmd.Parameters.AddWithValue("@BranchId", branchId);
                 using var reader = cmd.ExecuteReader();
                 if (!reader.Read()) return null;
 
@@ -618,6 +664,17 @@ WHERE  MenuItemId = @MenuItemId;
             cmd.Parameters.AddWithValue("@Id", menuItemId);
             var result = cmd.ExecuteScalar();
             return result == null || result == DBNull.Value ? 0 : (decimal)result;
+        }
+
+        private bool MenuItemBelongsToBranch(int menuItemId, int branchId)
+        {
+            using var conn = new SqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new SqlCommand(
+                "SELECT COUNT(1) FROM dbo.MenuItems WHERE Id = @Id AND BranchId = @BranchId", conn);
+            cmd.Parameters.AddWithValue("@Id", menuItemId);
+            cmd.Parameters.AddWithValue("@BranchId", branchId);
+            return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
         }
 
         /// <summary>

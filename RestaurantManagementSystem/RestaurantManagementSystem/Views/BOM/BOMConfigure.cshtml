@@ -1,0 +1,643 @@
+@model RestaurantManagementSystem.Models.BOMConfigureViewModel
+@{
+    ViewData["Title"] = "BOM Configure – " + Model.MenuItemName;
+    var ingredients = ViewBag.IngredientDropdown as List<dynamic> ?? new List<dynamic>();
+    // Serialise for JS
+    var ingredientJson = System.Text.Json.JsonSerializer.Serialize(
+        ingredients.Select(i => new {
+            id             = (int)i.id,
+            name           = (string)i.name,
+            category       = (string)i.category,
+            uomCode        = (string)i.uomCode,
+            convFactor     = (decimal)i.convFactor,
+            standardCost   = (decimal)i.standardCost
+        }));
+}
+
+<style>
+    .bom-header { background: linear-gradient(135deg, #1a3c5b 0%, #2563a8 100%); }
+    .section-card { border-radius: 12px; border: none; }
+    .section-title { font-size: .75rem; text-transform: uppercase;
+        letter-spacing: .5px; color: #64748b; font-weight: 600; }
+    .cost-panel { background: #f0f9ff; border: 1px solid #bae6fd;
+        border-radius: 12px; }
+    .cost-big   { font-size: 1.8rem; font-weight: 700; color: #0369a1; }
+    .margin-big { font-size: 1.8rem; font-weight: 700; }
+    .ingredient-line td { vertical-align: middle; font-size: .85rem; }
+    .ingredient-line:hover { background: #f8fafc; }
+    .add-line-row td { background: #f8faff; }
+    .formula-box { background: #fffbeb; border: 1px solid #fde68a;
+        border-radius: 8px; font-size: .78rem; }
+    .lbl { font-size: .75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; }
+    #addIngredientForm { display:none; }
+</style>
+
+<!-- Breadcrumb -->
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb small">
+        <li class="breadcrumb-item">
+            <a href="@Url.Action("BOMList","BOM")">
+                <i class="fas fa-layer-group me-1"></i>BOM Configure
+            </a>
+        </li>
+        <li class="breadcrumb-item active">@Model.MenuItemName</li>
+    </ol>
+</nav>
+
+<!-- Page Header -->
+<div class="bom-header text-white rounded-3 p-4 mb-4 shadow-sm">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+        <div>
+            <h4 class="mb-1 fw-bold">
+                <i class="fas fa-cogs me-2"></i>@Model.MenuItemName
+                @if (!string.IsNullOrEmpty(Model.CategoryName))
+                {
+                    <span class="badge bg-white text-primary ms-2 fw-normal small">@Model.CategoryName</span>
+                }
+            </h4>
+            <p class="mb-0 text-white-50 small">
+                Selling Price: <strong class="text-white">₹@Model.SellingPrice.ToString("N2")</strong>
+                &nbsp;|&nbsp;
+                Configure ingredients and quantities to build the Bill of Material.
+            </p>
+        </div>
+        <a href="@Url.Action("BOMList","BOM")" class="btn btn-outline-light btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Back to BOM List
+        </a>
+    </div>
+</div>
+
+<div class="row g-4">
+
+    <!-- LEFT COLUMN: BOM Lines -->
+    <div class="col-lg-8">
+
+        <!-- BOM Lines List -->
+        <div class="card section-card shadow-sm mb-4">
+            <div class="card-header bg-white border-bottom d-flex align-items-center justify-content-between py-3">
+                <div>
+                    <i class="fas fa-list-ul text-primary me-2"></i>
+                    <strong>Ingredient Lines</strong>
+                    <span class="badge text-bg-primary ms-2" id="lineCountBadge">@Model.Lines.Count</span>
+                </div>
+                <button class="btn btn-success btn-sm" id="btnShowAddForm">
+                    <i class="fas fa-plus me-1"></i>Add Ingredient
+                </button>
+            </div>
+
+            <!-- Add Ingredient Form (hidden by default) -->
+            <div class="card-body border-bottom" id="addIngredientForm">
+                <div class="section-title mb-3">
+                    <i class="fas fa-plus-circle me-1"></i>Add New Ingredient to BOM
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-5">
+                        <label class="form-label small fw-semibold">Ingredient <span class="text-danger">*</span></label>
+                        <select id="newIngredientId" class="form-select form-select-sm" onchange="onIngredientChange()">
+                            <option value="">-- Select Ingredient --</option>
+                            @foreach (var ing in ingredients.OrderBy(i => (string)i.category).ThenBy(i => (string)i.name))
+                            {
+                                <option value="@((int)ing.id)"
+                                        data-conv="@((decimal)ing.convFactor)"
+                                        data-cost="@((decimal)ing.standardCost)"
+                                        data-uom="@((string)ing.uomCode)">
+                                    [@((string)(ing.category ?? "Other"))] @((string)ing.name) (@((string)ing.uomCode))
+                                </option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-semibold">Quantity <span class="text-danger">*</span></label>
+                        <input type="number" id="newQty" class="form-control form-control-sm"
+                               min="0.001" step="0.001" placeholder="0.000" oninput="previewLineCost()">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-semibold">UOM</label>
+                        <input type="text" id="newUOMDisplay" class="form-control form-control-sm bg-light" readonly placeholder="—">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-semibold">Est. Line Cost</label>
+                        <input type="text" id="newLineCostDisplay" class="form-control form-control-sm bg-light fw-bold" readonly placeholder="₹ 0.00">
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                        <div class="form-check mb-1" title="Optional Ingredient">
+                            <input class="form-check-input" type="checkbox" id="newIsOptional">
+                            <label class="form-check-label small" for="newIsOptional">Opt.</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Notes / Instructions (optional)</label>
+                        <input type="text" id="newInstructions" class="form-control form-control-sm"
+                               maxlength="200" placeholder="e.g., finely chopped, room temperature…">
+                    </div>
+                </div>
+                <div class="mt-3 d-flex gap-2">
+                    <button class="btn btn-success btn-sm" onclick="submitAddLine()">
+                        <i class="fas fa-plus me-1"></i>Add to BOM
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="hideAddForm()">
+                        <i class="fas fa-times me-1"></i>Cancel
+                    </button>
+                </div>
+            </div>
+
+            <!-- Lines Table -->
+            <div class="card-body p-0">
+                <table class="table table-bordered mb-0" id="bomLinesTable">
+                    <thead>
+                        <tr style="background:#f8fafc;">
+                            <th class="section-title ps-3" style="width:28%;">Ingredient</th>
+                            <th class="section-title text-end" style="width:12%;">Qty</th>
+                            <th class="section-title text-center" style="width:8%;">UOM</th>
+                            <th class="section-title text-end" style="width:12%;">Conv. Factor</th>
+                            <th class="section-title text-end" style="width:12%;">Std. Cost /Pur</th>
+                            <th class="section-title text-end" style="width:12%;">Line Cost</th>
+                            <th class="section-title text-center" style="width:7%;">Opt.</th>
+                            <th class="section-title text-center" style="width:9%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bomLinesBody">
+                        @foreach (var line in Model.Lines)
+                        {
+                            <tr class="ingredient-line"
+                                id="line-@line.Id"
+                                data-lineid="@line.Id"
+                                data-ingredientid="@line.IngredientId"
+                                data-qty="@line.Quantity"
+                                data-conv="@line.ConversionFactor"
+                                data-cost="@line.StandardCost"
+                                data-uom="@line.ConsumptionUOMCode"
+                                data-optional="@line.IsOptional.ToString().ToLower()">
+                                <td class="ps-3">
+                                    <span class="fw-semibold">@line.IngredientName</span>
+                                    @if (line.IsOptional)
+                                    {
+                                        <span class="badge text-bg-secondary ms-1 small">Optional</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(line.ItemCategory))
+                                    {
+                                        <br><small class="text-muted">@line.ItemCategory</small>
+                                    }
+                                    @if (!string.IsNullOrEmpty(line.Instructions))
+                                    {
+                                        <br><small class="text-muted fst-italic"><i class="fas fa-sticky-note me-1"></i>@line.Instructions</small>
+                                    }
+                                </td>
+                                <!-- Qty cell – editable inline -->
+                                <td class="text-end">
+                                    <input type="number" class="form-control form-control-sm text-end line-qty-input"
+                                           id="qty-@line.Id"
+                                           value="@line.Quantity" min="0.001" step="0.001"
+                                           style="width:90px;display:inline-block;"
+                                           data-lineid="@line.Id"
+                                           onchange="updateLineQty(@line.Id, @line.IngredientId)">
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge text-bg-light border">@(line.ConsumptionUOMCode ?? "—")</span>
+                                </td>
+                                <td class="text-end text-muted small">
+                                    @(line.ConversionFactor.HasValue ? line.ConversionFactor.Value.ToString("N3") : "1.000")
+                                </td>
+                                <td class="text-end text-muted small">
+                                    ₹@(line.StandardCost.HasValue ? line.StandardCost.Value.ToString("N4") : "0.0000")
+                                </td>
+                                <td class="text-end fw-semibold line-cost" id="linecost-@line.Id">
+                                    @if (line.LineCost.HasValue)
+                                    {
+                                        <text>₹@line.LineCost.Value.ToString("N4")</text>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">—</span>
+                                    }
+                                </td>
+                                <td class="text-center">
+                                    @if (line.IsOptional)
+                                    {
+                                        <i class="fas fa-check text-success"></i>
+                                    }
+                                    else
+                                    {
+                                        <i class="fas fa-minus text-muted"></i>
+                                    }
+                                </td>
+                                <td class="text-center">
+                                    <button class="btn btn-sm btn-outline-danger"
+                                            onclick="deleteBOMLine(@line.Id, '@Html.Raw(line.IngredientName.Replace("'","\\\'"))')"
+                                            title="Remove from BOM">
+                                        <i class="fas fa-trash-alt"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr class="fw-bold" style="background:#f8fafc;">
+                            <td class="ps-3 text-end pe-2" colspan="5">
+                                <span class="section-title">Total Raw BOM Cost</span>
+                            </td>
+                            <td class="text-end" id="totalRawCostCell">
+                                @{
+                                    decimal rawTotal = Model.Lines.Sum(l => l.LineCost ?? 0);
+                                }
+                                <span id="totalRawCost">₹@rawTotal.ToString("N4")</span>
+                            </td>
+                            <td colspan="2"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+
+                @if (!Model.Lines.Any())
+                {
+                    <div class="text-center py-5 text-muted" id="emptyLinesMsg">
+                        <i class="fas fa-box-open fa-2x mb-2 d-block"></i>
+                        No ingredients added yet. Click <strong>Add Ingredient</strong> to start building the BOM.
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Cost Formula Reference -->
+        <div class="formula-box p-3 mb-3">
+            <div class="fw-semibold mb-1 small">
+                <i class="fas fa-calculator text-warning me-1"></i>
+                BOM Cost Formula
+            </div>
+            <div class="text-muted">
+                <strong>Line Cost</strong> = Qty (Consumption UOM) &divide; Conversion Factor &times; Standard Cost (per Purchase UOM)<br>
+                <strong>Total BOM Cost</strong> = &Sigma; Line Costs &divide; (Yield % / 100)<br>
+                <strong>Gross Margin %</strong> = (Selling Price &minus; BOM Cost) &divide; Selling Price &times; 100
+            </div>
+        </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN: Header + Cost Summary -->
+    <div class="col-lg-4">
+
+        <!-- BOM Header Card -->
+        <div class="card section-card shadow-sm mb-4">
+            <div class="card-header bg-white border-bottom py-3">
+                <i class="fas fa-sliders-h text-primary me-2"></i>
+                <strong>BOM Header Settings</strong>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="lbl">Portions Served (Yield)</label>
+                    <input type="number" id="headerYield" class="form-control form-control-sm"
+                           value="@Model.Yield" min="1" max="100">
+                    <div class="form-text">How many portions this BOM produces per batch.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="lbl">Yield % <small class="text-muted">(usable output after waste)</small></label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" id="headerYieldPct" class="form-control"
+                               value="@Model.YieldPercentage" min="1" max="100" step="0.01">
+                        <span class="input-group-text">%</span>
+                    </div>
+                    <div class="form-text">
+                        100% = no waste. 80% = 20% trimming/cooking loss.<br>
+                        BOM cost is divided by this factor.
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="lbl">Preparation Time (minutes)</label>
+                    <input type="number" id="headerPrepTime" class="form-control form-control-sm"
+                           value="@(Model.PrepTimeMinutes.HasValue ? Model.PrepTimeMinutes.Value.ToString() : "")"
+                           min="1" max="600" placeholder="Optional">
+                </div>
+                <button class="btn btn-primary btn-sm w-100" onclick="saveHeader()">
+                    <i class="fas fa-save me-1"></i>Save Header
+                </button>
+            </div>
+        </div>
+
+        <!-- Cost Summary Card -->
+        <div class="card section-card shadow-sm mb-4 cost-panel">
+            <div class="card-header bg-transparent border-bottom py-3">
+                <i class="fas fa-chart-pie text-info me-2"></i>
+                <strong>Cost &amp; Margin Summary</strong>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <div class="lbl mb-1">Selling Price</div>
+                        <div class="fs-5 fw-bold">₹@Model.SellingPrice.ToString("N2")</div>
+                    </div>
+                    <div class="text-end">
+                        <div class="lbl mb-1">BOM Cost</div>
+                        <div class="cost-big" id="summaryBOMCost">
+                            @(Model.ComputedCost.HasValue ? "₹" + Model.ComputedCost.Value.ToString("N4") : "—")
+                        </div>
+                    </div>
+                </div>
+                <hr class="my-2">
+                <div class="text-center mb-3">
+                    <div class="lbl mb-1">Gross Margin</div>
+                    <div class="margin-big @(Model.GrossMarginPct.HasValue
+                            ? (Model.GrossMarginPct >= 60 ? "text-success" : Model.GrossMarginPct >= 40 ? "text-warning" : "text-danger")
+                            : "text-secondary")"
+                         id="summaryMargin">
+                        @(Model.GrossMarginPct.HasValue ? Model.GrossMarginPct.Value.ToString("N1") + "%" : "—")
+                    </div>
+                    <div id="marginGuidance" class="small mt-1"></div>
+                </div>
+                <div class="row g-2 small">
+                    <div class="col-6">
+                        <div class="p-2 bg-white rounded-2 text-center border">
+                            <div class="lbl">Yield %</div>
+                            <div class="fw-semibold" id="summaryYieldPct">@Model.YieldPercentage.ToString("N0")%</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="p-2 bg-white rounded-2 text-center border">
+                            <div class="lbl">Portions</div>
+                            <div class="fw-semibold" id="summaryYield">@Model.Yield</div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="p-2 bg-white rounded-2 border text-center">
+                            <div class="lbl">Last Calculated</div>
+                            <div class="fw-semibold small" id="summaryLastCalc">
+                                @(Model.LastCalculated.HasValue
+                                    ? Model.LastCalculated.Value.ToString("dd MMM yyyy, HH:mm")
+                                    : "Not yet")
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-outline-info btn-sm w-100 mt-3" onclick="recalcCost()">
+                    <i class="fas fa-sync-alt me-1"></i>Recalculate Cost Now
+                </button>
+            </div>
+        </div>
+
+        <!-- Quick legend -->
+        <div class="card section-card shadow-sm">
+            <div class="card-body p-3">
+                <div class="section-title mb-2">
+                    <i class="fas fa-traffic-light me-1"></i>Margin Guide
+                </div>
+                <div class="d-flex flex-column gap-1 small">
+                    <div><span class="badge bg-success me-2">≥ 60%</span>Excellent – standard F&amp;B target</div>
+                    <div><span class="badge bg-warning text-dark me-2">40–60%</span>Acceptable – review ingredient costs</div>
+                    <div><span class="badge bg-danger me-2">&lt; 40%</span>Low – consider repricing or reformulation</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+@section Scripts {
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+const MENU_ITEM_ID  = @Model.MenuItemId;
+const SELLING_PRICE = @Model.SellingPrice;
+const TOKEN         = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+
+// Ingredient lookup map built from server-rendered JSON
+const _ING_ARR = @Html.Raw(ingredientJson);
+const INGREDIENT_MAP = _ING_ARR.reduce((acc, i) => { acc[i.id] = i; return acc; }, {});
+
+// ─── Add Form toggle ──────────────────────────────────────────────────────────
+document.getElementById('btnShowAddForm').addEventListener('click', () => {
+    document.getElementById('addIngredientForm').style.display = 'block';
+    document.getElementById('btnShowAddForm').style.display = 'none';
+    document.getElementById('newIngredientId').focus();
+});
+
+function hideAddForm() {
+    document.getElementById('addIngredientForm').style.display = 'none';
+    document.getElementById('btnShowAddForm').style.display = '';
+    resetAddForm();
+}
+
+function resetAddForm() {
+    document.getElementById('newIngredientId').value = '';
+    document.getElementById('newQty').value = '';
+    document.getElementById('newUOMDisplay').value = '';
+    document.getElementById('newLineCostDisplay').value = '';
+    document.getElementById('newIsOptional').checked = false;
+    document.getElementById('newInstructions').value = '';
+}
+
+// ─── Ingredient selection – populate UOM + preview cost ──────────────────────
+function onIngredientChange() {
+    const sel = document.getElementById('newIngredientId');
+    const ingId = parseInt(sel.value);
+    const info = INGREDIENT_MAP[ingId];
+    if (info) {
+        document.getElementById('newUOMDisplay').value = info.uomCode || '—';
+    } else {
+        document.getElementById('newUOMDisplay').value = '';
+    }
+    previewLineCost();
+}
+
+function previewLineCost() {
+    const sel   = document.getElementById('newIngredientId');
+    const ingId = parseInt(sel.value);
+    const qty   = parseFloat(document.getElementById('newQty').value) || 0;
+    const info  = INGREDIENT_MAP[ingId];
+    if (info && qty > 0 && info.convFactor > 0) {
+        const cost = qty / info.convFactor * info.standardCost;
+        document.getElementById('newLineCostDisplay').value = '₹' + cost.toFixed(4);
+    } else {
+        document.getElementById('newLineCostDisplay').value = '';
+    }
+}
+
+// ─── Save BOM Header ──────────────────────────────────────────────────────────
+async function saveHeader() {
+    const yield_     = parseInt(document.getElementById('headerYield').value) || 1;
+    const yieldPct   = parseFloat(document.getElementById('headerYieldPct').value) || 100;
+    const prepTime   = parseInt(document.getElementById('headerPrepTime').value) || null;
+
+    if (yield_ < 1 || yield_ > 100)        { showToast('Portions must be 1–100.', 'warning'); return; }
+    if (yieldPct < 1 || yieldPct > 100)    { showToast('Yield % must be 1–100.', 'warning'); return; }
+
+    const res = await postJSON('/BOM/SaveBOMHeader', {
+        menuItemId: MENU_ITEM_ID, yield: yield_, yieldPercentage: yieldPct, prepTimeMinutes: prepTime
+    });
+
+    if (res.success) {
+        updateSummaryPanel(res.computedCost, res.grossMarginPct);
+        document.getElementById('summaryYield').textContent    = yield_;
+        document.getElementById('summaryYieldPct').textContent = yieldPct.toFixed(0) + '%';
+        showToast('BOM header saved.', 'success');
+    } else {
+        showToast(res.message || 'Save failed.', 'danger');
+    }
+}
+
+// ─── Add BOM Line ─────────────────────────────────────────────────────────────
+async function submitAddLine() {
+    const ingId = parseInt(document.getElementById('newIngredientId').value) || 0;
+    const qty   = parseFloat(document.getElementById('newQty').value) || 0;
+
+    if (!ingId)  { showToast('Please select an ingredient.', 'warning'); return; }
+    if (qty <= 0){ showToast('Quantity must be greater than 0.', 'warning'); return; }
+
+    const res = await postJSON('/BOM/SaveBOMLine', {
+        lineId: 0,
+        menuItemId:   MENU_ITEM_ID,
+        ingredientId: ingId,
+        quantity:     qty,
+        isOptional:   document.getElementById('newIsOptional').checked,
+        instructions: document.getElementById('newInstructions').value
+    });
+
+    if (res.success) {
+        hideAddForm();
+        updateSummaryPanel(res.computedCost, res.grossMarginPct);
+        showToast(res.message, 'success');
+        setTimeout(() => location.reload(), 800);
+    } else {
+        showToast(res.message || 'Failed to add ingredient.', 'danger');
+    }
+}
+
+// ─── Inline Qty Update ────────────────────────────────────────────────────────
+async function updateLineQty(lineId, ingredientId) {
+    const qty = parseFloat(document.getElementById('qty-' + lineId).value) || 0;
+    if (qty <= 0) { showToast('Quantity must be > 0.', 'warning'); return; }
+
+    const res = await postJSON('/BOM/SaveBOMLine', {
+        lineId, menuItemId: MENU_ITEM_ID, ingredientId, quantity: qty,
+        isOptional: false, instructions: null
+    });
+
+    if (res.success) {
+        // Update line cost display
+        const row  = document.getElementById('line-' + lineId);
+        const conv = parseFloat(row?.dataset.conv) || 1;
+        const cost = parseFloat(row?.dataset.cost) || 0;
+        if (conv > 0) {
+            const lineCost = qty / conv * cost;
+            document.getElementById('linecost-' + lineId).textContent = '₹' + lineCost.toFixed(4);
+        }
+        updateSummaryPanel(res.computedCost, res.grossMarginPct);
+        showToast('Quantity updated.', 'success');
+    } else {
+        showToast(res.message || 'Update failed.', 'danger');
+    }
+}
+
+// ─── Delete BOM Line ──────────────────────────────────────────────────────────
+async function deleteBOMLine(lineId, name) {
+    if (!confirm(`Remove "${name}" from BOM?`)) return;
+
+    const res = await postJSON('/BOM/DeleteBOMLine', { lineId });
+
+    if (res.success) {
+        document.getElementById('line-' + lineId)?.remove();
+        const remaining = document.querySelectorAll('#bomLinesBody tr.ingredient-line').length;
+        document.getElementById('lineCountBadge').textContent = remaining;
+        updateSummaryPanel(res.computedCost, res.grossMarginPct);
+        showToast(res.message, 'success');
+        if (remaining === 0) {
+            document.getElementById('emptyLinesMsg')?.remove();
+            const emptyDiv = document.createElement('div');
+            emptyDiv.id = 'emptyLinesMsg';
+            emptyDiv.className = 'text-center py-5 text-muted';
+            emptyDiv.innerHTML = '<i class="fas fa-box-open fa-2x mb-2 d-block"></i>No ingredients added yet.';
+            document.getElementById('bomLinesBody').closest('.card-body') || 
+                document.getElementById('bomLinesTable').parentNode.appendChild(emptyDiv);
+        }
+    } else {
+        showToast(res.message || 'Delete failed.', 'danger');
+    }
+}
+
+// ─── Recalculate cost ─────────────────────────────────────────────────────────
+async function recalcCost() {
+    const res = await postJSON('/BOM/RecalculateCost', { menuItemId: MENU_ITEM_ID });
+    if (res.success) {
+        updateSummaryPanel(res.computedCost, res.grossMarginPct);
+        showToast('Cost recalculated.', 'success');
+    } else {
+        showToast(res.message || 'Recalculation failed.', 'danger');
+    }
+}
+
+// ─── Summary panel update ─────────────────────────────────────────────────────
+function updateSummaryPanel(cost, margin) {
+    const costEl   = document.getElementById('summaryBOMCost');
+    const marginEl = document.getElementById('summaryMargin');
+    const guideEl  = document.getElementById('marginGuidance');
+    const lastEl   = document.getElementById('summaryLastCalc');
+
+    if (cost != null) {
+        costEl.textContent = '₹' + parseFloat(cost).toFixed(4);
+    } else {
+        costEl.textContent = '—';
+    }
+
+    if (margin != null) {
+        const m = parseFloat(margin);
+        marginEl.textContent = m.toFixed(1) + '%';
+        marginEl.className = 'margin-big ' +
+            (m >= 60 ? 'text-success' : m >= 40 ? 'text-warning' : 'text-danger');
+        guideEl.textContent = m >= 60 ? '✅ Excellent margin'
+            : m >= 40 ? '⚠️ Acceptable – review costs'
+            : '❌ Low margin – consider repricing';
+    } else {
+        marginEl.textContent = '—';
+        marginEl.className = 'margin-big text-secondary';
+        guideEl.textContent = '';
+    }
+
+    const now = new Date();
+    lastEl.textContent = now.toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'})
+        + ', ' + now.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',hour12:false});
+}
+
+// ─── Generic POST helper ──────────────────────────────────────────────────────
+async function postJSON(url, data) {
+    try {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': TOKEN
+            },
+            body: JSON.stringify(data)
+        });
+        return await resp.json();
+    } catch (e) {
+        return { success: false, message: 'Network error: ' + e.message };
+    }
+}
+
+// ─── Toast helper ─────────────────────────────────────────────────────────────
+function showToast(msg, type = 'info') {
+    if (typeof toastr !== 'undefined') {
+        if (type === 'success') toastr.success(msg);
+        else if (type === 'danger') toastr.error(msg);
+        else if (type === 'warning') toastr.warning(msg);
+        else toastr.info(msg);
+    } else {
+        alert(msg);
+    }
+}
+
+// ─── Initial margin guidance ─────────────────────────────────────────────────
+(function () {
+    const costEl = document.getElementById('summaryBOMCost');
+    if (costEl && costEl.textContent.trim() !== '—') {
+        const marginEl = document.getElementById('summaryMargin');
+        const txt = marginEl ? marginEl.textContent.replace('%','').trim() : '';
+        const m = parseFloat(txt);
+        if (!isNaN(m)) {
+            const guideEl = document.getElementById('marginGuidance');
+            guideEl.textContent = m >= 60 ? '✅ Excellent margin'
+                : m >= 40 ? '⚠️ Acceptable – review costs'
+                : '❌ Low margin – consider repricing';
+            marginEl.className = 'margin-big ' +
+                (m >= 60 ? 'text-success' : m >= 40 ? 'text-warning' : 'text-danger');
+        }
+    }
+})();
+</script>
+}

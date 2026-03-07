@@ -1,0 +1,309 @@
+@model List<RestaurantManagementSystem.Models.BOMListItemViewModel>
+@{
+    ViewData["Title"] = "BOM Configure";
+    int configured = Model.Count(x => x.IsConfigured);
+    int total      = Model.Count;
+    int missing    = total - configured;
+    decimal avgMargin = Model.Where(x => x.GrossMarginPct.HasValue).Any()
+        ? Math.Round(Model.Where(x => x.GrossMarginPct.HasValue).Average(x => x.GrossMarginPct!.Value), 1)
+        : 0;
+}
+
+<style>
+    .bom-header { background: linear-gradient(135deg, #1a3c5b 0%, #2563a8 100%); }
+    .stat-card   { border-radius: 12px; border: none; }
+    .stat-card .stat-icon { width: 48px; height: 48px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+    .bom-table th  { background: #1a3c5b; color: #fff; font-size: .8rem;
+        text-transform: uppercase; letter-spacing: .4px; border: none; }
+    .bom-table td  { vertical-align: middle; font-size: .87rem; }
+    .bom-table tbody tr:hover { background: #f0f7ff; }
+    .badge-configured   { background: #dcfce7; color: #15803d; }
+    .badge-notconfigured{ background: #fef3c7; color: #92400e; }
+    .filter-bar input, .filter-bar select { font-size: .85rem; }
+    .progress-configured { height: 6px; border-radius: 4px; background: #e2e8f0; }
+    .progress-configured .bar { background: #22c55e; border-radius: 4px; }
+</style>
+
+<!-- Page Header -->
+<div class="bom-header text-white rounded-3 p-4 mb-4 shadow-sm">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+        <div>
+            <h4 class="mb-1 fw-bold">
+                <i class="fas fa-layer-group me-2"></i>BOM Configure
+            </h4>
+            <p class="mb-0 text-white-50 small">
+                Bill of Material &mdash; Link Menu Items to Ingredient Master with cost &amp; margin visibility.
+            </p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="@Url.Action("IngredientsList","Master")" class="btn btn-outline-light btn-sm">
+                <i class="fas fa-flask me-1"></i>Ingredient Master
+            </a>
+            <a href="@Url.Action("Index","Uom")" class="btn btn-outline-light btn-sm">
+                <i class="fas fa-ruler-combined me-1"></i>UOM Master
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card stat-card shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="stat-icon" style="background:#dbeafe;">
+                    <i class="fas fa-utensils text-primary"></i>
+                </div>
+                <div>
+                    <div class="fs-4 fw-bold">@total</div>
+                    <div class="text-muted small">Total Menu Items</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card stat-card shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="stat-icon" style="background:#dcfce7;">
+                    <i class="fas fa-check-circle text-success"></i>
+                </div>
+                <div>
+                    <div class="fs-4 fw-bold text-success">@configured</div>
+                    <div class="text-muted small">BOM Configured</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card stat-card shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="stat-icon" style="background:#fef3c7;">
+                    <i class="fas fa-exclamation-triangle" style="color:#d97706;"></i>
+                </div>
+                <div>
+                    <div class="fs-4 fw-bold" style="color:#d97706;">@missing</div>
+                    <div class="text-muted small">Pending Setup</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card stat-card shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="stat-icon" style="background:#f3e8ff;">
+                    <i class="fas fa-percent" style="color:#7c3aed;"></i>
+                </div>
+                <div>
+                    <div class="fs-4 fw-bold" style="color:#7c3aed;">@avgMargin%</div>
+                    <div class="text-muted small">Avg Gross Margin</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Coverage Progress -->
+@if (total > 0)
+{
+    int pct = (int)Math.Round((double)configured / total * 100);
+    <div class="mb-4 p-3 bg-white rounded-3 shadow-sm border">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            <small class="fw-semibold text-muted text-uppercase" style="letter-spacing:.4px;">BOM Coverage</small>
+            <small class="fw-bold text-success">@pct%</small>
+        </div>
+        <div class="progress-configured">
+            <div class="bar" style="width:@pct%;height:6px;"></div>
+        </div>
+    </div>
+}
+
+<!-- Filter Bar -->
+<div class="card shadow-sm mb-3 border-0">
+    <div class="card-body py-2">
+        <div class="row g-2 filter-bar align-items-center">
+            <div class="col-md-5">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-white border-end-0">
+                        <i class="fas fa-search text-muted"></i>
+                    </span>
+                    <input type="text" id="searchBox" class="form-control border-start-0"
+                           placeholder="Search menu item name…" oninput="filterTable()">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <select id="categoryFilter" class="form-select form-select-sm" onchange="filterTable()">
+                    <option value="">All Categories</option>
+                    @foreach (var cat in Model.Select(x => x.CategoryName ?? "Uncategorised").Distinct().OrderBy(x => x))
+                    {
+                        <option value="@cat">@cat</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select id="statusFilter" class="form-select form-select-sm" onchange="filterTable()">
+                    <option value="">All Items</option>
+                    <option value="configured">BOM Configured</option>
+                    <option value="pending">Pending Setup</option>
+                </select>
+            </div>
+            <div class="col-md-1 text-end">
+                <button class="btn btn-sm btn-outline-secondary" onclick="clearFilters()" title="Clear filters">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Table -->
+<div class="card shadow-sm border-0">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-bordered mb-0 bom-table" id="bomTable">
+                <thead>
+                    <tr>
+                        <th style="width:30px;">#</th>
+                        <th>Menu Item</th>
+                        <th>Category</th>
+                        <th class="text-end">Selling Price</th>
+                        <th class="text-center">Ingredients</th>
+                        <th class="text-end">BOM Cost</th>
+                        <th class="text-center">Gross Margin</th>
+                        <th class="text-center">Status</th>
+                        <th class="text-center" style="width:110px;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="bomTableBody">
+                    @{ int rowNum = 0; }
+                    @foreach (var item in Model)
+                    {
+                        rowNum++;
+                        <tr data-name="@item.MenuItemName.ToLower()"
+                            data-category="@(item.CategoryName ?? "Uncategorised")"
+                            data-status="@(item.IsConfigured ? "configured" : "pending")">
+                            <td class="text-muted">@rowNum</td>
+                            <td class="fw-semibold">@item.MenuItemName</td>
+                            <td>
+                                @if (!string.IsNullOrEmpty(item.CategoryName))
+                                {
+                                    <span class="badge rounded-pill text-bg-light border">
+                                        @item.CategoryName
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td class="text-end fw-semibold">₹@item.SellingPrice.ToString("N2")</td>
+                            <td class="text-center">
+                                @if (item.LineCount > 0)
+                                {
+                                    <span class="badge text-bg-primary rounded-pill">@item.LineCount</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">—</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                @if (item.BOMCost.HasValue)
+                                {
+                                    <span class="fw-semibold">₹@item.BOMCost.Value.ToString("N4")</span>
+                                    if (item.LastCalculated.HasValue)
+                                    {
+                                        <br><small class="text-muted">@item.LastCalculated.Value.ToString("dd MMM HH:mm")</small>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">Not calculated</span>
+                                }
+                            </td>
+                            <td class="text-center">
+                                @if (item.GrossMarginPct.HasValue)
+                                {
+                                    <span class="badge @item.MarginBadgeClass rounded-pill">
+                                        @item.GrossMarginPct.Value.ToString("N1")%
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">—</span>
+                                }
+                            </td>
+                            <td class="text-center">
+                                @if (item.IsConfigured)
+                                {
+                                    <span class="badge badge-configured rounded-pill small">
+                                        <i class="fas fa-check-circle me-1"></i>Configured
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-notconfigured rounded-pill small">
+                                        <i class="fas fa-clock me-1"></i>Pending
+                                    </span>
+                                }
+                            </td>
+                            <td class="text-center">
+                                <a href="@Url.Action("BOMConfigure","BOM", new { id = item.MenuItemId })"
+                                   class="btn btn-sm @(item.IsConfigured ? "btn-outline-primary" : "btn-warning") px-3"
+                                   title="@(item.IsConfigured ? "Edit BOM" : "Configure BOM")">
+                                    <i class="fas @(item.IsConfigured ? "fa-edit" : "fa-cog") me-1"></i>
+                                    @(item.IsConfigured ? "Edit" : "Configure")
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                    @if (Model.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="9" class="text-center py-5 text-muted">
+                                <i class="fas fa-utensils fa-2x mb-2 d-block"></i>
+                                No menu items found. Please add menu items first.
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer bg-light d-flex justify-content-between align-items-center small text-muted py-2">
+        <span id="rowCount">Showing @total items</span>
+        <span>
+            <i class="fas fa-info-circle me-1"></i>
+            Gross Margin = (Selling Price − BOM Cost) ÷ Selling Price × 100
+        </span>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+function filterTable() {
+    const q       = document.getElementById('searchBox').value.toLowerCase();
+    const cat     = document.getElementById('categoryFilter').value;
+    const status  = document.getElementById('statusFilter').value;
+    const rows    = document.querySelectorAll('#bomTableBody tr[data-name]');
+    let visible   = 0;
+
+    rows.forEach(r => {
+        const nameMatch   = r.dataset.name.includes(q);
+        const catMatch    = !cat    || r.dataset.category === cat;
+        const statusMatch = !status || r.dataset.status  === status;
+        const show        = nameMatch && catMatch && statusMatch;
+        r.style.display   = show ? '' : 'none';
+        if (show) visible++;
+    });
+    document.getElementById('rowCount').textContent = `Showing ${visible} items`;
+}
+
+function clearFilters() {
+    document.getElementById('searchBox').value = '';
+    document.getElementById('categoryFilter').value = '';
+    document.getElementById('statusFilter').value = '';
+    filterTable();
+}
+</script>
+}
