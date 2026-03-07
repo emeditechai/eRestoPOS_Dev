@@ -200,6 +200,31 @@
                     </div>
                 </div>
 
+                <!-- Send Notification (create only) -->
+                @if (isNew)
+                {
+                    <div class="card border-0 shadow-sm mb-3" id="notificationCard">
+                        <div class="card-header bg-light py-2 fw-semibold">
+                            <i class="fas fa-bell me-2 text-warning"></i>Email Notification
+                        </div>
+                        <div class="card-body">
+                            <div class="form-check form-switch">
+                                <input type="checkbox" name="SendNotification" value="true"
+                                       class="form-check-input" role="switch"
+                                       id="switchNotification" style="width:3em;height:1.5em"
+                                       onclick="toggleNotificationHint(this.checked)" />
+                                <label class="form-check-label ms-2 fw-semibold" for="switchNotification">
+                                    <span id="notifLabel" class="text-secondary">Don't Send Notification</span>
+                                </label>
+                            </div>
+                            <div id="notifHint" class="form-text mt-2" style="display:none;">
+                                <i class="fas fa-envelope me-1 text-warning"></i>
+                                A welcome email will be sent to the party's email address upon saving.
+                            </div>
+                        </div>
+                    </div>
+                }
+
                 <!-- Audit -->
                 @if (!isNew)
                 {
@@ -270,5 +295,14 @@
         lbl.textContent = this.checked ? 'Active'   : 'Inactive';
         lbl.className   = this.checked ? 'text-success' : 'text-secondary';
     });
+
+    function toggleNotificationHint(checked) {
+        var lbl  = document.getElementById('notifLabel');
+        var hint = document.getElementById('notifHint');
+        if (!lbl) return;
+        lbl.textContent = checked ? 'Send Notification' : 'Don\'t Send Notification';
+        lbl.className   = checked ? 'text-warning fw-bold' : 'text-secondary';
+        hint.style.display = checked ? 'block' : 'none';
+    }
 </script>
 }

@@ -8,6 +8,9 @@ using System;
 using System.Linq;
 using RestaurantManagementSystem.Utilities;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using RestaurantManagementSystem.Services;
+using Microsoft.Extensions.Logging;
+using System.Threading.Tasks;
 
 namespace RestaurantManagementSystem.Controllers
 {
@@ -16,12 +19,17 @@ namespace RestaurantManagementSystem.Controllers
         private readonly RestaurantDbContext _dbContext;
         private readonly IConfiguration _configuration;
         private readonly string _connectionString;
+        private readonly IEmailSender _emailSender;
+        private readonly ILogger<MasterController> _logger;
         
-        public MasterController(RestaurantDbContext dbContext, IConfiguration configuration)
+        public MasterController(RestaurantDbContext dbContext, IConfiguration configuration,
+            IEmailSender emailSender, ILogger<MasterController> logger)
         {
             _dbContext = dbContext;
             _configuration = configuration;
             _connectionString = _configuration.GetConnectionString("DefaultConnection");
+            _emailSender = emailSender;
+            _logger = logger;
         }
 
         // Category List
@@ -615,7 +623,7 @@ END
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult PartyForm(PartyMaster model)
+    public async Task<IActionResult> PartyForm(PartyMaster model, bool SendNotification = false)
     {
         EnsurePartiesTableExists();
 
@@ -644,7 +652,9 @@ END
         if (!model.IsCreditAllow)
             model.AllowBalance = null;
 
-        if (model.Id == 0)
+        bool isNew = model.Id == 0;
+
+        if (isNew)
         {
             model.CreatedAt = DateTime.UtcNow;
             _dbContext.Parties.Add(model);
@@ -673,6 +683,11 @@ END
         }
 
         _dbContext.SaveChanges();
+
+        // Send welcome email only when creating a new party AND the checkbox was ticked
+        if (isNew && SendNotification)
+            await SendPartyEmailNotificationAsync(model);
+
         return RedirectToAction(nameof(PartyList));
     }
 
@@ -704,6 +719,203 @@ END
         }
         return RedirectToAction(nameof(PartyList));
     }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Party Email Notification
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private async Task SendPartyEmailNotificationAsync(PartyMaster party)
+    {
+        if (string.IsNullOrWhiteSpace(party.Email)) return;
+
+        var subject = $"Welcome to Our Network – {party.PartyName}";
+        var htmlBody = BuildPartyEmailHtml(party);
+
+        try
+        {
+            var result = await _emailSender.SendAsync(
+                party.Email,
+                subject,
+                htmlBody,
+                emailType: "PartyWelcome",
+                sentFrom: "MasterController");
+
+            if (!result.Success)
+                _logger.LogWarning("Party email not sent to {Email}: {Error}", party.Email, result.ErrorMessage);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception while sending party email to {Email}", party.Email);
+        }
+    }
+
+    private static string BuildPartyEmailHtml(PartyMaster party)
+    {
+        const string headerBg    = "#1a6b4a";
+        const string accentColor = "#28a745";
+        var dateStr = DateTime.Now.ToString("dd MMM yyyy, hh:mm tt");
+        var creditSection = party.IsCreditAllow
+            ? $@"<tr>
+                    <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;"">Credit Allowed</td>
+                    <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:14px;font-weight:600;color:{accentColor};"">Yes</td>
+                 </tr>
+                 {(party.AllowBalance.HasValue ? $@"<tr>
+                    <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;"">Credit Limit</td>
+                    <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:14px;font-weight:600;color:#333;"">₹ {party.AllowBalance:N2}</td>
+                 </tr>" : "")}"
+            : $@"<tr>
+                    <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;"">Credit Allowed</td>
+                    <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:14px;color:#888;"">No</td>
+                 </tr>";
+
+        return $@"<!DOCTYPE html>
+<html lang=""en"">
+<head>
+<meta charset=""UTF-8"" />
+<meta name=""viewport"" content=""width=device-width,initial-scale=1.0""/>
+<title>Welcome – {party.PartyName}</title>
+</head>
+<body style=""margin:0;padding:0;background:#f4f6f9;font-family:Arial,Helvetica,sans-serif;"">
+  <table width=""100%"" cellpadding=""0"" cellspacing=""0"" style=""background:#f4f6f9;padding:30px 0;"">
+    <tr><td align=""center"">
+
+      <!-- Card -->
+      <table width=""620"" cellpadding=""0"" cellspacing=""0""
+             style=""background:#fff;border-radius:10px;overflow:hidden;
+                    box-shadow:0 4px 20px rgba(0,0,0,0.10);max-width:620px;"">
+
+        <!-- Header -->
+        <tr>
+          <td style=""background:{headerBg};padding:40px 40px 30px;text-align:center;"">
+            <div style=""display:inline-block;background:rgba(255,255,255,0.15);
+                        border-radius:50%;padding:16px;margin-bottom:12px;"">
+              <span style=""font-size:36px;"">🤝</span>
+            </div>
+            <h1 style=""margin:0 0 6px;color:#fff;font-size:26px;font-weight:700;
+                        letter-spacing:0.5px;"">Welcome!</h1>
+            <p style=""margin:0;color:rgba(255,255,255,0.85);font-size:14px;"">We are delighted to welcome you to our partner network.</p>
+          </td>
+        </tr>
+
+        <!-- Status Badge -->
+        <tr>
+          <td style=""background:#f8f9fa;padding:14px 40px;text-align:center;
+                      border-bottom:1px solid #e8ecf0;"">
+            <span style=""display:inline-block;background:{accentColor};color:#fff;
+                          font-size:12px;font-weight:700;letter-spacing:1px;
+                          padding:5px 18px;border-radius:20px;text-transform:uppercase;"">
+              New Partner
+            </span>
+            <span style=""margin-left:12px;color:#888;font-size:12px;"">
+              {dateStr}
+            </span>
+          </td>
+        </tr>
+
+        <!-- Body -->
+        <tr>
+          <td style=""padding:34px 40px 28px;"">
+
+            <h2 style=""margin:0 0 18px;font-size:16px;color:#333;font-weight:700;
+                        text-transform:uppercase;letter-spacing:0.5px;
+                        border-left:4px solid {accentColor};padding-left:12px;"">
+              Party Details
+            </h2>
+
+            <table width=""100%"" cellpadding=""0"" cellspacing=""0""
+                   style=""border:1px solid #e8ecf0;border-radius:8px;overflow:hidden;"">
+              <tr style=""background:{headerBg};"">
+                <td style=""padding:10px 12px;color:#fff;font-size:13px;font-weight:700;
+                            text-transform:uppercase;letter-spacing:0.5px;"">Field</td>
+                <td style=""padding:10px 12px;color:#fff;font-size:13px;font-weight:700;
+                            text-transform:uppercase;letter-spacing:0.5px;"">Value</td>
+              </tr>
+              <tr>
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;"">Party Code</td>
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:14px;font-weight:700;color:{accentColor};"">
+                  {System.Net.WebUtility.HtmlEncode(party.PartyCode)}
+                </td>
+              </tr>
+              <tr style=""background:#fafafa;"">
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;"">Party Name</td>
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:14px;font-weight:600;color:#333;"">
+                  {System.Net.WebUtility.HtmlEncode(party.PartyName)}
+                </td>
+              </tr>
+              <tr>
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;"">Party Type</td>
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:14px;color:#333;"">
+                  {System.Net.WebUtility.HtmlEncode(party.PartyType)}
+                </td>
+              </tr>
+              <tr style=""background:#fafafa;"">
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;"">Phone</td>
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:14px;color:#333;"">
+                  {System.Net.WebUtility.HtmlEncode(party.PhoneNumber)}
+                </td>
+              </tr>
+              <tr>
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;"">Email</td>
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:14px;color:#333;"">
+                  {System.Net.WebUtility.HtmlEncode(party.Email ?? "-")}
+                </td>
+              </tr>
+              {(!string.IsNullOrWhiteSpace(party.Address) ? $@"<tr style=""background:#fafafa;"">
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;"">Address</td>
+                <td style=""padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:14px;color:#333;"">
+                  {System.Net.WebUtility.HtmlEncode(party.Address)}{(!string.IsNullOrWhiteSpace(party.PinCode) ? " – " + System.Net.WebUtility.HtmlEncode(party.PinCode) : "")}
+                </td>
+              </tr>" : "")}
+              {creditSection}
+              <tr>
+                <td style=""padding:8px 10px;color:#555;font-size:14px;"">Status</td>
+                <td style=""padding:8px 10px;font-size:14px;font-weight:600;
+                            color:{(party.IsActive ? "#28a745" : "#dc3545")};"">
+                  {(party.IsActive ? "✅ Active" : "⛔ Inactive")}
+                </td>
+              </tr>
+            </table>
+
+          </td>
+        </tr>
+
+        <!-- Info Box -->
+        <tr>
+          <td style=""padding:0 40px 30px;"">
+            <table width=""100%"" cellpadding=""0"" cellspacing=""0""
+                   style=""background:#f0f7ff;border-left:4px solid {accentColor};
+                           border-radius:4px;padding:16px;"">
+              <tr>
+                <td style=""padding:14px 16px;font-size:13px;color:#444;line-height:1.6;"">
+                  Please keep this email for your records. If you have any questions about your account or need assistance, contact our support team.
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style=""background:{headerBg};padding:22px 40px;text-align:center;"">
+            <p style=""margin:0 0 6px;color:rgba(255,255,255,0.9);font-size:13px;"">
+              This is an automated notification from the Restaurant Management System.
+            </p>
+            <p style=""margin:0;color:rgba(255,255,255,0.6);font-size:11px;"">
+              © {DateTime.Now.Year} Restaurant Management System. All rights reserved.
+            </p>
+          </td>
+        </tr>
+
+      </table>
+      <!-- /Card -->
+
+    </td></tr>
+  </table>
+</body>
+</html>";
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
 
     private void EnsurePartiesTableExists()
     {
