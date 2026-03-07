@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Caching.Memory;
 using System.Net;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Utilities;
@@ -21,15 +22,18 @@ namespace RestaurantManagementSystem.Services
         private readonly IConfiguration _configuration;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ILogger<AuthService> _logger;
+        private readonly IMemoryCache? _cache;
         
         public AuthService(
             IConfiguration configuration,
             IHttpContextAccessor httpContextAccessor,
-            ILogger<AuthService> logger = null)
+            ILogger<AuthService> logger = null,
+            IMemoryCache? cache = null)
         {
             _configuration = configuration;
             _httpContextAccessor = httpContextAccessor;
             _logger = logger;
+            _cache = cache;
         }
 
         private ClaimsPrincipal BuildPrincipal(
@@ -726,8 +730,98 @@ namespace RestaurantManagementSystem.Services
             return null;
         }
 
+        // ── Schema cache ─────────────────────────────────────────────────────
+        // The branch schema (which tables / columns exist) is stable at runtime.
+        // Caching it eliminates ~13 sequential DB round-trips on every call to
+        // GetUserBranchesAsync, which fires during login, SwitchBranch, SwitchRole
+        // and the branch/role modal API endpoints.
+
+        private sealed record BranchSchemaInfo(
+            bool HasBranchesTable,
+            bool HasUserBranchesTable,
+            bool HasUserBranchRolesTable,
+            bool HasBranchCode,
+            bool HasBranchName,
+            bool HasBranchIsMain,
+            bool HasBranchIsActive,
+            bool HasBranchCreatedAt,
+            bool HasBranchUpdatedAt,
+            bool HasUbIsDefault,
+            bool HasUbIsActive,
+            bool HasUbrIsActive);
+
+        private async Task<BranchSchemaInfo> GetCachedBranchSchemaAsync(string connectionString)
+        {
+            const string cacheKey = "AuthSvc_BranchSchema";
+            if (_cache != null && _cache.TryGetValue(cacheKey, out BranchSchemaInfo? cached) && cached != null)
+                return cached;
+
+            await using var conn = new SqlConnection(connectionString);
+            await conn.OpenAsync();
+
+            async Task<bool> TblExists(string objectName)
+            {
+                await using var cmd = new SqlCommand(
+                    "SELECT CASE WHEN OBJECT_ID(@N,'U') IS NULL THEN 0 ELSE 1 END", conn);
+                cmd.Parameters.AddWithValue("@N", objectName);
+                return Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 1;
+            }
+
+            async Task<bool> ColExists(string objectName, string columnName)
+            {
+                await using var cmd = new SqlCommand(
+                    "SELECT CASE WHEN COL_LENGTH(@O,@C) IS NULL THEN 0 ELSE 1 END", conn);
+                cmd.Parameters.AddWithValue("@O", objectName);
+                cmd.Parameters.AddWithValue("@C", columnName);
+                return Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 1;
+            }
+
+            var hasBranchesTable        = await TblExists("dbo.Branches");
+            var hasUserBranchesTable    = await TblExists("dbo.UserBranches");
+            var hasUserBranchRolesTable = await TblExists("dbo.UserBranchRoles");
+
+            var hasBranchCode      = hasBranchesTable && await ColExists("dbo.Branches", "BranchCode");
+            var hasBranchName      = hasBranchesTable && await ColExists("dbo.Branches", "BranchName");
+            var hasBranchIsMain    = hasBranchesTable && await ColExists("dbo.Branches", "Is_MainBranch");
+            var hasBranchIsActive  = hasBranchesTable && await ColExists("dbo.Branches", "IsActive");
+            var hasBranchCreatedAt = hasBranchesTable && await ColExists("dbo.Branches", "CreatedAt");
+            var hasBranchUpdatedAt = hasBranchesTable && await ColExists("dbo.Branches", "UpdatedAt");
+            var hasUbIsDefault     = hasUserBranchesTable && await ColExists("dbo.UserBranches", "IsDefault");
+            var hasUbIsActive      = hasUserBranchesTable && await ColExists("dbo.UserBranches", "IsActive");
+            var hasUbrIsActive     = hasUserBranchRolesTable && await ColExists("dbo.UserBranchRoles", "IsActive");
+
+            var schema = new BranchSchemaInfo(
+                HasBranchesTable:        hasBranchesTable,
+                HasUserBranchesTable:    hasUserBranchesTable,
+                HasUserBranchRolesTable: hasUserBranchRolesTable,
+                HasBranchCode:           hasBranchCode,
+                HasBranchName:           hasBranchName,
+                HasBranchIsMain:         hasBranchIsMain,
+                HasBranchIsActive:       hasBranchIsActive,
+                HasBranchCreatedAt:      hasBranchCreatedAt,
+                HasBranchUpdatedAt:      hasBranchUpdatedAt,
+                HasUbIsDefault:          hasUbIsDefault,
+                HasUbIsActive:           hasUbIsActive,
+                HasUbrIsActive:          hasUbrIsActive);
+
+            _cache?.Set(cacheKey, schema,
+                new MemoryCacheEntryOptions
+                {
+                    // Schema is stable; hold for 30 min (survives any foreseeable session)
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30)
+                });
+
+            return schema;
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         private async Task EnsureUserBranchesTableExistsAsync()
         {
+            // Guard: only hit the DB once per app lifetime
+            const string cacheKey = "AuthSvc_UserBranchesTableEnsured";
+            if (_cache != null && _cache.TryGetValue(cacheKey, out bool done) && done)
+                return;
+
             var connectionString = _configuration.GetConnectionString("DefaultConnection");
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
@@ -760,6 +854,9 @@ END
 
             await using var command = new SqlCommand(sql, connection);
             await command.ExecuteNonQueryAsync();
+
+            _cache?.Set("AuthSvc_UserBranchesTableEnsured", true,
+                new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(8) });
         }
 
         public async Task<List<BranchMaster>> GetUserBranchesAsync(int userId)
@@ -774,42 +871,27 @@ END
                 await using var connection = new SqlConnection(connectionString);
                 await connection.OpenAsync();
 
-                async Task<bool> TableExistsAsync(string objectName)
-                {
-                    await using var tableCmd = new SqlCommand("SELECT CASE WHEN OBJECT_ID(@ObjectName, 'U') IS NULL THEN 0 ELSE 1 END", connection);
-                    tableCmd.Parameters.AddWithValue("@ObjectName", objectName);
-                    var result = await tableCmd.ExecuteScalarAsync();
-                    return Convert.ToInt32(result) == 1;
-                }
+                // All schema checks come from the 30-min memory cache (populated once).
+                // This replaces 13 sequential DB round-trips with a single cache lookup.
+                var schema = await GetCachedBranchSchemaAsync(connectionString);
 
-                async Task<bool> ColumnExistsAsync(string objectName, string columnName)
-                {
-                    await using var columnCmd = new SqlCommand("SELECT CASE WHEN COL_LENGTH(@ObjectName, @ColumnName) IS NULL THEN 0 ELSE 1 END", connection);
-                    columnCmd.Parameters.AddWithValue("@ObjectName", objectName);
-                    columnCmd.Parameters.AddWithValue("@ColumnName", columnName);
-                    var result = await columnCmd.ExecuteScalarAsync();
-                    return Convert.ToInt32(result) == 1;
-                }
+                var hasBranchesTable        = schema.HasBranchesTable;
+                var hasUserBranchesTable    = schema.HasUserBranchesTable;
+                var hasUserBranchRolesTable = schema.HasUserBranchRolesTable;
+                var hasBranchCode           = schema.HasBranchCode;
+                var hasBranchName           = schema.HasBranchName;
+                var hasBranchIsMain         = schema.HasBranchIsMain;
+                var hasBranchIsActive       = schema.HasBranchIsActive;
+                var hasBranchCreatedAt      = schema.HasBranchCreatedAt;
+                var hasBranchUpdatedAt      = schema.HasBranchUpdatedAt;
+                var hasUbIsDefault          = schema.HasUbIsDefault;
+                var hasUbIsActive           = schema.HasUbIsActive;
+                var hasUbrIsActive          = schema.HasUbrIsActive;
 
-                var hasBranchesTable = await TableExistsAsync("dbo.Branches");
                 if (!hasBranchesTable)
                 {
                     return branches;
                 }
-
-                var hasUserBranchesTable = await TableExistsAsync("dbo.UserBranches");
-                var hasUserBranchRolesTable = await TableExistsAsync("dbo.UserBranchRoles");
-
-                var hasBranchCode = await ColumnExistsAsync("dbo.Branches", "BranchCode");
-                var hasBranchName = await ColumnExistsAsync("dbo.Branches", "BranchName");
-                var hasBranchIsMain = await ColumnExistsAsync("dbo.Branches", "Is_MainBranch");
-                var hasBranchIsActive = await ColumnExistsAsync("dbo.Branches", "IsActive");
-                var hasBranchCreatedAt = await ColumnExistsAsync("dbo.Branches", "CreatedAt");
-                var hasBranchUpdatedAt = await ColumnExistsAsync("dbo.Branches", "UpdatedAt");
-
-                var hasUbIsDefault = hasUserBranchesTable && await ColumnExistsAsync("dbo.UserBranches", "IsDefault");
-                var hasUbIsActive = hasUserBranchesTable && await ColumnExistsAsync("dbo.UserBranches", "IsActive");
-                var hasUbrIsActive = hasUserBranchRolesTable && await ColumnExistsAsync("dbo.UserBranchRoles", "IsActive");
 
                 var branchCodeExpr = hasBranchCode ? "b.BranchCode" : "CAST('' AS NVARCHAR(20))";
                 var branchNameExpr = hasBranchName ? "b.BranchName" : "CAST('' AS NVARCHAR(150))";
@@ -966,6 +1048,11 @@ ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, b.BranchId;";
         
         private async Task EnsureUserBranchRolesTableExistsAsync()
         {
+            // Guard: only hit the DB once per app lifetime
+            const string cacheKey = "AuthSvc_UserBranchRolesTableEnsured";
+            if (_cache != null && _cache.TryGetValue(cacheKey, out bool done) && done)
+                return;
+
             var connectionString = _configuration.GetConnectionString("DefaultConnection");
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
@@ -1001,6 +1088,9 @@ END
 
             await using var command = new SqlCommand(sql, connection);
             await command.ExecuteNonQueryAsync();
+
+            _cache?.Set("AuthSvc_UserBranchRolesTableEnsured", true,
+                new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(8) });
         }
 
         public async Task<List<Role>> GetUserRolesForBranchAsync(int userId, int? branchId)
