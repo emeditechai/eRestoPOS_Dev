@@ -1,0 +1,127 @@
+@model RestaurantManagementSystem.Models.InventoryParameters
+@{
+    ViewData["Title"] = "Inventory Parameters";
+}
+
+<div class="container-fluid px-0" style="max-width:700px">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-sliders me-2 text-secondary"></i>Inventory Parameters</h4>
+            <small class="text-muted">Configure inventory system behaviour for this branch</small>
+        </div>
+        <a asp-action="Index" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Back
+        </a>
+    </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show py-2">
+            <i class="fas fa-check-circle me-2"></i>@TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2">
+            <i class="fas fa-exclamation-circle me-2"></i>@TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <form method="post" asp-action="Parameters" asp-controller="Inventory">
+        @Html.AntiForgeryToken()
+
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-bottom py-2 fw-semibold text-muted">
+                <i class="fas fa-shopping-cart me-2 text-success"></i>Purchase Settings
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                    <div>
+                        <div class="fw-semibold">Purchase Only From Main Godown</div>
+                        <div class="text-muted small">When enabled, all purchase orders & GRNs must target the Main Godown.</div>
+                    </div>
+                    <div class="form-check form-switch ms-3">
+                        <input asp-for="PurchaseOnlyFromMainGodown" class="form-check-input" type="checkbox"
+                               role="switch" style="width:3em;height:1.5em" />
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                    <div>
+                        <div class="fw-semibold">GRN Mandatory</div>
+                        <div class="text-muted small">Stock entry only through GRN (not direct purchase save).</div>
+                    </div>
+                    <div class="form-check form-switch ms-3">
+                        <input asp-for="GRNMandatory" class="form-check-input" type="checkbox"
+                               role="switch" style="width:3em;height:1.5em" />
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between align-items-center py-2">
+                    <div>
+                        <div class="fw-semibold">Allow Direct Purchase</div>
+                        <div class="text-muted small">Allow stock entry directly from Purchase save (when GRN is disabled).</div>
+                    </div>
+                    <div class="form-check form-switch ms-3">
+                        <input asp-for="AllowDirectPurchase" class="form-check-input" type="checkbox"
+                               role="switch" style="width:3em;height:1.5em" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-bottom py-2 fw-semibold text-muted">
+                <i class="fas fa-exchange-alt me-2 text-info"></i>Transfer & Valuation
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label asp-for="TransferPriceMode" class="form-label fw-semibold">Transfer Price Mode</label>
+                    <select asp-for="TransferPriceMode" class="form-select">
+                        <option value="AverageCost">Average Cost (Weighted)</option>
+                        <option value="ManualPrice">Manual Price Entry</option>
+                    </select>
+                    <div class="form-text">Determines how cost is computed when transferring stock between godowns.</div>
+                </div>
+                <div class="d-flex justify-content-between align-items-center py-2">
+                    <div>
+                        <div class="fw-semibold">Allow Negative Stock</div>
+                        <div class="text-muted small">Allow stock balance to go below zero.</div>
+                    </div>
+                    <div class="form-check form-switch ms-3">
+                        <input asp-for="NegativeStockAllowed" class="form-check-input" type="checkbox"
+                               role="switch" style="width:3em;height:1.5em" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-bottom py-2 fw-semibold text-muted">
+                <i class="fas fa-utensils me-2 text-danger"></i>POS / BOM Integration
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center py-2">
+                    <div>
+                        <div class="fw-semibold">Auto Consumption on Sale (BOM)</div>
+                        <div class="text-muted small">Automatically deduct ingredients from stock when a POS sale is confirmed.</div>
+                    </div>
+                    <div class="form-check form-switch ms-3">
+                        <input asp-for="AutoConsumptionOnSale" class="form-check-input" type="checkbox"
+                               role="switch" style="width:3em;height:1.5em" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-success text-white px-4">
+                <i class="fas fa-save me-1"></i>Save Parameters
+            </button>
+            <a asp-action="Index" asp-controller="Inventory" class="btn btn-outline-secondary">
+                <i class="fas fa-times me-1"></i>Cancel
+            </a>
+        </div>
+    </form>
+</div>

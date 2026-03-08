@@ -1,0 +1,115 @@
+@model IEnumerable<RestaurantManagementSystem.Models.StockTransferHeader>
+@{
+    ViewData["Title"] = "Stock Transfers";
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-exchange-alt me-2 text-primary"></i>Stock Transfers</h4>
+            <small class="text-muted">Move stock between godowns</small>
+        </div>
+        <a asp-action="Form" asp-controller="StockTransfer" class="btn btn-primary">
+            <i class="fas fa-plus me-1"></i>New Transfer
+        </a>
+    </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show py-2">
+            <i class="fas fa-check-circle me-2"></i>@TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2">
+            <i class="fas fa-exclamation-circle me-2"></i>@TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-bottom py-2 d-flex align-items-center">
+            <span class="fw-semibold text-muted me-auto">
+                <i class="fas fa-list me-1"></i>Transfer List
+                <span class="badge bg-primary ms-1">@Model.Count()</span>
+            </span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblTransfer" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">Transfer No.</th>
+                            <th>Date</th>
+                            <th>From Godown</th>
+                            <th>To Godown</th>
+                            <th class="text-end">Total Value</th>
+                            <th class="text-center">Status</th>
+                            <th class="text-center pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var t in Model)
+                        {
+                            <tr>
+                                <td class="ps-3 fw-semibold text-primary">@t.TransferNumber</td>
+                                <td class="text-muted small">@t.TransferDate.ToString("dd MMM yyyy")</td>
+                                <td><span class="badge bg-danger-subtle text-danger">@t.FromGodownName</span></td>
+                                <td><span class="badge bg-success-subtle text-success">@t.ToGodownName</span></td>
+                                <td class="text-end fw-semibold">₹@t.TotalValue.ToString("N2")</td>
+                                <td class="text-center">
+                                    @if (t.Status == "Posted")
+                                    { <span class="badge bg-success"><i class="fas fa-check-double me-1"></i>Posted</span> }
+                                    else
+                                    { <span class="badge bg-warning text-dark"><i class="fas fa-clock me-1"></i>Draft</span> }
+                                </td>
+                                <td class="text-center pe-3">
+                                    <a asp-action="Details" asp-controller="StockTransfer" asp-route-id="@t.TransferId"
+                                       class="btn btn-outline-info btn-sm py-0 px-2" title="View">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    @if (t.Status != "Posted")
+                                    {
+                                        <a asp-action="Form" asp-controller="StockTransfer" asp-route-id="@t.TransferId"
+                                           class="btn btn-outline-primary btn-sm py-0 px-2" title="Edit">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <form method="post" asp-action="Post" asp-controller="StockTransfer" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@t.TransferId" />
+                                            <button type="submit" class="btn btn-outline-success btn-sm py-0 px-2" title="Post to Stock"
+                                                    onclick="return confirm('Post this transfer to stock ledger?')">
+                                                <i class="fas fa-check-double"></i>
+                                            </button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-exchange-alt fa-3x mb-3 d-block opacity-25"></i>
+                <p>No transfers found.</p>
+                <a asp-action="Form" asp-controller="StockTransfer" class="btn btn-primary btn-sm">
+                    <i class="fas fa-plus me-1"></i>Create First Transfer
+                </a>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        $('#tblTransfer').DataTable({ paging: true, pageLength: 25, searching: true, ordering: true,
+            order: [[0,'desc']], columnDefs: [{ orderable: false, targets: [6] }] });
+    });
+</script>
+}

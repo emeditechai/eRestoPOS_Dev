@@ -1,0 +1,115 @@
+@model IEnumerable<RestaurantManagementSystem.Models.DamageRegisterItem>
+@{
+    ViewData["Title"] = "Damage / Wastage Register";
+    var dateFrom  = ViewBag.DateFrom as string ?? DateTime.Today.AddMonths(-1).ToString("yyyy-MM-dd");
+    var dateTo    = ViewBag.DateTo   as string ?? DateTime.Today.ToString("yyyy-MM-dd");
+    var selGodown = ViewBag.SelGodown as int?  ?? 0;
+    var godowns   = ViewBag.Godowns  as SelectList;
+    var totalVal  = Model.Sum(x => x.TotalValue);
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-trash-alt me-2 text-danger"></i>Damage / Wastage Register</h4>
+            <small class="text-muted">Stock damage and wastage entries</small>
+        </div>
+        <button onclick="window.print()" class="btn btn-outline-secondary btn-sm"><i class="fas fa-print me-1"></i>Print</button>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body py-2">
+            <form method="get" asp-action="DamageRegister" asp-controller="Inventory" class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold mb-1">Godown</label>
+                    <select name="godownId" class="form-select form-select-sm">
+                        <option value="0">All Godowns</option>
+                        @if (godowns != null)
+                        {
+                            foreach (var g in godowns)
+                            { <option value="@g.Value" selected="@(g.Value == selGodown.ToString())">@g.Text</option> }
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold mb-1">From Date</label>
+                    <input type="date" name="fromDate" class="form-control form-control-sm" value="@dateFrom" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold mb-1">To Date</label>
+                    <input type="date" name="toDate" class="form-control form-control-sm" value="@dateTo" />
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm px-3"><i class="fas fa-filter me-1"></i>Apply</button>
+                    <a asp-action="DamageRegister" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm ms-1"><i class="fas fa-sync me-1"></i>Reset</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm border-start border-danger border-3"><div class="card-body py-2 px-3">
+                <small class="text-muted fw-semibold d-block">Total Damage Entries</small>
+                <span class="fs-4 fw-bold text-danger">@Model.Count()</span>
+            </div></div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm border-start border-warning border-3"><div class="card-body py-2 px-3">
+                <small class="text-muted fw-semibold d-block">Total Damage Value</small>
+                <span class="fs-5 fw-bold text-warning">₹@totalVal.ToString("N2")</span>
+            </div></div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblDR" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">Damage No.</th>
+                            <th>Date</th>
+                            <th>Godown</th>
+                            <th>Type</th>
+                            <th class="text-end">Total Qty</th>
+                            <th class="text-end pe-3">Damage Value</th>
+                            <th>Status</th>
+                            <th>Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in Model)
+                        {
+                            <tr>
+                                <td class="ps-3 fw-semibold small">@r.DamageNumber</td>
+                                <td class="text-muted small">@r.DamageDate.ToString("dd MMM yyyy")</td>
+                                <td><span class="badge bg-info-subtle text-info small">@r.GodownName</span></td>
+                                <td class="text-muted small">@r.DamageType</td>
+                                <td class="text-end text-danger fw-semibold">@r.TotalQty.ToString("N3")</td>
+                                <td class="text-end pe-3 fw-semibold text-danger">₹@r.TotalValue.ToString("N2")</td>
+                                <td><span class="badge bg-danger-subtle text-danger small">@r.Status</span></td>
+                                <td class="text-muted small">@r.Remarks</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-trash-alt fa-3x mb-3 d-block opacity-25"></i>
+                <p>No damage entries found for the selected filters.</p>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        $('#tblDR').DataTable({ paging: true, pageLength: 50, searching: true, ordering: true, order: [[1,'desc']] });
+    });
+</script>
+}

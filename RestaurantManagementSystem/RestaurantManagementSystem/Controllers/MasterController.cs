@@ -86,6 +86,44 @@ namespace RestaurantManagementSystem.Controllers
 
     // ── Item Master (Ingredients) ─────────────────────────────────────────────
 
+    // JSON endpoint used by PO / GRN / other inventory forms
+    [HttpGet]
+    public IActionResult GetIngredientsJson()
+    {
+        var result = new List<object>();
+        try
+        {
+            using var con = new SqlConnection(_connectionString);
+            con.Open();
+            using var cmd = new SqlCommand(@"
+                SELECT i.Id, i.IngredientsName, ISNULL(i.Code,'') AS Code,
+                       ISNULL(p.UOMId,0)        AS uomId,
+                       ISNULL(p.UOMCode,'')     AS uomCode,
+                       ISNULL(p.UOMName,'')     AS uomName,
+                       ISNULL(i.GSTPercent,0)   AS gstPercent
+                FROM   dbo.Ingredients i
+                LEFT JOIN dbo.UomMaster p ON p.UOMId = i.PurchaseUOMId
+                WHERE  ISNULL(i.IsActive,1) = 1
+                ORDER  BY i.IngredientsName", con);
+            using var rdr = cmd.ExecuteReader();
+            while (rdr.Read())
+                result.Add(new {
+                    id         = rdr.GetInt32(0),
+                    name       = rdr.IsDBNull(1) ? "" : rdr.GetString(1),
+                    code       = rdr.IsDBNull(2) ? "" : rdr.GetString(2),
+                    uomId      = rdr.GetInt32(3),
+                    uomCode    = rdr.IsDBNull(4) ? "" : rdr.GetString(4),
+                    uomName    = rdr.IsDBNull(5) ? "" : rdr.GetString(5),
+                    gstPercent = rdr.IsDBNull(6) ? 0m : rdr.GetDecimal(6)
+                });
+        }
+        catch (Exception ex)
+        {
+            return Json(new { error = ex.Message });
+        }
+        return Json(result);
+    }
+
     // Ingredients List
     public IActionResult IngredientsList()
     {
@@ -193,6 +231,7 @@ ORDER  BY i.IngredientsName", connection))
                     existing.PurchaseToRecipeFactor = model.PurchaseToRecipeFactor;
                     existing.StandardCost           = model.StandardCost;
                     existing.ReorderLevel           = model.ReorderLevel;
+                    existing.GSTPercent             = model.GSTPercent;
                     existing.IsActive               = model.IsActive;
                     existing.UpdatedAt              = DateTime.UtcNow;
                     _dbContext.SaveChanges();
@@ -1402,6 +1441,9 @@ IF COL_LENGTH('dbo.Ingredients', 'StandardCost') IS NULL
 
 IF COL_LENGTH('dbo.Ingredients', 'ReorderLevel') IS NULL
     ALTER TABLE dbo.Ingredients ADD ReorderLevel DECIMAL(18,3) NULL;
+
+IF COL_LENGTH('dbo.Ingredients', 'GSTPercent') IS NULL
+    ALTER TABLE dbo.Ingredients ADD GSTPercent DECIMAL(5,2) NOT NULL DEFAULT 0;
 
 IF COL_LENGTH('dbo.Ingredients', 'IsActive') IS NULL
     ALTER TABLE dbo.Ingredients ADD IsActive BIT NOT NULL DEFAULT 1;

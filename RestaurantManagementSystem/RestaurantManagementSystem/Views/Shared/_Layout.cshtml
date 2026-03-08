@@ -1087,6 +1087,35 @@
             }
         });
     </script>
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script>
+        // Global handler for data-swal-confirm buttons (replaces native confirm)
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-swal-confirm]');
+            if (!btn) return;
+            e.preventDefault();
+            var msg   = btn.getAttribute('data-swal-confirm');
+            var title = btn.getAttribute('data-swal-title') || 'Are you sure?';
+            var icon  = btn.getAttribute('data-swal-icon') || 'question';
+            var confirmText = btn.getAttribute('data-swal-ok') || 'Yes, proceed';
+            var confirmColor = btn.getAttribute('data-swal-color') || '#0d6efd';
+            var form  = btn.closest('form');
+            Swal.fire({
+                title: title,
+                text: msg,
+                icon: icon,
+                showCancelButton: true,
+                confirmButtonColor: confirmColor,
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: confirmText,
+                cancelButtonText: 'Cancel',
+                reverseButtons: true
+            }).then(function (result) {
+                if (result.isConfirmed && form) form.submit();
+            });
+        });
+    </script>
     @await RenderSectionAsync("Scripts", required: false)
 
     @* Inject global help modal partial right before closing body *@

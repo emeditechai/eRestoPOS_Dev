@@ -1,0 +1,485 @@
+@model RestaurantManagementSystem.Models.PurchaseOrderHeader
+@{
+    ViewData["Title"] = Model.POId == 0 ? "New Purchase Order" : "Edit Purchase Order";
+    var godowns   = ViewBag.Godowns   as SelectList;
+    var suppliers = ViewBag.Suppliers as SelectList;
+    var mainOnly  = (bool)(ViewBag.PurchaseOnlyMain ?? false);
+    var existingLinesJson = ViewBag.ExistingLinesJson as string ?? "[]";
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center mb-3">
+        <a asp-action="Index" asp-controller="PurchaseOrder" class="btn btn-link text-muted ps-0 me-2">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+        <div>
+            <h4 class="mb-0 fw-bold">
+                <i class="fas fa-shopping-cart me-2 text-primary"></i>@ViewData["Title"]
+            </h4>
+            <small class="text-muted">PO# <strong>@(string.IsNullOrEmpty(Model.PONumber) ? "[Auto-generated]" : Model.PONumber)</strong></small>
+        </div>
+    </div>
+
+    @if (mainOnly)
+    {
+        <div class="alert alert-info py-2" role="alert">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>Policy:</strong> All purchases must be received in the <strong>Main Godown</strong> as per inventory parameters.
+        </div>
+    }
+
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2">
+            <i class="fas fa-exclamation-circle me-2"></i>
+            @foreach (var e in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+            { <div>@e.ErrorMessage</div> }
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <form method="post" asp-action="Form" asp-controller="PurchaseOrder" id="poForm" autocomplete="off">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="POId" />
+        <input type="hidden" asp-for="PONumber" />
+        <input type="hidden" id="linesJson" name="linesJson" />
+
+        <!-- Header Card -->
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-bottom py-2">
+                <span class="fw-semibold text-muted"><i class="fas fa-file-alt me-1"></i>Purchase Order Header</span>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label asp-for="PODate" class="form-label small fw-semibold">PO Date <span class="text-danger">*</span></label>
+                        <input asp-for="PODate" type="date" class="form-control form-control-sm" required />
+                    </div>
+                    <div class="col-md-3">
+                        <label asp-for="SupplierId" class="form-label small fw-semibold">Supplier <span class="text-danger">*</span></label>
+                        <select asp-for="SupplierId" asp-items="suppliers" class="form-select form-select-sm" required>
+                            <option value="">-- Select Supplier --</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label asp-for="GodownId" class="form-label small fw-semibold">Delivery Godown <span class="text-danger">*</span></label>
+                        @if (mainOnly)
+                        {
+                            <input type="hidden" asp-for="GodownId" />
+                            <select class="form-select form-select-sm" disabled>
+                                @if (godowns != null)
+                                {
+                                    foreach (var g in godowns)
+                                    { <option value="@g.Value" selected>@g.Text</option> }
+                                }
+                            </select>
+                        }
+                        else
+                        {
+                            <select asp-for="GodownId" asp-items="godowns" class="form-select form-select-sm" required>
+                                <option value="">-- Select Godown --</option>
+                            </select>
+                        }
+                    </div>
+                    <div class="col-md-3">
+                        <label asp-for="ExpectedDate" class="form-label small fw-semibold">Expected Delivery</label>
+                        <input asp-for="ExpectedDate" type="date" class="form-control form-control-sm" />
+                    </div>
+                    <div class="col-md-3">
+                        <label asp-for="PaymentTerms" class="form-label small fw-semibold">Payment Terms</label>
+                        <select asp-for="PaymentTerms" class="form-select form-select-sm">
+                            <option value="">-- Select --</option>
+                            <option value="Immediate">Immediate</option>
+                            <option value="Net 7">Net 7</option>
+                            <option value="Net 15">Net 15</option>
+                            <option value="Net 30">Net 30</option>
+                            <option value="Net 45">Net 45</option>
+                            <option value="Net 60">Net 60</option>
+                        </select>
+                    </div>
+                    <div class="col-md-9">
+                        <label asp-for="Remarks" class="form-label small fw-semibold">Remarks</label>
+                        <input asp-for="Remarks" type="text" class="form-control form-control-sm" placeholder="Optional notes" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Line Items Card -->
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-bottom py-2 d-flex align-items-center">
+                <span class="fw-semibold text-muted me-auto"><i class="fas fa-list me-1"></i>Order Line Items</span>
+                <button type="button" id="btnAddLine" class="btn btn-success btn-sm">
+                    <i class="fas fa-plus me-1"></i>Add Item
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" id="lineTableWrap" style="display:none">
+                    <table class="table table-sm table-bordered mb-0 align-middle" id="lineTable" style="min-width:1280px">
+                        <thead class="table-light small text-uppercase text-muted">
+                            <tr>
+                                <th class="ps-2" style="min-width:210px">Item</th>
+                                <th style="min-width:90px">UOM</th>
+                                <th class="text-end" style="min-width:75px">Qty</th>
+                                <th class="text-end" style="min-width:90px">Rate (&#8377;)</th>
+                                <th class="text-end" style="min-width:95px">Taxable Amt</th>
+                                <th class="text-end" style="min-width:65px">GST%</th>
+                                <th class="text-end text-primary" style="min-width:58px">CGST%</th>
+                                <th class="text-end text-primary" style="min-width:88px">CGST Amt</th>
+                                <th class="text-end text-success" style="min-width:58px">SGST%</th>
+                                <th class="text-end text-success" style="min-width:88px">SGST Amt</th>
+                                <th class="text-end text-danger" style="min-width:58px">IGST%</th>
+                                <th class="text-end text-danger" style="min-width:88px">IGST Amt</th>
+                                <th class="text-end fw-semibold" style="min-width:98px">Net Amt</th>
+                                <th class="text-center pe-2" style="width:42px"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="lineBody"></tbody>
+                        <tfoot class="table-light small fw-semibold" id="lineFoot" style="display:none">
+                            <tr>
+                                <td colspan="4" class="text-end ps-2 text-muted">Totals:</td>
+                                <td class="text-end" id="totTaxable">&#8377;0.00</td>
+                                <td></td>
+                                <td></td>
+                                <td class="text-end text-primary" id="totCGST">&#8377;0.00</td>
+                                <td></td>
+                                <td class="text-end text-success" id="totSGST">&#8377;0.00</td>
+                                <td></td>
+                                <td class="text-end text-danger" id="totIGST">&#8377;0.00</td>
+                                <td class="text-end" id="totNet">&#8377;0.00</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <div id="emptyLines" class="text-center text-muted py-5">
+                    <i class="fas fa-boxes fa-2x mb-2 d-block opacity-25"></i>
+                    <p class="mb-2 small">No items added yet.</p>
+                    <button type="button" class="btn btn-primary btn-sm" id="btnAddLineEmpty">
+                        <i class="fas fa-plus me-1"></i>Add First Item
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- GST Summary Band -->
+        <div class="card border-0 shadow-sm mb-3" id="gstSummaryCard" style="display:none">
+            <div class="card-body py-2">
+                <div class="row g-2 text-center">
+                    <div class="col"><div class="small text-muted">Sub-Total (Taxable)</div><div class="fw-semibold" id="sumTaxable">&#8377;0.00</div></div>
+                    <div class="col"><div class="small text-primary">CGST</div><div class="fw-semibold text-primary" id="sumCGST">&#8377;0.00</div></div>
+                    <div class="col"><div class="small text-success">SGST</div><div class="fw-semibold text-success" id="sumSGST">&#8377;0.00</div></div>
+                    <div class="col"><div class="small text-danger">IGST</div><div class="fw-semibold text-danger" id="sumIGST">&#8377;0.00</div></div>
+                    <div class="col border-start"><div class="small fw-semibold">Grand Total</div><div class="fw-bold fs-6" id="sumNet">&#8377;0.00</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer Buttons -->
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary" id="btnSave">
+                <i class="fas fa-save me-1"></i>Save as Draft
+            </button>
+            <a asp-action="Index" asp-controller="PurchaseOrder" class="btn btn-outline-secondary">
+                <i class="fas fa-times me-1"></i>Cancel
+            </a>
+        </div>
+    </form>
+</div>
+
+<!-- Global floating suggestion dropdown (avoids table-responsive overflow clipping) -->
+<div id="globalSuggestDropdown" class="border rounded bg-white shadow"
+     style="display:none;position:absolute;z-index:9999;max-height:220px;overflow-y:auto;font-size:.82rem"></div>
+
+<!-- Row template (hidden, cloned by JS) -->
+<template id="lineRowTpl">
+    <tr class="line-row">
+        <td class="ps-2" style="min-width:210px">
+            <div>
+                <input type="text" class="form-control form-control-sm item-search"
+                       placeholder="Search by name / code…" autocomplete="off" />
+                <input type="hidden" class="line-item-id" />
+            </div>
+        </td>
+        <td style="min-width:90px">
+            <select class="form-select form-select-sm line-uom">
+                <option value="">-- UOM --</option>
+            </select>
+        </td>
+        <td style="min-width:75px">
+            <input type="number" min="0.001" step="1"
+                   class="form-control form-control-sm text-end line-qty" value="1" />
+        </td>
+        <td style="min-width:90px">
+            <input type="number" min="0" step="0.01"
+                   class="form-control form-control-sm text-end line-rate" value="0" />
+        </td>
+        <td class="text-end small line-taxable" style="min-width:95px">&#8377;0.00</td>
+        <td style="min-width:65px">
+            <input type="number" min="0" max="100" step="0.01"
+                   class="form-control form-control-sm text-end line-gst" value="0" />
+        </td>
+        <td class="text-end small text-primary line-cgst-pct" style="min-width:58px">0%</td>
+        <td class="text-end small text-primary line-cgst-amt" style="min-width:88px">&#8377;0.00</td>
+        <td class="text-end small text-success line-sgst-pct" style="min-width:58px">0%</td>
+        <td class="text-end small text-success line-sgst-amt" style="min-width:88px">&#8377;0.00</td>
+        <td class="text-end small text-danger line-igst-pct" style="min-width:58px">0%</td>
+        <td class="text-end small text-danger line-igst-amt" style="min-width:88px">&#8377;0.00</td>
+        <td class="text-end fw-semibold line-net" style="min-width:98px">&#8377;0.00</td>
+        <td class="text-center pe-2" style="width:42px">
+            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1 remove-line">
+                <i class="fas fa-trash fa-xs"></i>
+            </button>
+        </td>
+    </tr>
+</template>
+
+@section Scripts {
+<script>
+(function () {
+    'use strict';
+
+    var allItems = [];
+    var allUoms  = [];
+    var existingLines = @Html.Raw(existingLinesJson);
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function fmt(n) { return '\u20b9' + parseFloat(n || 0).toFixed(2); }
+
+    // ── Global floating dropdown ──────────────────────────────────────────────
+    var $globalDrop = null;
+    var $activeRow  = null;
+
+    // ── Auto-suggest ──────────────────────────────────────────────────────────
+    function showDropdown(input, hits) {
+        $globalDrop.empty();
+        if (hits === null || hits.length === 0) {
+            $globalDrop.html('<div class="px-2 py-1 small text-muted">No items found</div>');
+        } else {
+            hits.forEach(function (item) {
+                var $a = $('<a href="#" class="d-block px-2 py-1 small text-decoration-none border-bottom suggest-item"></a>');
+                $a.html(
+                    '<span class="badge bg-secondary me-1" style="font-size:.65rem">' +
+                    (item.code || '?') + '</span>' + item.name +
+                    (item.gstPercent > 0
+                        ? ' <span class="text-muted" style="font-size:.7rem">&nbsp;GST:' + item.gstPercent + '%</span>'
+                        : '')
+                );
+                $a.on('mousedown', function (e) {
+                    e.preventDefault();
+                    pickItem($activeRow, item);
+                });
+                $globalDrop.append($a);
+            });
+        }
+        // Position below the input, accounting for scroll
+        var rect = input[0].getBoundingClientRect();
+        var scrollTop  = window.pageYOffset || document.documentElement.scrollTop;
+        var scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+        $globalDrop.css({
+            top   : (rect.bottom + scrollTop  + 2) + 'px',
+            left  : (rect.left  + scrollLeft) + 'px',
+            width : Math.max(rect.width, 260) + 'px'
+        });
+        $globalDrop.show();
+    }
+
+    function initSuggest(row) {
+        var input = row.find('.item-search');
+
+        input.on('input', function () {
+            var q = $(this).val().trim().toLowerCase();
+            if (!q) { $globalDrop.hide(); return; }
+            $activeRow = row;
+            var hits = allItems.filter(function (i) {
+                return i.name.toLowerCase().indexOf(q) >= 0 ||
+                       (i.code && i.code.toLowerCase().indexOf(q) >= 0);
+            }).slice(0, 25);
+            showDropdown(input, hits.length ? hits : null);
+        });
+
+        input.on('focus', function () {
+            $activeRow = row;
+            if ($(this).val().trim().length > 0) $(this).trigger('input');
+        });
+
+        input.on('blur', function () {
+            setTimeout(function () { $globalDrop.hide(); }, 200);
+        });
+    }
+
+    function pickItem(row, item) {
+        row.find('.item-search').val((item.code ? item.code + ' \u2013 ' : '') + item.name);
+        row.find('.line-item-id').val(item.id);
+        $globalDrop.hide();
+
+        // Auto-fill GST%
+        row.find('.line-gst').val(item.gstPercent || 0);
+
+        // Populate UOM and auto-select default
+        var uomSel = row.find('.line-uom');
+        uomSel.empty().append('<option value="">-- UOM --</option>');
+        allUoms.forEach(function (u) {
+            uomSel.append('<option value="' + u.id + '">' + u.name + '</option>');
+        });
+        if (item.uomId) uomSel.val(item.uomId);
+
+        recalcRow(row);
+    }
+
+    // ── Row calc ──────────────────────────────────────────────────────────────
+    function recalcRow(row) {
+        var qty = parseFloat(row.find('.line-qty').val())  || 0;
+        var rt  = parseFloat(row.find('.line-rate').val()) || 0;
+        var gst = parseFloat(row.find('.line-gst').val())  || 0;
+
+        var tax  = qty * rt;
+        var cgst = tax * gst / 200;
+        var sgst = tax * gst / 200;
+        var igst = tax * gst / 100;
+        var net  = tax + cgst + sgst;
+        var cgstPct = (gst / 2).toFixed(2).replace(/\.0+$/, '').replace(/(\.[1-9])0$/, '$1');
+        var igstPct = gst.toFixed(2).replace(/\.0+$/, '').replace(/(\.[1-9])0$/, '$1');
+
+        row.find('.line-taxable').text(fmt(tax));
+        row.find('.line-cgst-pct').text(cgstPct + '%');
+        row.find('.line-cgst-amt').text(fmt(cgst));
+        row.find('.line-sgst-pct').text(cgstPct + '%');
+        row.find('.line-sgst-amt').text(fmt(sgst));
+        row.find('.line-igst-pct').text(igstPct + '%');
+        row.find('.line-igst-amt').text(fmt(igst));
+        row.find('.line-net').text(fmt(net));
+        recalcTotals();
+    }
+
+    function recalcTotals() {
+        var tT = 0, tC = 0, tS = 0, tI = 0, tN = 0;
+        $('#lineBody .line-row').each(function () {
+            var r   = $(this);
+            var qty = parseFloat(r.find('.line-qty').val())  || 0;
+            var rt  = parseFloat(r.find('.line-rate').val()) || 0;
+            var gst = parseFloat(r.find('.line-gst').val())  || 0;
+            var tax = qty * rt;
+            tT += tax; tC += tax*gst/200; tS += tax*gst/200;
+            tI += tax*gst/100; tN += tax + tax*gst/200 + tax*gst/200;
+        });
+        $('#totTaxable').text(fmt(tT)); $('#totCGST').text(fmt(tC));
+        $('#totSGST').text(fmt(tS));    $('#totIGST').text(fmt(tI)); $('#totNet').text(fmt(tN));
+        $('#sumTaxable').text(fmt(tT)); $('#sumCGST').text(fmt(tC));
+        $('#sumSGST').text(fmt(tS));    $('#sumIGST').text(fmt(tI)); $('#sumNet').text(fmt(tN));
+    }
+
+    function toggleEmpty() {
+        var n = $('#lineBody .line-row').length;
+        $('#emptyLines').toggle(n === 0);
+        $('#lineTableWrap').toggle(n > 0);
+        $('#lineFoot').toggle(n > 0);
+        $('#gstSummaryCard').toggle(n > 0);
+    }
+
+    // ── Add row ───────────────────────────────────────────────────────────────
+    function addLine() {
+        var tmpl = document.getElementById('lineRowTpl').content.cloneNode(true);
+        var $row = $(tmpl).find('tr');
+        $('#lineBody').append($row);
+        var ar = $('#lineBody .line-row:last');
+        initSuggest(ar);
+        toggleEmpty();
+        ar.find('.item-search').focus();
+    }
+
+    function addLineFromData(l) {
+        var tmpl = document.getElementById('lineRowTpl').content.cloneNode(true);
+        var $row = $(tmpl).find('tr');
+        $('#lineBody').append($row);
+        var ar = $('#lineBody .line-row:last');
+        initSuggest(ar);
+
+        var item = allItems.find(function (i) { return i.id === l.itemId; });
+        ar.find('.item-search').val(item ? ((item.code ? item.code + ' \u2013 ' : '') + item.name) : (l.itemName || ''));
+        ar.find('.line-item-id').val(l.itemId);
+
+        var uomSel = ar.find('.line-uom');
+        uomSel.empty().append('<option value="">-- UOM --</option>');
+        allUoms.forEach(function (u) { uomSel.append('<option value="' + u.id + '">' + u.name + '</option>'); });
+        uomSel.val(l.uomId);
+
+        ar.find('.line-qty').val(l.orderedQty);
+        ar.find('.line-rate').val(l.unitRate);
+        ar.find('.line-gst').val(l.gstPercent);
+        recalcRow(ar);
+        toggleEmpty();
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    $(document).ready(function () {
+        $.when(
+            $.getJSON('/Master/GetIngredientsJson').done(function (d) { allItems = d; }),
+            $.getJSON('/Inventory/GetUOMsJson').done(function (d) { allUoms = d; })
+        ).then(function () {
+            if (existingLines && existingLines.length > 0) {
+                existingLines.forEach(addLineFromData);
+            }
+        });
+
+        $globalDrop = $('#globalSuggestDropdown');
+
+        // Hide suggestion dropdown on outside click
+        $(document).on('click', function (e) {
+            if (!$(e.target).closest('.item-search, #globalSuggestDropdown').length) {
+                $globalDrop.hide();
+            }
+        });
+
+        $('#btnAddLine, #btnAddLineEmpty').on('click', addLine);
+
+        $(document).on('input', '.line-qty, .line-rate, .line-gst', function () {
+            recalcRow($(this).closest('tr'));
+        });
+        $(document).on('change', '.line-uom', function () {
+            recalcRow($(this).closest('tr'));
+        });
+        $(document).on('click', '.remove-line', function () {
+            $(this).closest('tr').remove();
+            toggleEmpty(); recalcTotals();
+        });
+
+        $('#poForm').on('submit', function () {
+            var lines = [];
+            $('#lineBody .line-row').each(function () {
+                var r = $(this);
+                lines.push({
+                    itemId     : parseInt(r.find('.line-item-id').val()) || 0,
+                    uomId      : parseInt(r.find('.line-uom').val())     || 0,
+                    orderedQty : parseFloat(r.find('.line-qty').val())   || 0,
+                    unitRate   : parseFloat(r.find('.line-rate').val())  || 0,
+                    gstPercent : parseFloat(r.find('.line-gst').val())   || 0,
+                    remarks    : ''
+                });
+            });
+            if (lines.length === 0) {
+                Swal.fire({ icon: 'warning', title: 'No Items', text: 'Please add at least one item before saving.', confirmButtonColor: '#0d6efd' });
+                return false;
+            }
+            if (lines.some(function (l) { return l.itemId === 0 || l.orderedQty <= 0; })) {
+                Swal.fire({ icon: 'warning', title: 'Incomplete Rows', text: 'Please fill item and quantity for all rows.', confirmButtonColor: '#0d6efd' });
+                return false;
+            }
+            $('#linesJson').val(JSON.stringify(lines));
+        });
+
+        toggleEmpty();
+    });
+
+}());
+</script>
+
+<style>
+    .suggest-item:hover         { background: #eef2ff; color: #1a56db !important; }
+    #globalSuggestDropdown      { font-size: .82rem; }
+    #lineTable thead th         { font-size: .72rem; vertical-align: middle; white-space: nowrap; padding: .35rem .4rem; }
+    #lineTable tbody td         { vertical-align: middle; padding: .25rem .4rem; }
+    #lineTable tfoot td         { font-size: .8rem; padding: .35rem .4rem; }
+    #gstSummaryCard .col        { min-width: 100px; }
+</style>
+}

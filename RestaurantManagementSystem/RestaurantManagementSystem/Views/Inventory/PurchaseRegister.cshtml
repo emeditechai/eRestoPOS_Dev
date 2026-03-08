@@ -1,0 +1,131 @@
+@model IEnumerable<RestaurantManagementSystem.Models.PurchaseRegisterItem>
+@{
+    ViewData["Title"] = "Purchase Register";
+    var dateFrom   = ViewBag.DateFrom   as string ?? DateTime.Today.AddMonths(-1).ToString("yyyy-MM-dd");
+    var dateTo     = ViewBag.DateTo     as string ?? DateTime.Today.ToString("yyyy-MM-dd");
+    var selSupplier= ViewBag.SelSupplier as int?  ?? 0;
+    var suppliers  = ViewBag.Suppliers  as SelectList;
+    var totalAmt   = Model.Sum(x => x.SubTotal);
+    var totalGst   = Model.Sum(x => x.TotalGSTAmount);
+    var totalNet   = Model.Sum(x => x.TotalAmount);
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-receipt me-2 text-primary"></i>Purchase Register</h4>
+            <small class="text-muted">All GRN-based purchase transactions</small>
+        </div>
+        <button onclick="window.print()" class="btn btn-outline-secondary btn-sm"><i class="fas fa-print me-1"></i>Print</button>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body py-2">
+            <form method="get" asp-action="PurchaseRegister" asp-controller="Inventory" class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold mb-1">Supplier</label>
+                    <select name="supplierId" class="form-select form-select-sm">
+                        <option value="0">All Suppliers</option>
+                        @if (suppliers != null)
+                        {
+                            foreach (var s in suppliers)
+                            { <option value="@s.Value" selected="@(s.Value == selSupplier.ToString())">@s.Text</option> }
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold mb-1">From Date</label>
+                    <input type="date" name="fromDate" class="form-control form-control-sm" value="@dateFrom" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold mb-1">To Date</label>
+                    <input type="date" name="toDate" class="form-control form-control-sm" value="@dateTo" />
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm px-3"><i class="fas fa-filter me-1"></i>Apply</button>
+                    <a asp-action="PurchaseRegister" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm ms-1"><i class="fas fa-sync me-1"></i>Reset</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-primary border-3"><div class="card-body py-2 px-3">
+                <small class="text-muted fw-semibold d-block">Total Transactions</small>
+                <span class="fs-4 fw-bold text-primary">@Model.Count()</span>
+            </div></div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-info border-3"><div class="card-body py-2 px-3">
+                <small class="text-muted fw-semibold d-block">Taxable Amount</small>
+                <span class="fs-5 fw-bold text-info">₹@totalAmt.ToString("N2")</span>
+            </div></div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-warning border-3"><div class="card-body py-2 px-3">
+                <small class="text-muted fw-semibold d-block">Total GST</small>
+                <span class="fs-5 fw-bold text-warning">₹@totalGst.ToString("N2")</span>
+            </div></div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-success border-3"><div class="card-body py-2 px-3">
+                <small class="text-muted fw-semibold d-block">Net Purchase Amount</small>
+                <span class="fs-5 fw-bold text-success">₹@totalNet.ToString("N2")</span>
+            </div></div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblPR" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">GRN No.</th>
+                            <th>Date</th>
+                            <th>Invoice No</th>
+                            <th>PO No</th>
+                            <th>Supplier</th>
+                            <th>Godown</th>
+                            <th class="text-end">Sub Total</th>
+                            <th class="text-end">GST Amt</th>
+                            <th class="text-end pe-3">Net Amt</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in Model)
+                        {
+                            <tr>
+                                <td class="ps-3 fw-semibold small">@r.GRNNumber</td>
+                                <td class="text-muted small">@r.GRNDate.ToString("dd MMM yyyy")</td>
+                                <td class="text-muted small">@(r.InvoiceNo ?? "—")</td>
+                                <td class="text-muted small">@(r.PONumber ?? "—")</td>
+                                <td>@r.SupplierName</td>
+                                <td><span class="badge bg-info-subtle text-info small">@r.GodownName</span></td>
+                                <td class="text-end">₹@r.SubTotal.ToString("N2")</td>
+                                <td class="text-end text-warning">₹@r.TotalGSTAmount.ToString("N2")</td>
+                                <td class="text-end pe-3 fw-semibold">₹@r.TotalAmount.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-receipt fa-3x mb-3 d-block opacity-25"></i>
+                <p>No purchase transactions found for the selected filters.</p>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        $('#tblPR').DataTable({ paging: true, pageLength: 50, searching: true, ordering: true, order: [[1,'desc']] });
+    });
+</script>
+}

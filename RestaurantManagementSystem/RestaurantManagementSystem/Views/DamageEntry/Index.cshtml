@@ -1,0 +1,112 @@
+@model IEnumerable<RestaurantManagementSystem.Models.DamageEntryHeader>
+@{
+    ViewData["Title"] = "Damage / Wastage Entries";
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-trash-alt me-2 text-danger"></i>Damage / Wastage Entries</h4>
+            <small class="text-muted">Record stock written off due to damage, expiry or wastage</small>
+        </div>
+        <a asp-action="Form" asp-controller="DamageEntry" class="btn btn-primary">
+            <i class="fas fa-plus me-1"></i>New Entry
+        </a>
+    </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show py-2">
+            <i class="fas fa-check-circle me-2"></i>@TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2">
+            <i class="fas fa-exclamation-circle me-2"></i>@TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-bottom py-2 d-flex align-items-center">
+            <span class="fw-semibold text-muted me-auto">
+                <i class="fas fa-list me-1"></i>Damage Entries
+                <span class="badge bg-danger ms-1">@Model.Count()</span>
+            </span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblDamage" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">Damage No.</th>
+                            <th>Date</th>
+                            <th>Godown</th>
+                            <th class="text-end">Total Value</th>
+                            <th>Remarks</th>
+                            <th class="text-center">Status</th>
+                            <th class="text-center pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in Model)
+                        {
+                            <tr>
+                                <td class="ps-3 fw-semibold text-danger">@d.DamageNumber</td>
+                                <td class="text-muted small">@d.DamageDate.ToString("dd MMM yyyy")</td>
+                                <td><span class="badge bg-info-subtle text-info">@d.GodownName</span></td>
+                                <td class="text-end fw-semibold text-danger">₹@d.TotalValue.ToString("N2")</td>
+                                <td class="text-muted small">@(d.Remarks?.Length > 40 ? d.Remarks[..40] + "…" : d.Remarks)</td>
+                                <td class="text-center">
+                                    @if (d.Status == "Posted")
+                                    { <span class="badge bg-success"><i class="fas fa-check-double me-1"></i>Posted</span> }
+                                    else
+                                    { <span class="badge bg-warning text-dark"><i class="fas fa-clock me-1"></i>Draft</span> }
+                                </td>
+                                <td class="text-center pe-3">
+                                    <a asp-action="Details" asp-controller="DamageEntry" asp-route-id="@d.DamageId"
+                                       class="btn btn-outline-info btn-sm py-0 px-2" title="View">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    @if (d.Status != "Posted")
+                                    {
+                                        <a asp-action="Form" asp-controller="DamageEntry" asp-route-id="@d.DamageId"
+                                           class="btn btn-outline-primary btn-sm py-0 px-2" title="Edit">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <form method="post" asp-action="Post" asp-controller="DamageEntry" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@d.DamageId" />
+                                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Post"
+                                                    onclick="return confirm('Post this damage entry to stock ledger?')">
+                                                <i class="fas fa-check-double"></i>
+                                            </button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-trash-alt fa-3x mb-3 d-block opacity-25"></i>
+                <p>No damage entries found.</p>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        $('#tblDamage').DataTable({ paging: true, pageLength: 25, searching: true, ordering: true,
+            order: [[0,'desc']], columnDefs: [{ orderable: false, targets: [6] }] });
+    });
+</script>
+}

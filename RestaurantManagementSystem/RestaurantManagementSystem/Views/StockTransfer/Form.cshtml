@@ -1,0 +1,224 @@
+@model RestaurantManagementSystem.Models.StockTransferHeader
+@{
+    ViewData["Title"] = Model.TransferId == 0 ? "New Stock Transfer" : "Edit Stock Transfer";
+    var godowns = ViewBag.Godowns as SelectList;
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center mb-3">
+        <a asp-action="Index" asp-controller="StockTransfer" class="btn btn-link text-muted ps-0 me-2">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-exchange-alt me-2 text-primary"></i>@ViewData["Title"]</h4>
+            <small class="text-muted">Transfer# <strong>@(string.IsNullOrEmpty(Model.TransferNumber) ? "[Auto-generated]" : Model.TransferNumber)</strong></small>
+        </div>
+    </div>
+
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2">
+            <i class="fas fa-exclamation-circle me-2"></i>
+            @foreach (var e in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+            { <div>@e.ErrorMessage</div> }
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <form method="post" asp-action="Form" asp-controller="StockTransfer" id="transferForm" autocomplete="off">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="TransferId" />
+        <input type="hidden" asp-for="TransferNumber" />
+        <input type="hidden" id="linesJson" name="linesJson" />
+
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-bottom py-2">
+                <span class="fw-semibold text-muted"><i class="fas fa-file-alt me-1"></i>Transfer Header</span>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label asp-for="TransferDate" class="form-label small fw-semibold">Transfer Date <span class="text-danger">*</span></label>
+                        <input asp-for="TransferDate" type="date" class="form-control form-control-sm" required />
+                    </div>
+                    <div class="col-md-3">
+                        <label asp-for="FromGodownId" class="form-label small fw-semibold">From Godown <span class="text-danger">*</span></label>
+                        <select asp-for="FromGodownId" asp-items="godowns" class="form-select form-select-sm" required>
+                            <option value="">-- From --</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label asp-for="ToGodownId" class="form-label small fw-semibold">To Godown <span class="text-danger">*</span></label>
+                        <select asp-for="ToGodownId" asp-items="godowns" class="form-select form-select-sm" required>
+                            <option value="">-- To --</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold">Cost Mode</label>
+                        <select id="costMode" class="form-select form-select-sm">
+                            <option value="WAVG">Weighted Average (Auto)</option>
+                            <option value="MANUAL">Manual Rate</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label asp-for="Remarks" class="form-label small fw-semibold">Remarks</label>
+                        <input asp-for="Remarks" type="text" class="form-control form-control-sm" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Line Items -->
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-bottom py-2 d-flex align-items-center">
+                <span class="fw-semibold text-muted me-auto"><i class="fas fa-list me-1"></i>Line Items</span>
+                <button type="button" id="btnAddLine" class="btn btn-success btn-sm">
+                    <i class="fas fa-plus me-1"></i>Add Item
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0 align-middle" id="lineTable">
+                        <thead class="table-light small text-uppercase text-muted">
+                            <tr>
+                                <th class="ps-3" style="width:35%">Item</th>
+                                <th style="width:10%">UOM</th>
+                                <th style="width:12%" class="text-end">Qty</th>
+                                <th style="width:15%" class="text-end">Unit Cost (₹)</th>
+                                <th style="width:15%" class="text-end">Transfer Value</th>
+                                <th style="width:5%" class="text-center pe-3"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="lineBody"></tbody>
+                        <tfoot class="table-light fw-semibold" id="lineFoot" style="display:none">
+                            <tr>
+                                <td colspan="4" class="text-end ps-3">Total Transfer Value:</td>
+                                <td class="text-end" id="totVal">₹0.00</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <div id="emptyLines" class="text-center text-muted py-4">
+                    <i class="fas fa-plus-circle fa-2x mb-2 d-block opacity-25"></i>
+                    <p>No items added yet. Click "Add Item" to begin.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary"><i class="fas fa-save me-1"></i>Save Transfer</button>
+            <a asp-action="Index" asp-controller="StockTransfer" class="btn btn-outline-secondary"><i class="fas fa-times me-1"></i>Cancel</a>
+        </div>
+    </form>
+</div>
+
+<template id="lineRowTemplate">
+    <tr class="line-row">
+        <td class="ps-3">
+            <select class="form-select form-select-sm line-item" required><option value="">-- Select Item --</option></select>
+        </td>
+        <td>
+            <select class="form-select form-select-sm line-uom"><option value="">UOM</option></select>
+        </td>
+        <td><input type="number" min="0.001" step="0.001" class="form-control form-control-sm text-end line-qty" value="1" /></td>
+        <td><input type="number" min="0" step="0.01" class="form-control form-control-sm text-end line-cost" value="0" /></td>
+        <td class="text-end fw-semibold line-val">₹0.00</td>
+        <td class="text-center pe-3">
+            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2 remove-line"><i class="fas fa-trash"></i></button>
+        </td>
+    </tr>
+</template>
+
+@section Scripts {
+<script>
+    var allItems = [], allUoms = [];
+    var existingLines = @Html.Raw(ViewBag.ExistingLinesJson ?? "[]");
+
+    $(document).ready(function () {
+        $.get('/Inventory/GetItemsJson', function (d) { allItems = d; });
+        $.get('/Inventory/GetUOMsJson',  function (d) { allUoms  = d; });
+
+        $('#btnAddLine').on('click', addLine);
+
+        $(document).on('change', '.line-item', function () {
+            var row = $(this).closest('tr');
+            var itemId = parseInt($(this).val());
+            var uomSel = row.find('.line-uom');
+            uomSel.empty().append('<option value="">UOM</option>');
+            allUoms.forEach(function (u) { uomSel.append('<option value="'+u.id+'">'+u.name+'</option>'); });
+            if ($('#costMode').val() === 'WAVG' && itemId) {
+                var godownId = $('select[name="FromGodownId"]').val();
+                $.get('/Inventory/GetItemAverageCost?itemId='+itemId+'&godownId='+(godownId||0), function (r) {
+                    row.find('.line-cost').val(r.avgCost || 0);
+                    recalcRow(row);
+                });
+            }
+        });
+
+        $(document).on('input', '.line-qty, .line-cost', function () { recalcRow($(this).closest('tr')); });
+        $(document).on('click', '.remove-line', function () { $(this).closest('tr').remove(); toggleEmpty(); recalcTotals(); });
+        $('#costMode').on('change', function () {
+            var manual = $(this).val() === 'MANUAL';
+            $('#lineBody .line-cost').prop('readonly', !manual);
+        });
+
+        if (existingLines && existingLines.length > 0) {
+            existingLines.forEach(function (l) {
+                addLine();
+                var row = $('#lineBody tr:last');
+                populateSelect(row.find('.line-item'), allItems, l.itemId);
+                populateSelect(row.find('.line-uom'), allUoms, l.uomId);
+                row.find('.line-qty').val(l.quantity);
+                row.find('.line-cost').val(l.unitCost);
+                recalcRow(row);
+            });
+        }
+
+        $('#transferForm').on('submit', function () {
+            var fromId = $('select[name="FromGodownId"]').val();
+            var toId   = $('select[name="ToGodownId"]').val();
+            if (fromId && toId && fromId === toId) { alert('From and To godowns cannot be same.'); return false; }
+            var lines = [];
+            $('#lineBody .line-row').each(function () {
+                var r = $(this);
+                lines.push({ itemId: parseInt(r.find('.line-item').val())||0, uomId: parseInt(r.find('.line-uom').val())||0,
+                    quantity: parseFloat(r.find('.line-qty').val())||0, unitCost: parseFloat(r.find('.line-cost').val())||0 });
+            });
+            if (lines.length === 0 || lines.some(l => l.itemId === 0 || l.quantity <= 0)) {
+                alert('Please fill all item and quantity fields.'); return false;
+            }
+            $('#linesJson').val(JSON.stringify(lines));
+        });
+    });
+
+    function addLine() {
+        var tmpl = document.getElementById('lineRowTemplate').content.cloneNode(true);
+        var row  = $(tmpl).find('tr');
+        allItems.forEach(function (i) { row.find('.line-item').append('<option value="'+i.id+'">'+i.name+'</option>'); });
+        allUoms.forEach(function (u)  { row.find('.line-uom').append('<option value="'+u.id+'">'+u.name+'</option>'); });
+        $('#lineBody').append(row); toggleEmpty(); recalcTotals();
+    }
+    function populateSelect(sel, list, selectedId) {
+        sel.empty().append('<option value="">-- Select --</option>');
+        list.forEach(function (i) { sel.append('<option value="'+i.id+'" '+(i.id==selectedId?'selected':'')+'>'+i.name+'</option>'); });
+    }
+    function recalcRow(row) {
+        var qty  = parseFloat(row.find('.line-qty').val()) || 0;
+        var cost = parseFloat(row.find('.line-cost').val()) || 0;
+        row.find('.line-val').text('₹' + (qty*cost).toFixed(2)); recalcTotals();
+    }
+    function recalcTotals() {
+        var tot = 0;
+        $('#lineBody .line-row').each(function () {
+            tot += (parseFloat($(this).find('.line-qty').val())||0) * (parseFloat($(this).find('.line-cost').val())||0);
+        });
+        $('#totVal').text('₹' + tot.toFixed(2));
+    }
+    function toggleEmpty() {
+        var n = $('#lineBody .line-row').length;
+        $('#emptyLines').toggle(n === 0); $('#lineFoot').toggle(n > 0);
+    }
+    toggleEmpty();
+</script>
+}

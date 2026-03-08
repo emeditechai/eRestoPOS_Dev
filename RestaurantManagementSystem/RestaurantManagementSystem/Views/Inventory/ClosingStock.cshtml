@@ -1,0 +1,141 @@
+@model IEnumerable<RestaurantManagementSystem.Models.ClosingStockReportItem>
+@{
+    ViewData["Title"] = "Closing Stock Report";
+    var selGodown  = ViewBag.SelGodown as int? ?? 0;
+    var selDate    = ViewBag.SelDate   as string ?? DateTime.Today.ToString("yyyy-MM-dd");
+    var godowns    = ViewBag.Godowns   as SelectList;
+    var totalVal   = Model.Sum(x => x.ClosingValue);
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-file-invoice me-2 text-primary"></i>Closing Stock Report</h4>
+            <small class="text-muted">Stock on hand as at a given date</small>
+        </div>
+        <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-print me-1"></i>Print
+        </button>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body py-2">
+            <form method="get" asp-action="ClosingStock" asp-controller="Inventory" class="d-flex gap-2 align-items-end flex-wrap">
+                <div>
+                    <label class="form-label small fw-semibold mb-1">Godown</label>
+                    <select name="godownId" class="form-select form-select-sm" style="min-width:200px">
+                        <option value="0">All Godowns</option>
+                        @if (godowns != null)
+                        {
+                            foreach (var g in godowns)
+                            {
+                                <option value="@g.Value" selected="@(g.Value == selGodown.ToString())">@g.Text</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label small fw-semibold mb-1">As At Date</label>
+                    <input type="date" name="asAtDate" class="form-control form-control-sm" value="@selDate" />
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm px-3">
+                    <i class="fas fa-filter me-1"></i>Apply
+                </button>
+                <a asp-action="ClosingStock" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-sync me-1"></i>Reset
+                </a>
+            </form>
+        </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm border-start border-primary border-3">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted fw-semibold d-block">Total Items</small>
+                    <span class="fs-4 fw-bold text-primary">@Model.Count()</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm border-start border-success border-3">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted fw-semibold d-block">Total Closing Value</small>
+                    <span class="fs-5 fw-bold text-success">₹@totalVal.ToString("N2")</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm border-start border-warning border-3">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted fw-semibold d-block">Report Date</small>
+                    <span class="fw-semibold">@(DateTime.TryParse(selDate, out var dt) ? dt.ToString("dd MMM yyyy") : selDate)</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-bottom py-2">
+            <span class="fw-semibold text-muted">Closing Stock Details</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblClosing" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">Item</th>
+                            <th>Category</th>
+                            <th>Godown</th>
+                            <th class="text-end">Opening Qty</th>
+                            <th class="text-end">In Qty</th>
+                            <th class="text-end">Out Qty</th>
+                            <th class="text-end">Closing Qty</th>
+                            <th class="text-end">Avg Cost</th>
+                            <th class="text-end pe-3">Closing Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in Model)
+                        {
+                            <tr>
+                                <td class="ps-3 fw-semibold">@r.ItemName</td>
+                                <td class="text-muted small">@r.ItemCategory</td>
+                                <td><span class="badge bg-info-subtle text-info">@r.GodownName</span></td>
+                                <td class="text-end text-muted">@r.OpeningQty.ToString("N3")</td>
+                                <td class="text-end text-success">@(r.PurchaseQty + r.TransferInQty).ToString("N3")</td>
+                                <td class="text-end text-danger">@(r.TransferOutQty + r.DamageQty + r.SaleQty).ToString("N3")</td>
+                                <td class="text-end fw-bold @(r.ClosingQty < 0 ? "text-danger" : "")">@r.ClosingQty.ToString("N3")</td>
+                                <td class="text-end text-muted small">₹@r.AverageCost.ToString("N2")</td>
+                                <td class="text-end pe-3 fw-semibold">₹@r.ClosingValue.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot class="table-light fw-bold">
+                        <tr>
+                            <td colspan="8" class="text-end pe-2">Total Closing Value:</td>
+                            <td class="text-end pe-3 text-success">₹@totalVal.ToString("N2")</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-file-invoice fa-3x mb-3 d-block opacity-25"></i>
+                <p>No data for selected criteria.</p>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        $('#tblClosing').DataTable({ paging: false, searching: true, ordering: true,
+            order: [[0,'asc']], footerCallback: function () {} });
+    });
+</script>
+}

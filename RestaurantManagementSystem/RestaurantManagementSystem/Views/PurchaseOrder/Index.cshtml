@@ -1,0 +1,163 @@
+@model IEnumerable<RestaurantManagementSystem.Models.PurchaseOrderHeader>
+@{
+    ViewData["Title"] = "Purchase Orders";
+    var selStatus = ViewBag.SelStatus as string ?? "";
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-shopping-cart me-2 text-primary"></i>Purchase Orders</h4>
+            <small class="text-muted">Create and manage purchase orders to suppliers</small>
+        </div>
+        <a asp-action="Form" asp-controller="PurchaseOrder" class="btn btn-primary">
+            <i class="fas fa-plus me-1"></i>New Purchase Order
+        </a>
+    </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show py-2">
+            <i class="fas fa-check-circle me-2"></i>@TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2">
+            <i class="fas fa-exclamation-circle me-2"></i>@TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <!-- Status Tabs -->
+    <div class="mb-3">
+        <a asp-action="Index" asp-controller="PurchaseOrder" class="btn btn-sm @(selStatus == "" ? "btn-primary" : "btn-outline-secondary") me-1">All</a>
+        <a asp-action="Index" asp-controller="PurchaseOrder" asp-route-status="Draft" class="btn btn-sm @(selStatus == "Draft" ? "btn-warning" : "btn-outline-warning") me-1">Draft</a>
+        <a asp-action="Index" asp-controller="PurchaseOrder" asp-route-status="Approved" class="btn btn-sm @(selStatus == "Approved" ? "btn-success" : "btn-outline-success") me-1">Approved</a>
+        <a asp-action="Index" asp-controller="PurchaseOrder" asp-route-status="PartialGRN" class="btn btn-sm @(selStatus == "PartialGRN" ? "btn-info" : "btn-outline-info") me-1">Partial GRN</a>
+        <a asp-action="Index" asp-controller="PurchaseOrder" asp-route-status="FullGRN" class="btn btn-sm @(selStatus == "FullGRN" ? "btn-dark" : "btn-outline-dark") me-1">Fully Received</a>
+        <a asp-action="Index" asp-controller="PurchaseOrder" asp-route-status="Cancelled" class="btn btn-sm @(selStatus == "Cancelled" ? "btn-danger" : "btn-outline-danger")">Cancelled</a>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-bottom py-2 d-flex align-items-center">
+            <span class="fw-semibold text-muted me-auto">
+                <i class="fas fa-list me-1"></i>Purchase Orders
+                <span class="badge bg-primary ms-1">@Model.Count()</span>
+            </span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblPO" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">PO Number</th>
+                            <th>PO Date</th>
+                            <th>Supplier</th>
+                            <th>Godown</th>
+                            <th>Delivery Date</th>
+                            <th class="text-end">Total Amount</th>
+                            <th class="text-center">Status</th>
+                            <th class="text-center pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var po in Model)
+                        {
+                            <tr>
+                                <td class="ps-3 fw-semibold text-primary">@po.PONumber</td>
+                                <td class="text-muted small">@po.PODate.ToString("dd MMM yyyy")</td>
+                                <td>@po.SupplierName</td>
+                                <td><span class="badge bg-info-subtle text-info">@po.GodownName</span></td>
+                                <td class="text-muted small">
+                                    @if (po.ExpectedDate.HasValue)
+                                    { @po.ExpectedDate.Value.ToString("dd MMM yyyy") }
+                                </td>
+                                <td class="text-end fw-semibold">₹@po.TotalAmount.ToString("N2")</td>
+                                <td class="text-center">@Html.Raw(GetStatusBadgeHtml(po.Status))</td>
+                                <td class="text-center pe-3">
+                                    <a asp-action="Details" asp-controller="PurchaseOrder" asp-route-id="@po.POId"
+                                       class="btn btn-outline-info btn-sm py-0 px-2" title="View Details">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    @if (po.Status == "Draft")
+                                    {
+                                        <a asp-action="Form" asp-controller="PurchaseOrder" asp-route-id="@po.POId"
+                                           class="btn btn-outline-primary btn-sm py-0 px-2" title="Edit">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <form method="post" asp-action="Approve" asp-controller="PurchaseOrder" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@po.POId" />
+                                            <button type="button" class="btn btn-outline-success btn-sm py-0 px-2" title="Approve"
+                                                    data-swal-confirm="The PO will be approved and sent for GRN processing."
+                                                    data-swal-title="Approve Purchase Order?"
+                                                    data-swal-icon="question"
+                                                    data-swal-ok="Yes, Approve"
+                                                    data-swal-color="#198754">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                        </form>
+                                        <form method="post" asp-action="Cancel" asp-controller="PurchaseOrder" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@po.POId" />
+                                            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2" title="Cancel"
+                                                    data-swal-confirm="This PO will be cancelled and cannot be reactivated."
+                                                    data-swal-title="Cancel Purchase Order?"
+                                                    data-swal-icon="warning"
+                                                    data-swal-ok="Yes, Cancel PO"
+                                                    data-swal-color="#dc3545">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </form>
+                                    }
+                                    @if (po.Status == "Approved" || po.Status == "PartialGRN")
+                                    {
+                                        <a asp-action="Form" asp-controller="GRN" asp-route-poId="@po.POId"
+                                           class="btn btn-outline-warning btn-sm py-0 px-2" title="Create GRN">
+                                            <i class="fas fa-truck"></i>
+                                        </a>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-shopping-cart fa-3x mb-3 d-block opacity-25"></i>
+                <p>No purchase orders found.</p>
+                <a asp-action="Form" asp-controller="PurchaseOrder" class="btn btn-primary btn-sm">
+                    <i class="fas fa-plus me-1"></i>Create First PO
+                </a>
+            </div>
+        }
+    </div>
+</div>
+
+@functions {
+    string GetStatusBadgeHtml(string status) {
+        var (cls, icon) = status switch {
+            "Draft"      => ("bg-warning text-dark",  "fa-pencil-alt"),
+            "Approved"   => ("bg-success",            "fa-check"),
+            "PartialGRN" => ("bg-info",               "fa-truck"),
+            "FullGRN"    => ("bg-primary",            "fa-check-double"),
+            "Cancelled"  => ("bg-danger",             "fa-times"),
+            _            => ("bg-secondary",          "fa-question")
+        };
+        return $"<span class=\"badge {cls}\"><i class=\"fas {icon} me-1\"></i>{status}</span>";
+    }
+}
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        $('#tblPO').DataTable({ paging: true, pageLength: 25, searching: true, ordering: true,
+            order: [[0,'desc']], columnDefs: [{ orderable: false, targets: [7] }] });
+    });
+</script>
+}

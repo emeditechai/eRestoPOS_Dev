@@ -5,8 +5,8 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace RestaurantManagementSystem.Models
 {
     /// <summary>
-    /// Party Master – global (not branch-specific).
-    /// Represents Vendors, Suppliers and Traders used across the system.
+    /// Party Master – EF entity mapped to the Parties table.
+    /// Used by MasterController for CRUD via Entity Framework.
     /// </summary>
     public class PartyMaster
     {
@@ -22,24 +22,20 @@ namespace RestaurantManagementSystem.Models
         [Display(Name = "Party Name")]
         public string PartyName { get; set; } = string.Empty;
 
-        /// <summary>Vendor | Supplier | Trader</summary>
         [Required]
         [StringLength(20)]
         [Display(Name = "Party Type")]
-        public string PartyType { get; set; } = string.Empty;
+        public string PartyType { get; set; } = "Vendor";
 
-        [StringLength(200)]
         [EmailAddress]
-        [Display(Name = "Email ID")]
+        [StringLength(200)]
         public string? Email { get; set; }
 
-        [Required]
         [StringLength(20)]
         [Display(Name = "Phone Number")]
         public string PhoneNumber { get; set; } = string.Empty;
 
         [StringLength(500)]
-        [Display(Name = "Address")]
         public string? Address { get; set; }
 
         [StringLength(10)]
@@ -50,11 +46,14 @@ namespace RestaurantManagementSystem.Models
         public bool IsCreditAllow { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
-        [Display(Name = "Allowed Credit Balance")]
+        [Display(Name = "Credit / Allow Balance")]
         public decimal? AllowBalance { get; set; }
 
         [Display(Name = "Active")]
         public bool IsActive { get; set; } = true;
+
+        [NotMapped]
+        public int DisplayOrder { get; set; }
 
         public DateTime? CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }

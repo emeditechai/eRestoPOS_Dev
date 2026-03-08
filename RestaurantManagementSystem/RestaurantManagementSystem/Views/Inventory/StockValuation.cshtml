@@ -1,0 +1,147 @@
+@model IEnumerable<RestaurantManagementSystem.Models.StockValuationItem>
+@{
+    ViewData["Title"] = "Stock Valuation Report";
+    var selGodown = ViewBag.SelGodown as int? ?? 0;
+    var selMethod = ViewBag.SelMethod as string ?? "WAVG";
+    var godowns   = ViewBag.Godowns as SelectList;
+    var totalVal  = Model.Sum(x => x.StockValue ?? 0);
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-calculator me-2 text-primary"></i>Stock Valuation Report</h4>
+            <small class="text-muted">Inventory value using Weighted Average Cost method</small>
+        </div>
+        <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-print me-1"></i>Print
+        </button>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body py-2">
+            <form method="get" asp-action="StockValuation" asp-controller="Inventory" class="d-flex gap-2 align-items-end flex-wrap">
+                <div>
+                    <label class="form-label small fw-semibold mb-1">Godown</label>
+                    <select name="godownId" class="form-select form-select-sm" style="min-width:200px">
+                        <option value="0">All Godowns</option>
+                        @if (godowns != null)
+                        {
+                            foreach (var g in godowns)
+                            {
+                                <option value="@g.Value" selected="@(g.Value == selGodown.ToString())">@g.Text</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label small fw-semibold mb-1">Valuation Method</label>
+                    <select name="valuationMethod" class="form-select form-select-sm">
+                        <option value="WAVG" selected="@(selMethod == "WAVG")">Weighted Average</option>
+                        <option value="FIFO" selected="@(selMethod == "FIFO")">FIFO</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm px-3">
+                    <i class="fas fa-filter me-1"></i>Apply
+                </button>
+                <a asp-action="StockValuation" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-sync me-1"></i>Reset
+                </a>
+            </form>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-primary border-3">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted fw-semibold d-block">Total Items</small>
+                    <span class="fs-4 fw-bold text-primary">@Model.Count()</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-success border-3">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted fw-semibold d-block">Total Stock Value</small>
+                    <span class="fs-5 fw-bold text-success">₹@totalVal.ToString("N2")</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-info border-3">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted fw-semibold d-block">Valuation Method</small>
+                    <span class="fw-bold text-info">@(selMethod == "WAVG" ? "Weighted Average" : "FIFO")</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-warning border-3">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted fw-semibold d-block">Positive Stock Items</small>
+                    <span class="fs-4 fw-bold text-warning">@Model.Count(x => x.BalanceQty > 0)</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-bottom py-2">
+            <span class="fw-semibold text-muted">Valuation Details</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblValuation" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">Item</th>
+                            <th>Category</th>
+                            <th>Godown</th>
+                            <th class="text-end">Current Qty</th>
+                            <th class="text-end">UOM</th>
+                            <th class="text-end">Weighted Avg Cost</th>
+                            <th class="text-end pe-3">Stock Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in Model)
+                        {
+                            <tr>
+                                <td class="ps-3 fw-semibold">@r.ItemName</td>
+                                <td class="text-muted small">@r.ItemCategory</td>
+                                <td><span class="badge bg-info-subtle text-info">@r.GodownName</span></td>
+                                <td class="text-end @(r.BalanceQty <= 0 ? "text-danger" : "fw-semibold")">@r.BalanceQty.ToString("N3")</td>
+                                <td class="text-end text-muted small">@r.UOMCode</td>
+                                <td class="text-end text-muted small">₹@r.AverageCost.ToString("N4")</td>
+                                <td class="text-end pe-3 fw-semibold @((r.StockValue ?? 0) <= 0 ? "text-muted" : "")">₹@(r.StockValue ?? 0).ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot class="table-light fw-bold">
+                        <tr>
+                            <td colspan="6" class="text-end pe-2">Total Inventory Value:</td>
+                            <td class="text-end pe-3 text-success fs-6">₹@totalVal.ToString("N2")</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-calculator fa-3x mb-3 d-block opacity-25"></i>
+                <p>No valuation data found.</p>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        $('#tblValuation').DataTable({ paging: false, searching: true, ordering: true, order: [[6,'desc']] });
+    });
+</script>
+}

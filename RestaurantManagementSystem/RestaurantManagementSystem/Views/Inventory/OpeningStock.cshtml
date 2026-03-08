@@ -1,0 +1,128 @@
+@model IEnumerable<RestaurantManagementSystem.Models.OpeningStockItem>
+@{
+    ViewData["Title"] = "Opening Stock";
+    var godowns  = ViewBag.Godowns  as IEnumerable<dynamic> ?? new List<dynamic>();
+    var items    = ViewBag.Items    as IEnumerable<dynamic> ?? new List<dynamic>();
+    var uoms     = ViewBag.UOMs     as IEnumerable<dynamic> ?? new List<dynamic>();
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-layer-group me-2 text-primary"></i>Opening Stock Entry</h4>
+            <small class="text-muted">Enter opening stock balances for each godown</small>
+        </div>
+        <a asp-action="OpeningStockForm" asp-controller="Inventory" class="btn btn-primary">
+            <i class="fas fa-plus me-1"></i>New Entry
+        </a>
+    </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
+            <i class="fas fa-check-circle me-2"></i>@TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>@TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-bottom py-2 d-flex align-items-center">
+            <span class="fw-semibold text-muted me-auto">
+                <i class="fas fa-list me-1"></i>Opening Stock Entries
+                <span class="badge bg-primary ms-1">@Model.Count()</span>
+            </span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblOpeningStock" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">Date</th>
+                            <th>Item</th>
+                            <th>Godown</th>
+                            <th class="text-end">Qty</th>
+                            <th class="text-end">UOM</th>
+                            <th class="text-end">Cost Price</th>
+                            <th class="text-end">Total Value</th>
+                            <th class="text-center">Status</th>
+                            <th class="text-center pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var s in Model)
+                        {
+                            <tr>
+                                <td class="ps-3 text-muted small">@s.StockDate.ToString("dd MMM yyyy")</td>
+                                <td class="fw-semibold">@s.ItemName</td>
+                                <td><span class="badge bg-info-subtle text-info">@s.GodownName</span></td>
+                                <td class="text-end">@s.Quantity.ToString("N3")</td>
+                                <td class="text-end text-muted small">@s.UOMCode</td>
+                                <td class="text-end">₹@s.CostPrice.ToString("N2")</td>
+                                <td class="text-end fw-semibold">₹@((s.Quantity * s.CostPrice).ToString("N2"))</td>
+                                <td class="text-center">
+                                    @if (s.IsPosted)
+                                    { <span class="badge bg-success">Posted</span> }
+                                    else
+                                    { <span class="badge bg-warning text-dark">Draft</span> }
+                                </td>
+                                <td class="text-center pe-3">
+                                    @if (!s.IsPosted)
+                                    {
+                                        <a asp-action="OpeningStockForm" asp-controller="Inventory" asp-route-id="@s.OpeningStockId"
+                                           class="btn btn-outline-primary btn-sm py-0 px-2"><i class="fas fa-edit"></i></a>
+                                        <form method="post" asp-action="OpeningStockPost" asp-controller="Inventory" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@s.OpeningStockId" />
+                                            <button type="submit" class="btn btn-outline-success btn-sm py-0 px-2" title="Post to Ledger"
+                                                    onclick="return confirm('Post this opening stock to ledger?')">
+                                                <i class="fas fa-check-double"></i>
+                                            </button>
+                                        </form>
+                                        <form method="post" asp-action="OpeningStockDelete" asp-controller="Inventory" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@s.OpeningStockId" />
+                                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete"
+                                                    onclick="return confirm('Delete this entry?')">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </form>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">—</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-layer-group fa-3x mb-3 d-block opacity-25"></i>
+                <p>No opening stock entries yet.</p>
+                <a asp-action="OpeningStockForm" asp-controller="Inventory" class="btn btn-primary btn-sm">
+                    <i class="fas fa-plus me-1"></i>Add Opening Stock
+                </a>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        $('#tblOpeningStock').DataTable({ paging: true, pageLength: 25, searching: true, ordering: true,
+            order: [[0,'desc']], columnDefs: [{ orderable: false, targets: [8] }] });
+    });
+</script>
+}

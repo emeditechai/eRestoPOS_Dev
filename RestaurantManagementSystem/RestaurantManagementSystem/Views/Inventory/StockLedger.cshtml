@@ -1,0 +1,170 @@
+@model IEnumerable<RestaurantManagementSystem.Models.StockLedgerEntry>
+@{
+    ViewData["Title"] = "Stock Ledger";
+    var godowns  = ViewBag.Godowns as SelectList;
+    var items    = ViewBag.Items   as SelectList;
+    var selGodown = ViewBag.SelGodown as int? ?? 0;
+    var selItem   = ViewBag.SelItem   as int? ?? 0;
+    var selType   = ViewBag.SelType   as string ?? "";
+    var dateFrom  = ViewBag.DateFrom  as string ?? DateTime.Today.AddMonths(-1).ToString("yyyy-MM-dd");
+    var dateTo    = ViewBag.DateTo    as string ?? DateTime.Today.ToString("yyyy-MM-dd");
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-book-open me-2 text-primary"></i>Stock Ledger</h4>
+            <small class="text-muted">Item-wise stock movement with running balance</small>
+        </div>
+        <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-print me-1"></i>Print
+        </button>
+    </div>
+
+    <!-- Filter Card -->
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body py-2">
+            <form method="get" asp-action="StockLedger" asp-controller="Inventory" id="filterForm">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold mb-1">Godown</label>
+                        <select name="godownId" class="form-select form-select-sm">
+                            <option value="0">All Godowns</option>
+                            @if (godowns != null)
+                            {
+                                foreach (var g in godowns)
+                                {
+                                    <option value="@g.Value" selected="@(g.Value == selGodown.ToString())">@g.Text</option>
+                                }
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold mb-1">Item</label>
+                        <select name="itemId" class="form-select form-select-sm">
+                            <option value="0">All Items</option>
+                            @if (items != null)
+                            {
+                                foreach (var i in items)
+                                {
+                                    <option value="@i.Value" selected="@(i.Value == selItem.ToString())">@i.Text</option>
+                                }
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-semibold mb-1">Transaction Type</label>
+                        <select name="txnType" class="form-select form-select-sm">
+                            <option value="">All Types</option>
+                            <option value="OPENING" selected="@(selType=="OPENING")">Opening Stock</option>
+                            <option value="GRN"     selected="@(selType=="GRN")">GRN</option>
+                            <option value="TRANSFER_IN"  selected="@(selType=="TRANSFER_IN")">Transfer In</option>
+                            <option value="TRANSFER_OUT" selected="@(selType=="TRANSFER_OUT")">Transfer Out</option>
+                            <option value="DAMAGE"  selected="@(selType=="DAMAGE")">Damage</option>
+                            <option value="PRODUCTION_CONSUMPTION" selected="@(selType=="PRODUCTION_CONSUMPTION")">BOM Consumption</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-semibold mb-1">From Date</label>
+                        <input type="date" name="fromDate" class="form-control form-control-sm" value="@dateFrom" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-semibold mb-1">To Date</label>
+                        <input type="date" name="toDate" class="form-control form-control-sm" value="@dateTo" />
+                    </div>
+                    <div class="col-12 col-md-auto">
+                        <button type="submit" class="btn btn-primary btn-sm px-3">
+                            <i class="fas fa-filter me-1"></i>Apply
+                        </button>
+                        <a asp-action="StockLedger" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm ms-1">
+                            <i class="fas fa-sync me-1"></i>Reset
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Ledger Table -->
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-bottom py-2 d-flex align-items-center">
+            <span class="fw-semibold text-muted me-auto">
+                <i class="fas fa-list me-1"></i>Ledger Entries
+                <span class="badge bg-primary ms-1">@Model.Count()</span>
+            </span>
+            <a asp-action="StockSummary" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm ms-2">
+                <i class="fas fa-table me-1"></i>Current Stock
+            </a>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblLedger" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">Date</th>
+                            <th>Item</th>
+                            <th>Godown</th>
+                            <th>Type</th>
+                            <th>Reference</th>
+                            <th class="text-end">In Qty</th>
+                            <th class="text-end">Out Qty</th>
+                            <th class="text-end">Balance</th>
+                            <th class="text-end pe-3">Avg Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in Model)
+                        {
+                            <tr>
+                                <td class="ps-3 text-muted small">@row.TransactionDate.ToString("dd MMM yyyy")</td>
+                                <td class="fw-semibold">@row.ItemName</td>
+                                <td><span class="badge bg-info-subtle text-info">@row.GodownName</span></td>
+                                <td>
+                                    <span class="badge @GetBadgeClass(row.TransactionType)">@row.TransactionType</span>
+                                </td>
+                                <td class="text-muted small">@row.ReferenceNumber</td>
+                                <td class="text-end @(row.InQuantity > 0 ? "text-success fw-semibold" : "text-muted")">
+                                    @(row.InQuantity > 0 ? row.InQuantity.ToString("N3") : "—")
+                                </td>
+                                <td class="text-end @(row.OutQuantity > 0 ? "text-danger fw-semibold" : "text-muted")">
+                                    @(row.OutQuantity > 0 ? row.OutQuantity.ToString("N3") : "—")
+                                </td>
+                                <td class="text-end fw-semibold @(row.BalanceQty <= 0 ? "text-danger" : "")">
+                                    @row.BalanceQty.ToString("N3")
+                                </td>
+                                <td class="text-end pe-3 text-muted small">₹@row.AverageCost.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-book-open fa-3x mb-3 d-block opacity-25"></i>
+                <p>No ledger entries found for the selected filters.</p>
+            </div>
+        }
+    </div>
+</div>
+
+@functions {
+    string GetBadgeClass(string type) => type switch {
+        "GRN"         => "bg-success-subtle text-success",
+        "OPENING"     => "bg-primary-subtle text-primary",
+        "TRANSFER_IN" => "bg-info-subtle text-info",
+        "TRANSFER_OUT"=> "bg-warning-subtle text-warning",
+        "DAMAGE"      => "bg-danger-subtle text-danger",
+        _             => "bg-secondary-subtle text-secondary"
+    };
+}
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        $('#tblLedger').DataTable({ paging: true, pageLength: 50, searching: true, ordering: true,
+            order: [[0,'desc']], columnDefs: [{ orderable: false, targets: [4] }] });
+    });
+</script>
+}

@@ -1,0 +1,114 @@
+@model RestaurantManagementSystem.Models.OpeningStockItem
+@{
+    ViewData["Title"] = Model.OpeningStockId == 0 ? "Add Opening Stock" : "Edit Opening Stock";
+    var godowns = ViewBag.Godowns as SelectList;
+    var items   = ViewBag.Items   as SelectList;
+    var uoms    = ViewBag.UOMs    as SelectList;
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center mb-3">
+        <a asp-action="OpeningStock" asp-controller="Inventory" class="btn btn-link text-muted ps-0 me-2">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+        <div>
+            <h4 class="mb-0 fw-bold">
+                <i class="fas fa-layer-group me-2 text-primary"></i>@ViewData["Title"]
+            </h4>
+            <small class="text-muted">Enter item opening balance for a specific godown</small>
+        </div>
+    </div>
+
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>
+            @foreach (var e in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+            { <div>@e.ErrorMessage</div> }
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <div class="card border-0 shadow-sm" style="max-width:640px">
+        <div class="card-header bg-white border-bottom py-2">
+            <span class="fw-semibold text-muted"><i class="fas fa-edit me-1"></i>Opening Stock Details</span>
+        </div>
+        <div class="card-body">
+            <form method="post" asp-action="OpeningStockForm" asp-controller="Inventory" autocomplete="off">
+                @Html.AntiForgeryToken()
+                <input type="hidden" asp-for="OpeningStockId" />
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label asp-for="StockDate" class="form-label small fw-semibold">Date <span class="text-danger">*</span></label>
+                        <input asp-for="StockDate" type="date" class="form-control form-control-sm" required />
+                        <span asp-validation-for="StockDate" class="text-danger small"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="GodownId" class="form-label small fw-semibold">Godown <span class="text-danger">*</span></label>
+                        <select asp-for="GodownId" asp-items="godowns" class="form-select form-select-sm" required>
+                            <option value="">-- Select Godown --</option>
+                        </select>
+                        <span asp-validation-for="GodownId" class="text-danger small"></span>
+                    </div>
+                    <div class="col-12">
+                        <label asp-for="ItemId" class="form-label small fw-semibold">Item <span class="text-danger">*</span></label>
+                        <select asp-for="ItemId" asp-items="items" class="form-select form-select-sm item-select" required>
+                            <option value="">-- Select Item --</option>
+                        </select>
+                        <span asp-validation-for="ItemId" class="text-danger small"></span>
+                    </div>
+                    <div class="col-md-4">
+                        <label asp-for="Quantity" class="form-label small fw-semibold">Quantity <span class="text-danger">*</span></label>
+                        <input asp-for="Quantity" type="number" min="0.001" step="0.001" class="form-control form-control-sm calc-field" required />
+                        <span asp-validation-for="Quantity" class="text-danger small"></span>
+                    </div>
+                    <div class="col-md-4">
+                        <label asp-for="UOMId" class="form-label small fw-semibold">UOM <span class="text-danger">*</span></label>
+                        <select asp-for="UOMId" asp-items="uoms" class="form-select form-select-sm" required>
+                            <option value="">-- UOM --</option>
+                        </select>
+                        <span asp-validation-for="UOMId" class="text-danger small"></span>
+                    </div>
+                    <div class="col-md-4">
+                        <label asp-for="CostPrice" class="form-label small fw-semibold">Cost Price (₹) <span class="text-danger">*</span></label>
+                        <input asp-for="CostPrice" type="number" min="0" step="0.01" class="form-control form-control-sm calc-field" required />
+                        <span asp-validation-for="CostPrice" class="text-danger small"></span>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Total Value</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">₹</span>
+                            <input type="text" id="totalValue" class="form-control form-control-sm bg-light" readonly value="0.00" />
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label asp-for="Remarks" class="form-label small fw-semibold">Remarks</label>
+                        <textarea asp-for="Remarks" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="mt-4 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm px-4">
+                        <i class="fas fa-save me-1"></i>Save
+                    </button>
+                    <a asp-action="OpeningStock" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm px-4">
+                        <i class="fas fa-times me-1"></i>Cancel
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    function recalc() {
+        var qty  = parseFloat($('input[name="Quantity"]').val())  || 0;
+        var cost = parseFloat($('input[name="CostPrice"]').val()) || 0;
+        $('#totalValue').val((qty * cost).toFixed(2));
+    }
+    $(document).on('input', '.calc-field', recalc);
+    recalc();
+</script>
+}

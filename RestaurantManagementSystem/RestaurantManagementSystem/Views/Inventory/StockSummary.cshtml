@@ -1,0 +1,156 @@
+@model IEnumerable<RestaurantManagementSystem.Models.CurrentStockItem>
+@{
+    ViewData["Title"] = "Current Stock Summary";
+    var selGodown = ViewBag.SelGodown as int? ?? 0;
+    var godowns   = ViewBag.Godowns as SelectList;
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-cubes me-2 text-primary"></i>Current Stock Summary</h4>
+            <small class="text-muted">Real-time stock positions across godowns</small>
+        </div>
+        <div class="d-flex gap-2">
+            <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-print me-1"></i>Print
+            </button>
+            <a asp-action="StockLedger" asp-controller="Inventory" class="btn btn-outline-primary btn-sm">
+                <i class="fas fa-book-open me-1"></i>Stock Ledger
+            </a>
+        </div>
+    </div>
+
+    <!-- Filter -->
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body py-2">
+            <form method="get" asp-action="StockSummary" asp-controller="Inventory" class="d-flex gap-2 align-items-end flex-wrap">
+                <div>
+                    <label class="form-label small fw-semibold mb-1">Godown</label>
+                    <select name="godownId" class="form-select form-select-sm" style="min-width:220px">
+                        <option value="0">All Godowns</option>
+                        @if (godowns != null)
+                        {
+                            foreach (var g in godowns)
+                            {
+                                <option value="@g.Value" selected="@(g.Value == selGodown.ToString())">@g.Text</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm px-3">
+                    <i class="fas fa-filter me-1"></i>Apply
+                </button>
+                <a asp-action="StockSummary" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-sync me-1"></i>Reset
+                </a>
+            </form>
+        </div>
+    </div>
+
+    <!-- Summary Stats -->
+    @{
+        var totalItems = Model.Count();
+        var lowStock   = Model.Count(x => x.BalanceQty <= x.ReorderLevel && x.ReorderLevel > 0);
+        var totalVal   = Model.Sum(x => x.BalanceQty * x.AverageCost);
+        var zeroStock  = Model.Count(x => x.BalanceQty <= 0);
+    }
+    <div class="row g-3 mb-3">
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body py-2 px-3">
+                    <div class="small text-muted fw-semibold">Total Items</div>
+                    <div class="fs-4 fw-bold text-primary">@totalItems</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body py-2 px-3">
+                    <div class="small text-muted fw-semibold">Low Stock</div>
+                    <div class="fs-4 fw-bold text-warning">@lowStock</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body py-2 px-3">
+                    <div class="small text-muted fw-semibold">Zero Stock</div>
+                    <div class="fs-4 fw-bold text-danger">@zeroStock</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body py-2 px-3">
+                    <div class="small text-muted fw-semibold">Total Value</div>
+                    <div class="fs-5 fw-bold text-success">₹@totalVal.ToString("N0")</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-bottom py-2">
+            <span class="fw-semibold text-muted">
+                <i class="fas fa-list me-1"></i>Stock Positions
+            </span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tblStock" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
+                    <thead class="table-light small text-uppercase text-muted">
+                        <tr>
+                            <th class="ps-3">Item</th>
+                            <th>Category</th>
+                            <th>Godown</th>
+                            <th class="text-end">Current Qty</th>
+                            <th class="text-end">UOM</th>
+                            <th class="text-end">Avg Cost</th>
+                            <th class="text-end">Stock Value</th>
+                            <th class="text-end pe-3">Reorder Level</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var s in Model)
+                        {
+                            bool isLow  = s.BalanceQty <= s.ReorderLevel && s.ReorderLevel > 0;
+                            bool isZero = s.BalanceQty <= 0;
+                            <tr class="@(isZero ? "table-danger" : isLow ? "table-warning" : "")">
+                                <td class="ps-3 fw-semibold">@s.ItemName</td>
+                                <td class="text-muted small">@s.ItemCategory</td>
+                                <td><span class="badge bg-info-subtle text-info">@s.GodownName</span></td>
+                                <td class="text-end @(isZero ? "text-danger fw-bold" : isLow ? "text-warning fw-bold" : "fw-semibold")">
+                                    @s.BalanceQty.ToString("N3")
+                                </td>
+                                <td class="text-end text-muted small">@s.BaseUOMCode</td>
+                                <td class="text-end text-muted small">₹@s.AverageCost.ToString("N2")</td>
+                                <td class="text-end fw-semibold">₹@((s.BalanceQty * s.AverageCost).ToString("N2"))</td>
+                                <td class="text-end pe-3 text-muted small">
+                                    @if (s.ReorderLevel > 0) { @s.ReorderLevel?.ToString("N0") } else { <text>—</text> }
+                                    @if (isLow) { <i class="fas fa-exclamation-triangle text-warning ms-1"></i> }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!Model.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-cubes fa-3x mb-3 d-block opacity-25"></i>
+                <p>No stock data found.</p>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    $(document).ready(function () {
+        $('#tblStock').DataTable({ paging: true, pageLength: 50, searching: true, ordering: true,
+            order: [[0,'asc']] });
+    });
+</script>
+}

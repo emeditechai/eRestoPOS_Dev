@@ -60,6 +60,15 @@ namespace RestaurantManagementSystem.Models
         [Column(TypeName = "decimal(18,3)")]
         public decimal? ReorderLevel { get; set; }
 
+        /// <summary>
+        /// GST percentage applicable on this ingredient (e.g. 18 for 18%).
+        /// For intra-state: CGST = GSTPercent/2, SGST = GSTPercent/2.
+        /// For inter-state: IGST = GSTPercent.
+        /// Default 0 = GST exempt.
+        /// </summary>
+        [Column(TypeName = "decimal(5,2)")]
+        public decimal GSTPercent { get; set; } = 0;
+
         public bool IsActive { get; set; } = true;
 
         public DateTime? CreatedAt { get; set; }
