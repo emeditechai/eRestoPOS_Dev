@@ -94,6 +94,48 @@ namespace RestaurantManagementSystem.Controllers
             }
 
             LoadViewBag(branchId.Value);
+
+            // Embed line data as inline JSON so the view renders instantly — no AJAX on load
+            bool isEdit = id.HasValue && id.Value > 0;
+            if (isEdit && model.Lines.Count > 0)
+            {
+                ViewBag.ExistingLinesJson = System.Text.Json.JsonSerializer.Serialize(
+                    model.Lines.Select(l => new {
+                        grnDetailId = l.GRNDetailId,
+                        poDetailId  = l.PODetailId ?? 0,
+                        itemId      = l.ItemId,
+                        uomId       = l.UOMId,
+                        itemName    = l.ItemName ?? "",
+                        uomCode     = l.UOMCode ?? "",
+                        orderedQty  = l.OrderedQty,
+                        pendingQty  = l.AcceptedQty,
+                        receivedQty = l.ReceivedQty,
+                        rejectedQty = l.RejectedQty,
+                        acceptedQty = l.AcceptedQty,
+                        unitRate    = l.UnitRate,
+                        gstPercent  = l.GSTPercent
+                    }));
+            }
+            else if (!isEdit && model.Lines.Count > 0)
+            {
+                // New GRN pre-populated from a PO
+                ViewBag.PreloadedLinesJson = System.Text.Json.JsonSerializer.Serialize(
+                    model.Lines.Select(l => new {
+                        poDetailId  = l.PODetailId ?? 0,
+                        itemId      = l.ItemId,
+                        uomId       = l.UOMId,
+                        itemName    = l.ItemName ?? "",
+                        uomCode     = l.UOMCode ?? "",
+                        orderedQty  = l.OrderedQty,
+                        pendingQty  = l.AcceptedQty,
+                        receivedQty = (decimal)0,
+                        rejectedQty = (decimal)0,
+                        acceptedQty = l.AcceptedQty,
+                        unitRate    = l.UnitRate,
+                        gstPercent  = l.GSTPercent
+                    }));
+            }
+
             return View(model);
         }
 
@@ -298,9 +340,17 @@ namespace RestaurantManagementSystem.Controllers
                 cmd.Parameters.AddWithValue("@BranchId", branchId);
                 using var rdr = cmd.ExecuteReader();
                 while (rdr.Read())
-                    pos.Add(new { value = GetInt(rdr, "POId"), text = $"{GetStr(rdr, "PONumber")} – {GetStr(rdr, "SupplierName")}" });
+                    pos.Add(new {
+                        id           = GetInt(rdr, "POId"),
+                        poNumber     = GetStr(rdr, "PONumber") ?? "",
+                        supplierName = GetStr(rdr, "SupplierName") ?? "",
+                        godownName   = GetStr(rdr, "GodownName") ?? "",
+                        godownId     = GetInt(rdr, "GodownId"),
+                        supplierId   = GetInt(rdr, "SupplierId")
+                    });
             }
-            ViewBag.POs = pos;
+            // Serialised inline so the view needs ZERO AJAX calls on initial load
+            ViewBag.POListJson = System.Text.Json.JsonSerializer.Serialize(pos);
             ViewBag.ActiveBranchId = branchId;
         }
 

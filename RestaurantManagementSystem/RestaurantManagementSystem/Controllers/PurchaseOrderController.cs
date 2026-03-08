@@ -181,8 +181,13 @@ namespace RestaurantManagementSystem.Controllers
             var model = LoadPOById(id);
             if (model == null) return RedirectToAction(nameof(Index));
 
-            var branchId = ActiveBranchId();
-            LoadViewBag(branchId ?? model.BranchId);
+            var branchId = ActiveBranchId() ?? model.BranchId;
+            LoadViewBag(branchId);
+
+            var (grnMandatory, allowDirect) = GetInventoryParams(branchId);
+            ViewBag.GRNMandatory       = grnMandatory;
+            ViewBag.AllowDirectPurchase = allowDirect;
+
             return View(model);
         }
 
@@ -193,8 +198,98 @@ namespace RestaurantManagementSystem.Controllers
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult Approve(int id)
         {
+            var branchId = ActiveBranchId() ?? 0;
+
+            // Step 1: Approve the PO
             CallSP("usp_ApprovePurchaseOrder", ("@POId", id), ("@UserId", DBNull.Value));
-            TempData["SuccessMessage"] = "Purchase Order approved.";
+
+            // Step 2: Check inventory parameters
+            var (grnMandatory, allowDirect) = GetInventoryParams(branchId);
+
+            if (!grnMandatory && allowDirect)
+            {
+                // ── Direct Purchase mode: auto-create GRN and post to stock ──
+                try
+                {
+                    var po = LoadPOById(id);
+                    if (po != null && po.Lines.Count > 0)
+                    {
+                        // Build the GRN details JSON from all PO lines
+                        var linesJson = System.Text.Json.JsonSerializer.Serialize(
+                            po.Lines.Select(l => new {
+                                poDetailId  = l.PODetailId,
+                                itemId      = l.ItemId,
+                                uomId       = l.UOMId,
+                                orderedQty  = l.OrderedQty,
+                                receivedQty = l.OrderedQty,   // received = ordered for direct purchase
+                                rejectedQty = (decimal)0,
+                                unitRate    = l.UnitRate,
+                                gstPercent  = l.GSTPercent
+                            })
+                        );
+
+                        // Auto-create GRN (Draft)
+                        int autoGrnId;
+                        using (var con = new SqlConnection(_connectionString))
+                        {
+                            con.Open();
+                            using var cmd = new SqlCommand("usp_SaveGRN", con)
+                                { CommandType = CommandType.StoredProcedure };
+                            cmd.Parameters.AddWithValue("@GRNId",           0);
+                            cmd.Parameters.AddWithValue("@BranchId",        po.BranchId);
+                            cmd.Parameters.AddWithValue("@POId",            po.POId);
+                            cmd.Parameters.AddWithValue("@GodownId",        po.GodownId);
+                            cmd.Parameters.AddWithValue("@SupplierId",      po.SupplierId);
+                            cmd.Parameters.AddWithValue("@GRNDate",         DateTime.Today);
+                            cmd.Parameters.AddWithValue("@InvoiceNo",       DBNull.Value);
+                            cmd.Parameters.AddWithValue("@InvoiceDate",     DBNull.Value);
+                            cmd.Parameters.AddWithValue("@GSTType",         po.GSTType ?? "Exclusive");
+                            cmd.Parameters.AddWithValue("@Remarks",         (object?)$"Auto-GRN via Direct Purchase for {po.PONumber}" ?? DBNull.Value);
+                            cmd.Parameters.AddWithValue("@SubTotal",        po.SubTotal);
+                            cmd.Parameters.AddWithValue("@TotalGSTAmount",  po.TotalGSTAmount);
+                            cmd.Parameters.AddWithValue("@TotalAmount",     po.TotalAmount);
+                            cmd.Parameters.AddWithValue("@UserId",          DBNull.Value);
+                            cmd.Parameters.AddWithValue("@DetailsJson",     linesJson);
+                            var result = cmd.ExecuteScalar();
+                            autoGrnId = Convert.ToInt32(result);
+                        }
+
+                        // Auto-post GRN → updates CurrentStock + StockLedger
+                        CallSP("usp_PostGRN", ("@GRNId", autoGrnId), ("@UserId", DBNull.Value));
+
+                        // Fetch the auto-generated GRN number for the success message
+                        string grnNumber = autoGrnId.ToString();
+                        try
+                        {
+                            using var con2 = new SqlConnection(_connectionString);
+                            con2.Open();
+                            using var cmd2 = new SqlCommand(
+                                "SELECT GRNNumber FROM dbo.GRNMaster WHERE GRNId = @id", con2);
+                            cmd2.Parameters.AddWithValue("@id", autoGrnId);
+                            var val = cmd2.ExecuteScalar();
+                            if (val != null && val != DBNull.Value) grnNumber = val.ToString()!;
+                        }
+                        catch { }
+
+                        TempData["DirectPostedGRN"]  = grnNumber;
+                        TempData["SuccessMessage"]    =
+                            $"Purchase Order approved and stock updated directly. Auto-GRN {grnNumber} created and posted.";
+                    }
+                    else
+                    {
+                        TempData["SuccessMessage"] = "Purchase Order approved (Direct Purchase mode — no items to post).";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    TempData["WarningMessage"] = $"PO approved, but auto-stock posting failed: {ex.Message}. Please create a GRN manually.";
+                }
+            }
+            else
+            {
+                TempData["SuccessMessage"] = "Purchase Order approved. Please create a GRN to update stock.";
+            }
+
             return RedirectToAction(nameof(Details), new { id });
         }
 
@@ -228,6 +323,34 @@ namespace RestaurantManagementSystem.Controllers
             }
             catch { }
             return false;
+        }
+
+        /// <summary>Returns (grnMandatory, allowDirectPurchase) from inventory parameters.</summary>
+        private (bool grnMandatory, bool allowDirectPurchase) GetInventoryParams(int branchId)
+        {
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand("usp_GetInventoryParameters", con)
+                    { CommandType = CommandType.StoredProcedure };
+                cmd.Parameters.AddWithValue("@BranchId", branchId);
+                using var rdr = cmd.ExecuteReader();
+                if (rdr.Read())
+                {
+                    bool grnMand    = TryGetBool(rdr, "GRNMandatory",        true);
+                    bool allowDirct = TryGetBool(rdr, "AllowDirectPurchase", false);
+                    return (grnMand, allowDirct);
+                }
+            }
+            catch { }
+            return (true, false);   // safe defaults: GRN required
+        }
+
+        private static bool TryGetBool(SqlDataReader r, string col, bool defaultVal = false)
+        {
+            try { var o = r.GetOrdinal(col); return r.IsDBNull(o) ? defaultVal : r.GetBoolean(o); }
+            catch { return defaultVal; }
         }
 
         private int? GetMainGodownId(int branchId)

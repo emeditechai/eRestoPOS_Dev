@@ -104,8 +104,8 @@
                                 <td class="text-muted small">@r.ItemCategory</td>
                                 <td><span class="badge bg-info-subtle text-info">@r.GodownName</span></td>
                                 <td class="text-end text-muted">@r.OpeningQty.ToString("N3")</td>
-                                <td class="text-end text-success">@(r.PurchaseQty + r.TransferInQty).ToString("N3")</td>
-                                <td class="text-end text-danger">@(r.TransferOutQty + r.DamageQty + r.SaleQty).ToString("N3")</td>
+                                <td class="text-end text-success">@((r.PurchaseQty + r.TransferInQty).ToString("N3"))</td>
+                                <td class="text-end text-danger">@((r.TransferOutQty + r.DamageQty + r.SaleQty).ToString("N3"))</td>
                                 <td class="text-end fw-bold @(r.ClosingQty < 0 ? "text-danger" : "")">@r.ClosingQty.ToString("N3")</td>
                                 <td class="text-end text-muted small">₹@r.AverageCost.ToString("N2")</td>
                                 <td class="text-end pe-3 fw-semibold">₹@r.ClosingValue.ToString("N2")</td>

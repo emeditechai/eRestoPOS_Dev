@@ -84,7 +84,7 @@
                                         <td class="text-end">@line.Quantity.ToString("N3")</td>
                                         <td class="text-muted small">@line.UOMCode</td>
                                         <td class="text-end">₹@line.UnitCost.ToString("N2")</td>
-                                        <td class="text-end pe-3 fw-semibold">₹@(line.Quantity * line.UnitCost).ToString("N2")</td>
+                                        <td class="text-end pe-3 fw-semibold">₹@((line.Quantity * line.UnitCost).ToString("N2"))</td>
                                     </tr>
                                     sn++;
                                 }

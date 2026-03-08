@@ -1,8 +1,6 @@
 @model RestaurantManagementSystem.Models.GRNHeader
 @{
     ViewData["Title"] = Model.GRNId == 0 ? "New GRN" : "Edit GRN";
-    var suppliers = ViewBag.Suppliers as SelectList;
-    var poId = ViewBag.PreselectedPOId as int? ?? 0;
 }
 
 <div class="container-fluid px-0">
@@ -44,10 +42,13 @@
                         <input asp-for="GRNDate" type="date" class="form-control form-control-sm" required />
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label small fw-semibold">Purchase Order <span class="text-danger">*</span></label>
+                        <label class="form-label small fw-semibold">Purchase Order <span class="text-danger">*</span>
+                            <span id="poBadgeLocked" class="badge bg-secondary ms-1" style="display:none"><i class="fas fa-lock me-1"></i>Locked</span>
+                        </label>
                         <select id="selPO" name="POId" class="form-select form-select-sm" required>
                             <option value="">-- Select PO --</option>
                         </select>
+                        <input type="hidden" id="hidPOId" />
                     </div>
                     <div class="col-md-3">
                         <label class="form-label small fw-semibold">Godown</label>
@@ -127,35 +128,70 @@
 
 @section Scripts {
 <script>
-    var existingLines = @Html.Raw(ViewBag.ExistingLinesJson ?? "[]");
+    // ── Inline data from server — ZERO AJAX calls on initial page load ─────────
+    var existingLines  = @Html.Raw(ViewBag.ExistingLinesJson  ?? "[]");
+    var preloadedLines = @Html.Raw(ViewBag.PreloadedLinesJson ?? "[]");
+    var poList         = @Html.Raw(ViewBag.POListJson         ?? "[]");
 
     $(document).ready(function () {
-        // Load approved POs
-        $.get('/GRN/GetPOList', function (pos) {
-            var preselect = @(Model.POId > 0 ? Model.POId : poId);
-            pos.forEach(function (p) {
-                var selected = (p.id == preselect) ? 'selected' : '';
-                $('#selPO').append('<option value="'+p.id+'" data-godown="'+p.godownName+'" data-godownid="'+p.godownId+'" data-supplier="'+p.supplierName+'" data-supplierid="'+p.supplierId+'" '+selected+'>'+p.poNumber+' - '+p.supplierName+'</option>');
-            });
-            if ($('#selPO').val()) triggerPOLoad();
+
+        // ── 1. Build PO dropdown synchronously from inline data ───────────────
+        var preselect = @(Model.POId);
+        poList.forEach(function (p) {
+            var sel = (p.id == preselect) ? ' selected' : '';
+            $('#selPO').append(
+                '<option value="' + p.id + '"'
+                + ' data-godown="'     + escAttr(p.godownName)   + '"'
+                + ' data-godownid="'   + p.godownId              + '"'
+                + ' data-supplier="'   + escAttr(p.supplierName) + '"'
+                + ' data-supplierid="' + p.supplierId            + '"'
+                + sel + '>'
+                + escHtml(p.poNumber) + ' – ' + escHtml(p.supplierName)
+                + '</option>'
+            );
         });
 
-        $('#selPO').on('change', triggerPOLoad);
+        // ── 2. Render lines immediately from inline data (no round-trip) ──────
+        if (existingLines.length > 0) {
+            // Edit GRN — fill header fields and render saved lines
+            setHeaderFields($('#selPO option:selected'));
+            renderGrnLines(existingLines, true);
+            lockPOSelection();   // PO cannot change on an existing GRN
 
+        } else if (preloadedLines.length > 0) {
+            // New GRN pre-loaded from a PO — header fields already in model
+            setHeaderFields($('#selPO option:selected'));
+            renderGrnLines(preloadedLines, false);
+            lockPOSelection();
+        }
+
+        // ── 3. On manual PO change → show skeleton then fetch via AJAX ────────
+        $('#selPO').on('change', function () {
+            var opt = $(this).find('option:selected');
+            setHeaderFields(opt);
+            var selPoId = $(this).val();
+            if (!selPoId) { clearLines(); return; }
+            showLinesSkeleton();
+            $.get('/GRN/GetPODetails?poId=' + selPoId, function (lines) {
+                renderGrnLines(lines, false);
+            }).fail(function () { clearLines(); });
+        });
+
+        // ── 4. Recalc on input ────────────────────────────────────────────────
         $(document).on('input', '.line-received, .line-rejected, .line-rate, .line-gst', function () {
-            var row = $(this).closest('tr');
-            recalcGrnRow(row);
+            recalcGrnRow($(this).closest('tr'));
         });
 
+        // ── 5. Submit — build JSON payload ────────────────────────────────────
         $('#grnForm').on('submit', function () {
             var lines = [];
             $('#lineBody .grn-line').each(function () {
                 var r = $(this);
                 lines.push({
-                    poDetailId  : parseInt(r.data('pod-id'))       || 0,
-                    itemId      : parseInt(r.data('item-id'))      || 0,
-                    uomId       : parseInt(r.data('uom-id'))       || 0,
-                    orderedQty  : parseFloat(r.data('ordered-qty'))|| 0,
+                    poDetailId  : parseInt(r.data('pod-id'))        || 0,
+                    itemId      : parseInt(r.data('item-id'))       || 0,
+                    uomId       : parseInt(r.data('uom-id'))        || 0,
+                    orderedQty  : parseFloat(r.data('ordered-qty')) || 0,
                     receivedQty : parseFloat(r.find('.line-received').val()) || 0,
                     rejectedQty : parseFloat(r.find('.line-rejected').val()) || 0,
                     unitRate    : parseFloat(r.find('.line-rate').val())     || 0,
@@ -166,68 +202,92 @@
                 Swal.fire({ icon: 'warning', title: 'No Items', text: 'Please select a Purchase Order to load items first.', confirmButtonColor: '#0d6efd' });
                 return false;
             }
-            if (lines.every(l => l.receivedQty <= 0)) {
-                Swal.fire({ icon: 'warning', title: 'Received Qty Required', text: 'Please enter a received quantity for at least one item.', confirmButtonColor: '#0d6efd' });
+            if (lines.every(function (l) { return l.receivedQty <= 0; })) {
+                Swal.fire({ icon: 'warning', title: 'Received Qty Required', text: 'Enter a received quantity for at least one item.', confirmButtonColor: '#0d6efd' });
                 return false;
             }
             $('#linesJson').val(JSON.stringify(lines));
         });
-
-        // Load existing lines on edit
-        if (existingLines && existingLines.length > 0) {
-            renderGrnLines(existingLines, true);
-        }
     });
 
-    function triggerPOLoad() {
-        var opt = $('#selPO option:selected');
-        $('#godownDisplay').val(opt.data('godown') || '');
-        $('#hidGodownId').val(opt.data('godownid') || '');
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    function setHeaderFields(opt) {
+        $('#godownDisplay').val(opt.data('godown')     || '');
+        $('#hidGodownId').val(opt.data('godownid')     || '');
         $('#supplierDisplay').val(opt.data('supplier') || '');
         $('#hidSupplierId').val(opt.data('supplierid') || '');
-        var poId = $('#selPO').val();
-        if (!poId) { clearLines(); return; }
-        $.get('/GRN/GetPODetails?poId=' + poId, function (lines) {
-            renderGrnLines(lines, false);
-        }).fail(function () { clearLines(); });
+    }
+
+    function lockPOSelection() {
+        var sel = $('#selPO');
+        var val = sel.val();
+        // Disable the visible select so user cannot change it
+        sel.prop('disabled', true).addClass('bg-light');
+        // Copy the value to a hidden input so it still submits with the form
+        $('#hidPOId').attr('name', 'POId').val(val);
+        sel.removeAttr('name');   // prevent duplicate POId in POST body
+        // Show locked badge next to label
+        $('#poBadgeLocked').show();
+    }
+
+    function showLinesSkeleton() {
+        $('#lineBody').empty();
+        for (var i = 0; i < 3; i++) {
+            $('#lineBody').append(
+                '<tr class="placeholder-glow">'
+                + '<td class="ps-3"><span class="placeholder col-8 rounded"></span></td>'
+                + '<td><span class="placeholder col-6 rounded"></span></td>'
+                + '<td><span class="placeholder col-6 rounded"></span></td>'
+                + '<td><span class="placeholder col-10 rounded"></span></td>'
+                + '<td><span class="placeholder col-8 rounded"></span></td>'
+                + '<td><span class="placeholder col-4 rounded"></span></td>'
+                + '<td><span class="placeholder col-8 rounded"></span></td>'
+                + '<td><span class="placeholder col-5 rounded"></span></td>'
+                + '<td><span class="placeholder col-7 rounded"></span></td>'
+                + '</tr>'
+            );
+        }
+        toggleEmpty(false);
+        $('#lineCount').html('<span class="spinner-border spinner-border-sm me-1"></span>Loading…');
     }
 
     function renderGrnLines(lines, isEdit) {
         $('#lineBody').empty();
         if (!lines || lines.length === 0) { clearLines(); return; }
         lines.forEach(function (l) {
-            var receivedVal = isEdit ? l.receivedQty : (l.acceptedQty != null ? l.acceptedQty : l.pendingQty || 0);
-            var rejectedVal = isEdit ? l.rejectedQty : 0;
+            var receivedVal = isEdit ? (l.receivedQty || 0) : (l.acceptedQty != null ? l.acceptedQty : (l.pendingQty || 0));
+            var rejectedVal = isEdit ? (l.rejectedQty || 0) : 0;
+            var pendingDisp = (l.acceptedQty != null ? l.acceptedQty : (l.pendingQty || 0));
             var row = $('<tr class="grn-line">')
-                .attr('data-pod-id',     l.poDetailId || l.grnDetailId || 0)
-                .attr('data-item-id',    l.itemId)
-                .attr('data-uom-id',     l.uomId)
-                .attr('data-ordered-qty', l.orderedQty || 0)
-                .html(`
-                    <td class="ps-3 fw-semibold">${l.itemName}</td>
-                    <td class="text-end text-muted">${(l.orderedQty||0).toFixed(3)}</td>
-                    <td class="text-end text-info">${((l.acceptedQty != null ? l.acceptedQty : l.pendingQty)||0).toFixed(3)}</td>
-                    <td class="text-end"><input type="number" class="form-control form-control-sm text-end line-received" min="0" step="0.001" value="${receivedVal||0}" style="width:90px"></td>
-                    <td class="text-end"><input type="number" class="form-control form-control-sm text-end line-rejected" min="0" step="0.001" value="${rejectedVal}" style="width:80px"></td>
-                    <td class="text-muted small">${l.uomCode||''}</td>
-                    <td class="text-end"><input type="number" class="form-control form-control-sm text-end line-rate" min="0" step="0.01" value="${l.unitRate||0}" style="width:90px"></td>
-                    <td class="text-end"><input type="number" class="form-control form-control-sm text-end line-gst" min="0" max="100" step="0.01" value="${l.gstPercent||l.gstPct||0}" style="width:70px"></td>
-                    <td class="text-end pe-3 fw-semibold line-net">₹0.00</td>
-                `);
+                .attr('data-pod-id',      l.poDetailId  || l.grnDetailId || 0)
+                .attr('data-item-id',     l.itemId)
+                .attr('data-uom-id',      l.uomId)
+                .attr('data-ordered-qty', l.orderedQty  || 0)
+                .html(
+                    '<td class="ps-3 fw-semibold">' + escHtml(l.itemName) + '</td>'
+                    + '<td class="text-end text-muted">'  + (+l.orderedQty  || 0).toFixed(3) + '</td>'
+                    + '<td class="text-end text-info">'   + (+pendingDisp   || 0).toFixed(3) + '</td>'
+                    + '<td class="text-end"><input type="number" class="form-control form-control-sm text-end line-received" min="0" step="0.001" value="' + (+receivedVal).toFixed(3) + '" style="width:90px"></td>'
+                    + '<td class="text-end"><input type="number" class="form-control form-control-sm text-end line-rejected" min="0" step="0.001" value="' + (+rejectedVal).toFixed(3) + '" style="width:80px"></td>'
+                    + '<td class="text-muted small">' + escHtml(l.uomCode || '') + '</td>'
+                    + '<td class="text-end"><input type="number" class="form-control form-control-sm text-end line-rate" min="0" step="0.01" value="' + (+l.unitRate   || 0).toFixed(4) + '" style="width:90px"></td>'
+                    + '<td class="text-end"><input type="number" class="form-control form-control-sm text-end line-gst"  min="0" max="100" step="0.01" value="' + (+l.gstPercent || l.gstPct || 0).toFixed(2) + '" style="width:70px"></td>'
+                    + '<td class="text-end pe-3 fw-semibold line-net">₹0.00</td>'
+                );
             $('#lineBody').append(row);
             recalcGrnRow(row);
         });
         toggleEmpty(false);
-        $('#lineCount').text(lines.length + ' items');
+        $('#lineCount').text(lines.length + ' item' + (lines.length !== 1 ? 's' : ''));
     }
 
     function recalcGrnRow(row) {
-        var qty  = parseFloat(row.find('.line-received').val()) || 0;
-        var rate = parseFloat(row.find('.line-rate').val())     || 0;
-        var gst  = parseFloat(row.find('.line-gst').val())      || 0;
+        var qty     = parseFloat(row.find('.line-received').val()) || 0;
+        var rate    = parseFloat(row.find('.line-rate').val())     || 0;
+        var gst     = parseFloat(row.find('.line-gst').val())      || 0;
         var taxable = qty * rate;
-        var net = taxable + taxable * gst / 100;
-        row.find('.line-net').text('₹' + net.toFixed(2));
+        row.find('.line-net').text('₹' + (taxable + taxable * gst / 100).toFixed(2));
         recalcTotals();
     }
 
@@ -237,8 +297,8 @@
             var qty  = parseFloat($(this).find('.line-received').val()) || 0;
             var rate = parseFloat($(this).find('.line-rate').val())     || 0;
             var gst  = parseFloat($(this).find('.line-gst').val())      || 0;
-            var taxable = qty * rate;
-            tot += taxable + taxable * gst / 100;
+            var t    = qty * rate;
+            tot += t + t * gst / 100;
         });
         $('#totAmt').text('₹' + tot.toFixed(2));
     }
@@ -253,5 +313,8 @@
         $('#emptyLines').toggle(show);
         $('#lineFoot').toggle(!show);
     }
+
+    function escAttr(s) { return (s || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+    function escHtml(s)  { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 </script>
 }

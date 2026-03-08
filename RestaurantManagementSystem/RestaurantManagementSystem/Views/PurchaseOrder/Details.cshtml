@@ -1,6 +1,51 @@
 @model RestaurantManagementSystem.Models.PurchaseOrderHeader
 @{
     ViewData["Title"] = "Purchase Order Details";
+    bool allowDirect  = ViewBag.AllowDirectPurchase == true;
+    bool grnMandatory = ViewBag.GRNMandatory != false;   // default true if not set
+}
+
+@* ── Alerts ───────────────────────────────────────────────────────────────── *@
+@if (TempData["DirectPostedGRN"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show mb-3 border-0 shadow-sm" role="alert">
+        <div class="d-flex align-items-start gap-3">
+            <div class="flex-shrink-0 bg-success bg-opacity-10 rounded-circle p-2">
+                <i class="fas fa-check-double text-success fs-5"></i>
+            </div>
+            <div class="flex-grow-1">
+                <h6 class="alert-heading mb-1 fw-bold">Stock Posted Successfully</h6>
+                <p class="mb-1 small">
+                    This Purchase Order was approved in <strong>Direct Purchase</strong> mode.
+                    Auto-GRN <code class="fw-bold">@TempData["DirectPostedGRN"]</code> was created and posted to the stock ledger automatically.
+                </p>
+                <span class="badge bg-success me-1"><i class="fas fa-warehouse me-1"></i>Stock Updated</span>
+                <span class="badge bg-primary"><i class="fas fa-file-alt me-1"></i>GRN Auto-Created</span>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    </div>
+}
+@if (TempData["SuccessMessage"] != null && TempData["DirectPostedGRN"] == null)
+{
+    <div class="alert alert-success alert-dismissible fade show py-2 mb-3">
+        <i class="fas fa-check-circle me-2"></i>@TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+@if (TempData["WarningMessage"] != null)
+{
+    <div class="alert alert-warning alert-dismissible fade show py-2 mb-3">
+        <i class="fas fa-exclamation-triangle me-2"></i>@TempData["WarningMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show py-2 mb-3">
+        <i class="fas fa-exclamation-circle me-2"></i>@TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
 }
 
 <div class="container-fluid px-0">
@@ -36,14 +81,28 @@
                 <form method="post" asp-action="Approve" asp-controller="PurchaseOrder" class="d-inline">
                     @Html.AntiForgeryToken()
                     <input type="hidden" name="id" value="@Model.POId" />
-                    <button type="button" class="btn btn-success btn-sm"
-                            data-swal-confirm="The PO will be approved and sent for GRN processing."
-                            data-swal-title="Approve Purchase Order?"
-                            data-swal-icon="question"
-                            data-swal-ok="Yes, Approve"
-                            data-swal-color="#198754">
-                        <i class="fas fa-check me-1"></i>Approve
-                    </button>
+                    @if (allowDirect && !grnMandatory)
+                    {
+                        <button type="button" class="btn btn-success btn-sm"
+                                data-swal-confirm="Stock will be updated immediately — no GRN step required. This cannot be undone."
+                                data-swal-title="Approve &amp; Post to Stock?"
+                                data-swal-icon="question"
+                                data-swal-ok="Yes, Approve &amp; Post"
+                                data-swal-color="#198754">
+                            <i class="fas fa-bolt me-1"></i>Approve &amp; Post Stock
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-success btn-sm"
+                                data-swal-confirm="The PO will be approved and sent for GRN processing."
+                                data-swal-title="Approve Purchase Order?"
+                                data-swal-icon="question"
+                                data-swal-ok="Yes, Approve"
+                                data-swal-color="#198754">
+                            <i class="fas fa-check me-1"></i>Approve
+                        </button>
+                    }
                 </form>
                 <form method="post" asp-action="Cancel" asp-controller="PurchaseOrder" class="d-inline">
                     @Html.AntiForgeryToken()
@@ -60,8 +119,17 @@
             }
             @if (Model.Status == "Approved" || Model.Status == "PartialGRN")
             {
-                <a asp-action="Form" asp-controller="GRN" asp-route-poId="@Model.POId"
-                   class="btn btn-warning btn-sm"><i class="fas fa-truck me-1"></i>Create GRN</a>
+                @if (!allowDirect || grnMandatory)
+                {
+                    <a asp-action="Form" asp-controller="GRN" asp-route-poId="@Model.POId"
+                       class="btn btn-warning btn-sm"><i class="fas fa-truck me-1"></i>Create GRN</a>
+                }
+                else
+                {
+                    <span class="badge bg-info text-white fs-6">
+                        <i class="fas fa-bolt me-1"></i>Direct Purchase Mode
+                    </span>
+                }
             }
             <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-print me-1"></i>Print

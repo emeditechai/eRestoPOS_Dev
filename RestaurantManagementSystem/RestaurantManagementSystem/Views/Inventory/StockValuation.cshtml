@@ -115,7 +115,7 @@
                                 <td class="text-end @(r.BalanceQty <= 0 ? "text-danger" : "fw-semibold")">@r.BalanceQty.ToString("N3")</td>
                                 <td class="text-end text-muted small">@r.UOMCode</td>
                                 <td class="text-end text-muted small">₹@r.AverageCost.ToString("N4")</td>
-                                <td class="text-end pe-3 fw-semibold @((r.StockValue ?? 0) <= 0 ? "text-muted" : "")">₹@(r.StockValue ?? 0).ToString("N2")</td>
+                                <td class="text-end pe-3 fw-semibold @((r.StockValue ?? 0) <= 0 ? "text-muted" : "")">₹@((r.StockValue ?? 0).ToString("N2"))</td>
                             </tr>
                         }
                     </tbody>
