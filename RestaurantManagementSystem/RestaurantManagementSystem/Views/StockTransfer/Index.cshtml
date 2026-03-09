@@ -110,6 +110,26 @@
     $(document).ready(function () {
         $('#tblTransfer').DataTable({ paging: true, pageLength: 25, searching: true, ordering: true,
             order: [[0,'desc']], columnDefs: [{ orderable: false, targets: [6] }] });
+
+        // Post to Stock – SweetAlert2 confirm
+        $(document).on('click', '.btn-post-confirm', function () {
+            const btn  = $(this);
+            const form = btn.closest('form');
+            const no   = btn.data('transfer-no') || '';
+            Swal.fire({
+                title: 'Post to Stock?',
+                html:  '<p class="mb-0">Transfer <strong>' + no + '</strong> will be posted to the stock ledger.<br><small class="text-muted">This action cannot be undone.</small></p>',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: '<i class="fas fa-check-double me-1"></i> Yes, Post It',
+                cancelButtonText: 'Cancel',
+                confirmButtonColor: '#198754',
+                cancelButtonColor: '#6c757d',
+                reverseButtons: true
+            }).then(function (result) {
+                if (result.isConfirmed) form.submit();
+            });
+        });
     });
 </script>
 }
