@@ -85,9 +85,25 @@
                             <tr>
                                 <td class="ps-3 fw-semibold small">@r.TransferNumber</td>
                                 <td class="text-muted small">@r.TransferDate.ToString("dd MMM yyyy")</td>
-                                <td><span class="badge bg-danger-subtle text-danger small">@r.FromGodownName</span></td>
-                                <td><span class="badge bg-success-subtle text-success small">@r.ToGodownName</span></td>
-                                <td class="text-muted small">@r.TransferType</td>
+                                <td>
+                                    <span class="badge bg-danger-subtle text-danger small">@r.FromGodownName</span>
+                                    @if (!string.IsNullOrEmpty(r.FromBranchName)) {
+                                        <br/><small class="text-muted">@r.FromBranchName</small>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge bg-success-subtle text-success small">@r.ToGodownName</span>
+                                    @if (!string.IsNullOrEmpty(r.ToBranchName)) {
+                                        <br/><small class="text-muted">@r.ToBranchName</small>
+                                    }
+                                </td>
+                                <td>
+                                    @if (r.Direction == "RECEIVED") {
+                                        <span class="badge bg-primary-subtle text-primary small"><i class="fas fa-arrow-down me-1"></i>RECEIVED</span>
+                                    } else {
+                                        <span class="badge bg-warning-subtle text-warning small"><i class="fas fa-arrow-up me-1"></i>SENT</span>
+                                    }
+                                </td>
                                 <td class="text-end fw-semibold">@r.TotalQty.ToString("N3")</td>
                                 <td class="text-end pe-3 fw-semibold">₹@r.TotalValue.ToString("N2")</td>
                                 <td><span class="badge bg-success-subtle text-success small">@r.Status</span></td>

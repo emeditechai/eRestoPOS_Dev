@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.Data.SqlClient;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Utilities;
@@ -524,24 +525,43 @@ namespace RestaurantManagementSystem.Controllers
         //  TRANSFER REGISTER
         // ═══════════════════════════════════════════════════════════════
 
-        public IActionResult TransferRegister(DateTime? fromDate, DateTime? toDate)
+        public IActionResult TransferRegister(DateTime? fromDate, DateTime? toDate, int? godownId)
         {
             var branchId = ActiveBranchId();
             if (!branchId.HasValue) return NoBranch();
 
             fromDate ??= new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
             toDate   ??= DateTime.Today;
+            godownId ??= 0;
 
             var list = new List<TransferRegisterItem>();
             try
             {
                 using var con = new SqlConnection(_connectionString);
                 con.Open();
+
+                // Load godown dropdown (all godowns involved in transfers for this branch)
+                using (var gdCmd = new SqlCommand(
+                    @"SELECT DISTINCT g.Id, g.GodownName + ' (' + b.BranchName + ')' AS Label
+                      FROM dbo.Godowns g
+                      JOIN dbo.Branches b ON b.BranchId = g.BranchId
+                      WHERE g.IsActive = 1
+                      ORDER BY Label", con))
+                using (var gdRdr = gdCmd.ExecuteReader())
+                {
+                    var items = new List<SelectListItem>();
+                    while (gdRdr.Read())
+                        items.Add(new SelectListItem(gdRdr.GetString(1), gdRdr.GetInt32(0).ToString()));
+                    ViewBag.Godowns  = new SelectList(items, "Value", "Text");
+                    ViewBag.SelGodown = godownId.Value;
+                }
+
                 using var cmd = new SqlCommand("usp_GetTransferRegister", con)
                     { CommandType = CommandType.StoredProcedure };
                 cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
                 cmd.Parameters.AddWithValue("@FromDate", fromDate.Value.Date);
                 cmd.Parameters.AddWithValue("@ToDate",   toDate.Value.Date);
+                cmd.Parameters.AddWithValue("@GodownId", godownId.Value == 0 ? DBNull.Value : (object)godownId.Value);
                 using var rdr = cmd.ExecuteReader();
                 while (rdr.Read())
                     list.Add(MapTransferRegister(rdr));
@@ -551,8 +571,8 @@ namespace RestaurantManagementSystem.Controllers
                 TempData["ErrorMessage"] = ex.Message;
             }
 
-            ViewBag.FromDate = fromDate.Value.ToString("yyyy-MM-dd");
-            ViewBag.ToDate   = toDate.Value.ToString("yyyy-MM-dd");
+            ViewBag.DateFrom = fromDate.Value.ToString("yyyy-MM-dd");
+            ViewBag.DateTo   = toDate.Value.ToString("yyyy-MM-dd");
             ViewBag.ActiveBranchId = branchId.Value;
             return View(list);
         }
@@ -894,6 +914,9 @@ namespace RestaurantManagementSystem.Controllers
 
         private static TransferRegisterItem MapTransferRegister(SqlDataReader rdr) => new()
         {
+            Direction       = rdr["Direction"]       as string,
+            FromBranchName  = rdr["FromBranchName"]  as string,
+            ToBranchName    = rdr["ToBranchName"]    as string,
             TransferId      = GetInt(rdr, "TransferId"),
             TransferNumber  = GetStr(rdr, "TransferNumber"),
             TransferDate    = rdr.GetDateTime(rdr.GetOrdinal("TransferDate")),

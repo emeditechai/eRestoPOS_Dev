@@ -484,10 +484,13 @@ namespace RestaurantManagementSystem.Models
         public string? TransferType { get; set; }
         public string? FromGodownName { get; set; }
         public string? ToGodownName { get; set; }
+        public string? FromBranchName { get; set; }
+        public string? ToBranchName { get; set; }
         public decimal TotalQty { get; set; }
         public decimal TotalValue { get; set; }
         public string? Status { get; set; }
         public string? Remarks { get; set; }
+        public string? Direction { get; set; }   // SENT or RECEIVED
     }
 
     public class DamageRegisterItem
