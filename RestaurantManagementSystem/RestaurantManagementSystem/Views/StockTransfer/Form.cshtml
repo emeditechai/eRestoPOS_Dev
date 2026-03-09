@@ -1,7 +1,11 @@
 @model RestaurantManagementSystem.Models.StockTransferHeader
+@using RestaurantManagementSystem.Models
 @{
     ViewData["Title"] = Model.TransferId == 0 ? "New Stock Transfer" : "Edit Stock Transfer";
-    var godowns = ViewBag.Godowns as SelectList;
+    var fromGodowns  = ViewBag.FromGodowns  as List<GodownDropdownItem> ?? new();
+    var toGodowns    = ViewBag.ToGodowns    as List<GodownDropdownItem> ?? new();
+    bool isMainBranch = ViewBag.IsMainBranch == true;
+    int  selfGodownId = (int)(ViewBag.SelfGodownId ?? 0);
 }
 
 <div class="container-fluid px-0">
@@ -43,14 +47,42 @@
                     </div>
                     <div class="col-md-3">
                         <label asp-for="FromGodownId" class="form-label small fw-semibold">From Godown <span class="text-danger">*</span></label>
-                        <select asp-for="FromGodownId" asp-items="godowns" class="form-select form-select-sm" required>
-                            <option value="">-- From --</option>
-                        </select>
+                        @if (!isMainBranch && selfGodownId > 0)
+                        {
+                            @* Non-main branch: pre-selected + disabled; hidden field carries the value *@
+                            <select class="form-select form-select-sm" disabled>
+                                @foreach (var gd in fromGodowns)
+                                {
+                                    <option value="@gd.GodownId" selected>@gd.Label</option>
+                                }
+                            </select>
+                            <input type="hidden" name="FromGodownId" value="@selfGodownId" />
+                        }
+                        else
+                        {
+                            <select asp-for="FromGodownId" class="form-select form-select-sm" id="fromGodownSel" required>
+                                <option value="">-- Select From Godown --</option>
+                                @foreach (var gd in fromGodowns)
+                                {
+                                    if (Model.FromGodownId == gd.GodownId)
+                                    { <option value="@gd.GodownId" selected>@gd.Label</option> }
+                                    else
+                                    { <option value="@gd.GodownId">@gd.Label</option> }
+                                }
+                            </select>
+                        }
                     </div>
                     <div class="col-md-3">
                         <label asp-for="ToGodownId" class="form-label small fw-semibold">To Godown <span class="text-danger">*</span></label>
-                        <select asp-for="ToGodownId" asp-items="godowns" class="form-select form-select-sm" required>
-                            <option value="">-- To --</option>
+                        <select asp-for="ToGodownId" class="form-select form-select-sm" id="toGodownSel" required>
+                            <option value="">-- Select To Godown --</option>
+                            @foreach (var gd in toGodowns)
+                            {
+                                if (Model.ToGodownId == gd.GodownId)
+                                { <option value="@gd.GodownId" selected>@gd.Label</option> }
+                                else
+                                { <option value="@gd.GodownId">@gd.Label</option> }
+                            }
                         </select>
                     </div>
                     <div class="col-md-3">
@@ -121,7 +153,10 @@
         <td>
             <select class="form-select form-select-sm line-uom"><option value="">UOM</option></select>
         </td>
-        <td><input type="number" min="0.001" step="0.001" class="form-control form-control-sm text-end line-qty" value="1" /></td>
+        <td>
+            <input type="number" min="0.001" step="0.001" class="form-control form-control-sm text-end line-qty" value="1" />
+            <small class="line-avail text-muted d-block text-end" style="font-size:0.72rem"></small>
+        </td>
         <td><input type="number" min="0" step="0.01" class="form-control form-control-sm text-end line-cost" value="0" /></td>
         <td class="text-end fw-semibold line-val">₹0.00</td>
         <td class="text-center pe-3">
@@ -132,92 +167,273 @@
 
 @section Scripts {
 <script>
-    var allItems = [], allUoms = [];
+    // stockItems: items with available stock in the selected From Godown
+    // keyed by itemId for quick lookup: { id, name, balanceQty, avgCost, uomId, uomName }
+    var stockItems  = [];   // array form (for building dropdowns)
+    var stockMap    = {};   // id → item object
+    var allUoms     = [];
     var existingLines = @Html.Raw(ViewBag.ExistingLinesJson ?? "[]");
 
     $(document).ready(function () {
-        $.get('/Inventory/GetItemsJson', function (d) { allItems = d; });
-        $.get('/Inventory/GetUOMsJson',  function (d) { allUoms  = d; });
+        // Always load UOMs immediately
+        $.get('/Inventory/GetUOMsJson', function (d) { allUoms = d; });
 
-        $('#btnAddLine').on('click', addLine);
+        // Load items for the currently selected From Godown (if any)
+        var initGodown = $('select[name="FromGodownId"], input[name="FromGodownId"]').val();
+        if (initGodown && parseInt(initGodown) > 0) {
+            loadStockItems(parseInt(initGodown), function() {
+                if (existingLines && existingLines.length > 0) {
+                    existingLines.forEach(function (l) { addLine(l); });
+                }
+            });
+        }
 
-        $(document).on('change', '.line-item', function () {
-            var row = $(this).closest('tr');
-            var itemId = parseInt($(this).val());
-            var uomSel = row.find('.line-uom');
-            uomSel.empty().append('<option value="">UOM</option>');
-            allUoms.forEach(function (u) { uomSel.append('<option value="'+u.id+'">'+u.name+'</option>'); });
-            if ($('#costMode').val() === 'WAVG' && itemId) {
-                var godownId = $('select[name="FromGodownId"]').val();
-                $.get('/Inventory/GetItemAverageCost?itemId='+itemId+'&godownId='+(godownId||0), function (r) {
-                    row.find('.line-cost').val(r.avgCost || 0);
-                    recalcRow(row);
-                });
+        // Reload items whenever From Godown changes
+        $(document).on('change', 'select[name="FromGodownId"]', function () {
+            var gid = parseInt($(this).val()) || 0;
+            // clear all existing lines when godown changes – stock is godown-specific
+            $('#lineBody').empty();
+            toggleEmpty();
+            recalcTotals();
+            if (gid > 0) {
+                loadStockItems(gid, null);
+            } else {
+                stockItems = []; stockMap = {};
             }
         });
 
-        $(document).on('input', '.line-qty, .line-cost', function () { recalcRow($(this).closest('tr')); });
-        $(document).on('click', '.remove-line', function () { $(this).closest('tr').remove(); toggleEmpty(); recalcTotals(); });
+        $('#btnAddLine').on('click', function () {
+            var gid = getFromGodownId();
+            if (!gid) {
+                showAlert('warning', 'Please select a <strong>From Godown</strong> first.');
+                return;
+            }
+            if (stockItems.length === 0) {
+                showAlert('warning', 'No items with available stock in the selected From Godown.');
+                return;
+            }
+            addLine(null);
+        });
+
+        // Item selection change – fill UOM, available stock badge, avg cost
+        $(document).on('change', '.line-item', function () {
+            var row    = $(this).closest('tr');
+            var itemId = parseInt($(this).val()) || 0;
+            var item   = stockMap[itemId];
+
+            // Populate UOM
+            var uomSel = row.find('.line-uom');
+            uomSel.empty().append('<option value="">UOM</option>');
+            allUoms.forEach(function (u) {
+                var sel = item && u.id === item.uomId ? ' selected' : '';
+                uomSel.append('<option value="'+u.id+'"'+sel+'>'+u.name+'</option>');
+            });
+
+            // Show available stock badge
+            updateAvailBadge(row, itemId);
+
+            // Auto-fill avg cost (WAVG mode)
+            if (item && $('#costMode').val() === 'WAVG') {
+                row.find('.line-cost').val(item.avgCost.toFixed(4));
+            } else if (!item) {
+                row.find('.line-cost').val('0');
+            }
+            recalcRow(row);
+        });
+
+        $(document).on('input', '.line-qty', function () {
+            var row    = $(this).closest('tr');
+            var itemId = parseInt(row.find('.line-item').val()) || 0;
+            validateQty(row, itemId);
+            recalcRow(row);
+        });
+        $(document).on('input', '.line-cost', function () { recalcRow($(this).closest('tr')); });
+
+        $(document).on('click', '.remove-line', function () {
+            $(this).closest('tr').remove();
+            toggleEmpty(); recalcTotals();
+        });
+
         $('#costMode').on('change', function () {
             var manual = $(this).val() === 'MANUAL';
             $('#lineBody .line-cost').prop('readonly', !manual);
         });
 
-        if (existingLines && existingLines.length > 0) {
-            existingLines.forEach(function (l) {
-                addLine();
-                var row = $('#lineBody tr:last');
-                populateSelect(row.find('.line-item'), allItems, l.itemId);
-                populateSelect(row.find('.line-uom'), allUoms, l.uomId);
-                row.find('.line-qty').val(l.quantity);
-                row.find('.line-cost').val(l.unitCost);
-                recalcRow(row);
-            });
-        }
-
+        // ── Submit validation ────────────────────────────────────────────
         $('#transferForm').on('submit', function () {
-            var fromId = $('select[name="FromGodownId"]').val();
-            var toId   = $('select[name="ToGodownId"]').val();
-            if (fromId && toId && fromId === toId) { alert('From and To godowns cannot be same.'); return false; }
+            var fromId = getFromGodownId();
+            var toId   = parseInt($('select[name="ToGodownId"]').val()) || 0;
+            if (fromId && toId && fromId === toId) {
+                showAlert('danger', 'From and To godowns cannot be the same.'); return false;
+            }
             var lines = [];
+            var valid = true;
             $('#lineBody .line-row').each(function () {
-                var r = $(this);
-                lines.push({ itemId: parseInt(r.find('.line-item').val())||0, uomId: parseInt(r.find('.line-uom').val())||0,
-                    quantity: parseFloat(r.find('.line-qty').val())||0, unitCost: parseFloat(r.find('.line-cost').val())||0 });
+                var r      = $(this);
+                var itemId = parseInt(r.find('.line-item').val()) || 0;
+                var qty    = parseFloat(r.find('.line-qty').val()) || 0;
+                var uomId  = parseInt(r.find('.line-uom').val()) || 0;
+                var cost   = parseFloat(r.find('.line-cost').val()) || 0;
+                if (itemId === 0 || qty <= 0 || uomId === 0) { valid = false; return false; }
+                if (!validateQty(r, itemId)) { valid = false; return false; }
+                lines.push({ itemId: itemId, uomId: uomId, quantity: qty, unitCost: cost });
             });
-            if (lines.length === 0 || lines.some(l => l.itemId === 0 || l.quantity <= 0)) {
-                alert('Please fill all item and quantity fields.'); return false;
+            if (lines.length === 0) {
+                showAlert('danger', 'Please add at least one line item.'); return false;
+            }
+            if (!valid) {
+                showAlert('danger', 'Please fix the errors in the line items before saving.'); return false;
             }
             $('#linesJson').val(JSON.stringify(lines));
         });
     });
 
-    function addLine() {
+    // ── Helpers ─────────────────────────────────────────────────────────
+
+    function getFromGodownId() {
+        // Works for both enabled <select> and disabled with hidden input
+        var selVal = parseInt($('select[name="FromGodownId"]').val()) || 0;
+        var hidVal = parseInt($('input[name="FromGodownId"]').val()) || 0;
+        return selVal || hidVal;
+    }
+
+    function loadStockItems(godownId, callback) {
+        $.get('/StockTransfer/GetItemsWithStockJson?godownId=' + godownId, function (data) {
+            if (data && data.error) { showAlert('danger', 'Could not load stock: ' + data.error); return; }
+            stockItems = data || [];
+            stockMap   = {};
+            stockItems.forEach(function (i) { stockMap[i.id] = i; });
+            // Refresh item dropdowns in existing rows (edit scenario)
+            $('#lineBody .line-row').each(function () {
+                var row    = $(this);
+                var selId  = parseInt(row.find('.line-item').val()) || 0;
+                rebuildItemSelect(row.find('.line-item'), selId);
+                updateAvailBadge(row, selId);
+            });
+            if (typeof callback === 'function') callback();
+        });
+    }
+
+    function addLine(existing) {
         var tmpl = document.getElementById('lineRowTemplate').content.cloneNode(true);
         var row  = $(tmpl).find('tr');
-        allItems.forEach(function (i) { row.find('.line-item').append('<option value="'+i.id+'">'+i.name+'</option>'); });
-        allUoms.forEach(function (u)  { row.find('.line-uom').append('<option value="'+u.id+'">'+u.name+'</option>'); });
-        $('#lineBody').append(row); toggleEmpty(); recalcTotals();
+
+        // Build item dropdown
+        var itemSel = row.find('.line-item');
+        stockItems.forEach(function (i) {
+            var sel = existing && existing.itemId === i.id ? ' selected' : '';
+            itemSel.append('<option value="'+i.id+'"'+sel+'>'+i.name+' (Avail: '+i.balanceQty.toFixed(3)+')</option>');
+        });
+
+        // UOM
+        var uomSel = row.find('.line-uom');
+        uomSel.empty().append('<option value="">UOM</option>');
+        allUoms.forEach(function (u) { uomSel.append('<option value="'+u.id+'">'+u.name+'</option>'); });
+
+        if (existing) {
+            var item = stockMap[existing.itemId];
+            // Pre-select UOM
+            uomSel.find('option[value="'+existing.uomId+'"]').prop('selected', true);
+            row.find('.line-qty').val(existing.quantity);
+            row.find('.line-cost').val(existing.unitCost);
+            if (item) { row.find('.line-avail').text('Avail: ' + item.balanceQty.toFixed(3)); }
+        } else {
+            // Default: first item, its UOM, avg cost
+            var first = stockItems[0];
+            if (first) {
+                itemSel.val(first.id);
+                uomSel.find('option[value="'+first.uomId+'"]').prop('selected', true);
+                if ($('#costMode').val() === 'WAVG') row.find('.line-cost').val(first.avgCost.toFixed(4));
+                row.find('.line-avail').text('Avail: ' + first.balanceQty.toFixed(3));
+            }
+        }
+
+        $('#lineBody').append(row);
+        recalcRow($('#lineBody .line-row:last'));
+        toggleEmpty();
     }
-    function populateSelect(sel, list, selectedId) {
-        sel.empty().append('<option value="">-- Select --</option>');
-        list.forEach(function (i) { sel.append('<option value="'+i.id+'" '+(i.id==selectedId?'selected':'')+'>'+i.name+'</option>'); });
+
+    function rebuildItemSelect(sel, selectedId) {
+        sel.empty().append('<option value="">-- Select Item --</option>');
+        stockItems.forEach(function (i) {
+            var s = i.id === selectedId ? ' selected' : '';
+            sel.append('<option value="'+i.id+'"'+s+'>'+i.name+' (Avail: '+i.balanceQty.toFixed(3)+')</option>');
+        });
     }
+
+    /** Shows/updates the available-qty badge.  Highlights in red if nothing selected. */
+    function updateAvailBadge(row, itemId) {
+        var badge = row.find('.line-avail');
+        var item  = stockMap[itemId];
+        if (item) {
+            badge.removeClass('text-danger text-muted').addClass('text-success')
+                 .text('Avail: ' + item.balanceQty.toFixed(3) + ' ' + item.uomCode);
+        } else {
+            badge.removeClass('text-success text-danger').addClass('text-muted').text('');
+        }
+    }
+
+    /**
+     * Validates the qty in a row against available stock.
+     * Accounts for the same item appearing in multiple rows.
+     * Returns true if valid, false otherwise.
+     */
+    function validateQty(row, itemId) {
+        if (!itemId) return true;
+        var item = stockMap[itemId];
+        if (!item)   return true;   // shouldn't happen, but be safe
+
+        // Sum qty of this item across ALL rows except current
+        var otherQty = 0;
+        $('#lineBody .line-row').not(row).each(function () {
+            if ((parseInt($(this).find('.line-item').val())||0) === itemId) {
+                otherQty += parseFloat($(this).find('.line-qty').val()) || 0;
+            }
+        });
+
+        var thisQty   = parseFloat(row.find('.line-qty').val()) || 0;
+        var totalUsed = otherQty + thisQty;
+        var available = item.balanceQty;
+        var qtyInput  = row.find('.line-qty');
+        var badge     = row.find('.line-avail');
+
+        if (totalUsed > available) {
+            qtyInput.addClass('is-invalid');
+            badge.removeClass('text-success text-muted').addClass('text-danger')
+                 .text('Avail: ' + available.toFixed(3) + ' ' + item.uomCode + ' — Exceeds stock!');
+            return false;
+        } else {
+            qtyInput.removeClass('is-invalid');
+            badge.removeClass('text-danger text-muted').addClass('text-success')
+                 .text('Avail: ' + available.toFixed(3) + ' ' + item.uomCode);
+            return true;
+        }
+    }
+
     function recalcRow(row) {
-        var qty  = parseFloat(row.find('.line-qty').val()) || 0;
+        var qty  = parseFloat(row.find('.line-qty').val())  || 0;
         var cost = parseFloat(row.find('.line-cost').val()) || 0;
-        row.find('.line-val').text('₹' + (qty*cost).toFixed(2)); recalcTotals();
+        row.find('.line-val').text('₹' + (qty * cost).toFixed(2));
+        recalcTotals();
     }
     function recalcTotals() {
         var tot = 0;
         $('#lineBody .line-row').each(function () {
-            tot += (parseFloat($(this).find('.line-qty').val())||0) * (parseFloat($(this).find('.line-cost').val())||0);
+            tot += (parseFloat($(this).find('.line-qty').val())||0)
+                 * (parseFloat($(this).find('.line-cost').val())||0);
         });
         $('#totVal').text('₹' + tot.toFixed(2));
     }
     function toggleEmpty() {
         var n = $('#lineBody .line-row').length;
         $('#emptyLines').toggle(n === 0); $('#lineFoot').toggle(n > 0);
+    }
+    function showAlert(type, msg) {
+        var a = $('<div class="alert alert-'+type+' alert-dismissible fade show py-2 mt-2" role="alert">'+
+                  '<i class="fas fa-exclamation-circle me-2"></i>'+msg+
+                  '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>');
+        $('#lineBody').closest('.card').before(a);
+        setTimeout(function() { a.alert('close'); }, 5000);
     }
     toggleEmpty();
 </script>

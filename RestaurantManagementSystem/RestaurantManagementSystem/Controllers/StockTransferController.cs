@@ -154,6 +154,37 @@ namespace RestaurantManagementSystem.Controllers
             return View(model);
         }
 
+        /// <summary>Returns items that have stock > 0 in the given godown, used by the line-item dropdown.</summary>
+        [HttpGet]
+        public IActionResult GetItemsWithStockJson(int godownId)
+        {
+            if (godownId <= 0) return Json(new List<object>());
+            var result = new List<object>();
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand("usp_GetItemsWithStockByGodown", con)
+                    { CommandType = CommandType.StoredProcedure };
+                cmd.Parameters.AddWithValue("@GodownId", godownId);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                    result.Add(new
+                    {
+                        id          = GetInt(rdr, "ItemId"),
+                        name        = GetStr(rdr, "ItemName") ?? "",
+                        code        = GetStr(rdr, "ItemCode") ?? "",
+                        balanceQty  = GetDecimal(rdr, "BalanceQty"),
+                        avgCost     = GetDecimal(rdr, "AverageCost"),
+                        uomId       = GetInt(rdr, "UOMId"),
+                        uomCode     = GetStr(rdr, "UOMCode") ?? "",
+                        uomName     = GetStr(rdr, "UOMName") ?? ""
+                    });
+            }
+            catch (Exception ex) { return Json(new { error = ex.Message }); }
+            return Json(result);
+        }
+
         // ── HELPERS ──────────────────────────────────────────────────────────
 
         private StockTransferHeader? LoadById(int id)
@@ -178,18 +209,59 @@ namespace RestaurantManagementSystem.Controllers
 
         private void LoadViewBag(int branchId)
         {
-            var godowns = new List<object>();
+            bool isMainBranch = false;
+            int  selfGodownId = 0;
+            var  fromGodowns  = new List<RestaurantManagementSystem.Models.GodownDropdownItem>();
+            var  toGodowns    = new List<RestaurantManagementSystem.Models.GodownDropdownItem>();
+
             using (var con = new SqlConnection(_connectionString))
             {
                 con.Open();
-                using var cmd = new SqlCommand(
-                    "SELECT Id AS GodownId, GodownName, IsMainGodown FROM dbo.Godowns WHERE BranchId = @bid AND IsActive = 1 ORDER BY GodownName", con);
-                cmd.Parameters.AddWithValue("@bid", branchId);
-                using var rdr = cmd.ExecuteReader();
-                while (rdr.Read())
-                    godowns.Add(new { value = GetInt(rdr, "GodownId"), text = GetStr(rdr, "GodownName"), isMain = GetBool(rdr, "IsMainGodown") });
+
+                // ── From Godowns ──────────────────────────────────────────
+                using (var cmd = new SqlCommand("usp_GetTransferFromGodowns", con)
+                    { CommandType = CommandType.StoredProcedure })
+                {
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
+                    using var rdr = cmd.ExecuteReader();
+                    while (rdr.Read())
+                    {
+                        var item = new RestaurantManagementSystem.Models.GodownDropdownItem
+                        {
+                            GodownId   = GetInt(rdr, "GodownId"),
+                            GodownName = GetStr(rdr, "GodownName") ?? "",
+                            BranchName = GetStr(rdr, "BranchName") ?? "",
+                            BranchId   = GetInt(rdr, "BranchId"),
+                            IsDisabled = GetBool(rdr, "IsDisabled")
+                        };
+                        isMainBranch = GetBool(rdr, "IsLoginBranchMain");
+                        if (item.IsDisabled) selfGodownId = item.GodownId;
+                        fromGodowns.Add(item);
+                    }
+                }
+
+                // ── To Godowns ────────────────────────────────────────────
+                using (var cmd2 = new SqlCommand("usp_GetTransferToGodowns", con)
+                    { CommandType = CommandType.StoredProcedure })
+                {
+                    cmd2.Parameters.AddWithValue("@BranchId", branchId);
+                    using var rdr2 = cmd2.ExecuteReader();
+                    while (rdr2.Read())
+                        toGodowns.Add(new RestaurantManagementSystem.Models.GodownDropdownItem
+                        {
+                            GodownId   = GetInt(rdr2, "GodownId"),
+                            GodownName = GetStr(rdr2, "GodownName") ?? "",
+                            BranchName = GetStr(rdr2, "BranchName") ?? "",
+                            BranchId   = GetInt(rdr2, "BranchId"),
+                            IsDisabled = GetBool(rdr2, "IsDisabled")
+                        });
+                }
             }
-            ViewBag.Godowns = godowns;
+
+            ViewBag.FromGodowns    = fromGodowns;
+            ViewBag.ToGodowns      = toGodowns;
+            ViewBag.IsMainBranch   = isMainBranch;
+            ViewBag.SelfGodownId   = selfGodownId;   // pre-selected & disabled for non-main
             ViewBag.ActiveBranchId = branchId;
         }
 

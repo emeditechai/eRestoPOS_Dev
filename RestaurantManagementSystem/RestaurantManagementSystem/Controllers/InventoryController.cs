@@ -380,8 +380,33 @@ namespace RestaurantManagementSystem.Controllers
                 TempData["ErrorMessage"] = ex.Message;
             }
 
-            LoadDropdowns();
-            ViewBag.GodownId = godownId;
+            // Load godown filter list (only godowns that have actual stock for this branch)
+            var godownItems = new List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>();
+            try
+            {
+                using var con2 = new SqlConnection(_connectionString);
+                con2.Open();
+                using var cmd2 = new SqlCommand("usp_GetGodownsWithStock", con2)
+                    { CommandType = CommandType.StoredProcedure };
+                cmd2.Parameters.AddWithValue("@BranchId", branchId.Value);
+                using var rdr2 = cmd2.ExecuteReader();
+                while (rdr2.Read())
+                {
+                    var gId    = GetInt(rdr2, "GodownId");
+                    var gName  = GetStr(rdr2, "GodownName") ?? "";
+                    var bName  = GetStr(rdr2, "BranchName") ?? "";
+                    godownItems.Add(new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem
+                    {
+                        Value    = gId.ToString(),
+                        Text     = $"{gName} ({bName})",
+                        Selected = godownId.HasValue && godownId.Value == gId
+                    });
+                }
+            }
+            catch { /* filter dropdown failure is non-critical */ }
+
+            ViewBag.GodownList     = godownItems;
+            ViewBag.SelGodown      = godownId ?? 0;
             ViewBag.ActiveBranchId = branchId.Value;
             return View(list);
         }
@@ -812,9 +837,13 @@ namespace RestaurantManagementSystem.Controllers
             ItemId        = GetInt(rdr, "ItemId"),
             BalanceQty    = GetDecimal(rdr, "BalanceQty"),
             AverageCost   = GetDecimal(rdr, "AverageCost"),
+            StockValue    = GetDecimal(rdr, "StockValue"),
             ItemName      = GetStr(rdr, "ItemName"),
             ItemCode      = GetStr(rdr, "ItemCode"),
+            ItemCategory  = GetStr(rdr, "ItemCategory"),
+            ReorderLevel  = GetDecimal(rdr, "ReorderLevel"),
             BaseUOMCode   = GetStr(rdr, "BaseUOMCode"),
+            BaseUOMName   = GetStr(rdr, "BaseUOMName"),
             GodownName    = GetStr(rdr, "GodownName"),
             GodownType    = GetStr(rdr, "GodownType"),
             IsLowStock    = GetBool(rdr, "IsLowStock")

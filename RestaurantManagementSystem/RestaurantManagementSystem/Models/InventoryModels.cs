@@ -295,6 +295,18 @@ namespace RestaurantManagementSystem.Models
         public string? UOMName { get; set; }
     }
 
+    /// <summary>Used to populate From/To Godown dropdowns on the Stock Transfer form.</summary>
+    public class GodownDropdownItem
+    {
+        public int    GodownId   { get; set; }
+        public string GodownName { get; set; } = string.Empty;
+        public string BranchName { get; set; } = string.Empty;
+        public int    BranchId   { get; set; }
+        public bool   IsDisabled { get; set; }
+        /// <summary>Display text: "GodownName (BranchName)"</summary>
+        public string Label => $"{GodownName} ({BranchName})";
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // DAMAGE ENTRY
     // ─────────────────────────────────────────────────────────────────────────

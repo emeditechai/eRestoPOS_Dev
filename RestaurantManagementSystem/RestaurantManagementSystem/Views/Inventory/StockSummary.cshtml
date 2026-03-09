@@ -1,8 +1,9 @@
 @model IEnumerable<RestaurantManagementSystem.Models.CurrentStockItem>
+@using Microsoft.AspNetCore.Mvc.Rendering
 @{
     ViewData["Title"] = "Current Stock Summary";
-    var selGodown = ViewBag.SelGodown as int? ?? 0;
-    var godowns   = ViewBag.Godowns as SelectList;
+    int selGodown    = (int)(ViewBag.SelGodown ?? 0);
+    var godownList   = ViewBag.GodownList as List<SelectListItem> ?? new();
 }
 
 <div class="container-fluid px-0">
@@ -27,14 +28,17 @@
             <form method="get" asp-action="StockSummary" asp-controller="Inventory" class="d-flex gap-2 align-items-end flex-wrap">
                 <div>
                     <label class="form-label small fw-semibold mb-1">Godown</label>
-                    <select name="godownId" class="form-select form-select-sm" style="min-width:220px">
-                        <option value="0">All Godowns</option>
-                        @if (godowns != null)
+                    <select name="godownId" class="form-select form-select-sm" style="min-width:240px">
+                        @if (selGodown == 0)
+                        { <option value="0" selected>All Godowns</option> }
+                        else
+                        { <option value="0">All Godowns</option> }
+                        @foreach (var g in godownList)
                         {
-                            foreach (var g in godowns)
-                            {
-                                <option value="@g.Value" selected="@(g.Value == selGodown.ToString())">@g.Text</option>
-                            }
+                            if (g.Selected)
+                            { <option value="@g.Value" selected>@g.Text</option> }
+                            else
+                            { <option value="@g.Value">@g.Text</option> }
                         }
                     </select>
                 </div>
