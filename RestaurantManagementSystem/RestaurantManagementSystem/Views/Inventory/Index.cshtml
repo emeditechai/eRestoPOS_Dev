@@ -151,6 +151,7 @@
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-header bg-white border-bottom py-2 fw-semibold text-muted">
                     <i class="fas fa-fire me-2 text-danger"></i>Top Consumed Items (Today)
+                    <span class="float-end badge bg-secondary-subtle text-secondary fw-normal" style="font-size:10px">POS Sales Only</span>
                 </div>
                 <div class="card-body p-0">
                     @if (Model.TopConsumedItems.Any())
@@ -181,9 +182,10 @@
                     }
                     else
                     {
-                        <div class="text-center text-muted py-4">
+                        <div class="text-center text-muted py-4 px-3">
                             <i class="fas fa-fire fa-2x mb-2 d-block opacity-25"></i>
-                            No consumption data for today.
+                            <p class="mb-1 small fw-semibold">No sales data for today.</p>
+                            <p class="mb-0" style="font-size:11px">Consumption is recorded from POS orders.<br>Data will appear here once orders are placed today.</p>
                         </div>
                     }
                 </div>
