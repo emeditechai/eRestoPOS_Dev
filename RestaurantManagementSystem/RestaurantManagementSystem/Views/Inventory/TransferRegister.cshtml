@@ -15,7 +15,11 @@
             <h4 class="mb-0 fw-bold"><i class="fas fa-exchange-alt me-2 text-primary"></i>Transfer Register</h4>
             <small class="text-muted">Stock transfer history between godowns</small>
         </div>
-        <button onclick="window.print()" class="btn btn-outline-secondary btn-sm"><i class="fas fa-print me-1"></i>Print</button>
+        <div class="d-flex gap-2">
+            <button onclick="window.print()" class="btn btn-outline-secondary btn-sm"><i class="fas fa-print me-1"></i>Print</button>
+            <button id="btnExportExcel" class="btn btn-success btn-sm" title="Export to Excel"><i class="fas fa-file-excel me-1"></i>Excel</button>
+            <button id="btnExportPdf" class="btn btn-danger btn-sm" title="Export to PDF"><i class="fas fa-file-pdf me-1"></i>PDF</button>
+        </div>
     </div>
 
     <div class="card border-0 shadow-sm mb-3">
@@ -126,7 +130,16 @@
 @section Scripts {
 <script>
     $(document).ready(function () {
-        $('#tblTR').DataTable({ paging: true, pageLength: 50, searching: true, ordering: true, order: [[1,'desc']] });
+        var table = $('#tblTR').DataTable({
+            paging: true, pageLength: 50, searching: true, ordering: true,
+            order: [[1,'desc']],
+            buttons: [
+                { extend: 'excelHtml5', title: 'Transfer Register', exportOptions: { columns: ':visible' } },
+                { extend: 'pdfHtml5', title: 'Transfer Register', orientation: 'landscape', pageSize: 'A4', exportOptions: { columns: ':visible' } }
+            ]
+        });
+        $('#btnExportExcel').on('click', function () { table.button(0).trigger(); });
+        $('#btnExportPdf').on('click', function () { table.button(1).trigger(); });
     });
 </script>
 }

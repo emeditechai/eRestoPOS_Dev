@@ -16,6 +16,12 @@
             <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-print me-1"></i>Print
             </button>
+            <button id="btnExportExcel" class="btn btn-success btn-sm" title="Export to Excel">
+                <i class="fas fa-file-excel me-1"></i>Excel
+            </button>
+            <button id="btnExportPdf" class="btn btn-danger btn-sm" title="Export to PDF">
+                <i class="fas fa-file-pdf me-1"></i>PDF
+            </button>
             <a asp-action="StockLedger" asp-controller="Inventory" class="btn btn-outline-primary btn-sm">
                 <i class="fas fa-book-open me-1"></i>Stock Ledger
             </a>
@@ -153,8 +159,16 @@
 @section Scripts {
 <script>
     $(document).ready(function () {
-        $('#tblStock').DataTable({ paging: true, pageLength: 50, searching: true, ordering: true,
-            order: [[0,'asc']] });
+        var table = $('#tblStock').DataTable({
+            paging: true, pageLength: 50, searching: true, ordering: true,
+            order: [[0,'asc']],
+            buttons: [
+                { extend: 'excelHtml5', title: 'Current Stock Summary', exportOptions: { columns: ':visible' } },
+                { extend: 'pdfHtml5', title: 'Current Stock Summary', orientation: 'landscape', pageSize: 'A4', exportOptions: { columns: ':visible' } }
+            ]
+        });
+        $('#btnExportExcel').on('click', function () { table.button(0).trigger(); });
+        $('#btnExportPdf').on('click', function () { table.button(1).trigger(); });
     });
 </script>
 }
