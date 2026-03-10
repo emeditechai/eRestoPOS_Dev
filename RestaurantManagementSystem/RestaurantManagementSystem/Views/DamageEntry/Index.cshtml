@@ -79,8 +79,8 @@
                                         <form method="post" asp-action="Post" asp-controller="DamageEntry" class="d-inline">
                                             @Html.AntiForgeryToken()
                                             <input type="hidden" name="id" value="@d.DamageId" />
-                                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Post"
-                                                    onclick="return confirm('Post this damage entry to stock ledger?')">
+                                            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2 btn-post-confirm" title="Post"
+                                                    data-damage-no="@d.DamageNumber">
                                                 <i class="fas fa-check-double"></i>
                                             </button>
                                         </form>
@@ -107,6 +107,24 @@
     $(document).ready(function () {
         $('#tblDamage').DataTable({ paging: true, pageLength: 25, searching: true, ordering: true,
             order: [[0,'desc']], columnDefs: [{ orderable: false, targets: [6] }] });
+
+        $(document).on('click', '.btn-post-confirm', function () {
+            var form = $(this).closest('form');
+            var no   = $(this).data('damage-no') || '';
+            Swal.fire({
+                title: 'Post to Stock?',
+                html:  '<p class="mb-0">Damage entry <strong>' + no + '</strong> will be posted to the stock ledger.<br><small class="text-muted">This action cannot be undone.</small></p>',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: '<i class="fas fa-check-double me-1"></i> Yes, Post It',
+                cancelButtonText: 'Cancel',
+                confirmButtonColor: '#dc3545',
+                cancelButtonColor: '#6c757d',
+                reverseButtons: true
+            }).then(function (result) {
+                if (result.isConfirmed) form.submit();
+            });
+        });
     });
 </script>
 }

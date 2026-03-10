@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.Data.SqlClient;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Utilities;
@@ -91,6 +92,21 @@ namespace RestaurantManagementSystem.Controllers
                 return View(model);
             }
 
+            // Resolve BranchId from the chosen godown so cross-branch damage entries
+            // are stored against the godown's owning branch.
+            try
+            {
+                using var conBr = new SqlConnection(_connectionString);
+                conBr.Open();
+                using var brCmd = new SqlCommand(
+                    "SELECT BranchId FROM dbo.Godowns WHERE Id = @gid", conBr);
+                brCmd.Parameters.AddWithValue("@gid", model.GodownId);
+                var godownBranch = brCmd.ExecuteScalar();
+                if (godownBranch != null && godownBranch != DBNull.Value)
+                    model.BranchId = Convert.ToInt32(godownBranch);
+            }
+            catch { /* fallback: keep login branchId */ }
+
             try
             {
                 using var con = new SqlConnection(_connectionString);
@@ -170,18 +186,34 @@ namespace RestaurantManagementSystem.Controllers
 
         private void LoadViewBag(int branchId)
         {
-            var godowns = new List<object>();
+            // Main branch sees all main godowns (across all branches) where stock exists.
+            // Non-main branch sees only its own godowns where stock exists.
+            const string sql = @"
+                DECLARE @IsMain BIT = 0;
+                SELECT @IsMain = ISNULL(Is_MainBranch,0) FROM dbo.Branches WHERE BranchId = @bid;
+
+                SELECT DISTINCT g.Id AS GodownId,
+                       g.GodownName + ' (' + b.BranchName + ')' AS GodownLabel,
+                       g.BranchId AS GodownBranchId
+                FROM   dbo.CurrentStock cs
+                JOIN   dbo.Godowns     g ON g.Id        = cs.GodownId
+                JOIN   dbo.Branches    b ON b.BranchId  = g.BranchId
+                WHERE  cs.BalanceQty > 0
+                  AND  g.IsActive  = 1
+                  AND  (@IsMain = 1 OR g.BranchId = @bid)
+                ORDER  BY GodownLabel;";
+
+            var items = new List<SelectListItem>();
             using (var con = new SqlConnection(_connectionString))
             {
                 con.Open();
-                using var cmd = new SqlCommand(
-                    "SELECT Id AS GodownId, GodownName FROM dbo.Godowns WHERE BranchId = @bid AND IsActive = 1 ORDER BY GodownName", con);
+                using var cmd = new SqlCommand(sql, con);
                 cmd.Parameters.AddWithValue("@bid", branchId);
                 using var rdr = cmd.ExecuteReader();
                 while (rdr.Read())
-                    godowns.Add(new { value = GetInt(rdr, "GodownId"), text = GetStr(rdr, "GodownName") });
+                    items.Add(new SelectListItem(rdr.GetString(1), rdr.GetInt32(0).ToString()));
             }
-            ViewBag.Godowns = godowns;
+            ViewBag.Godowns = new SelectList(items, "Value", "Text");
             ViewBag.ActiveBranchId = branchId;
         }
 
