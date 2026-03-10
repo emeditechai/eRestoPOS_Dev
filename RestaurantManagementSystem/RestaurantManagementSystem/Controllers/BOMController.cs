@@ -93,7 +93,6 @@ SELECT i.Id, i.IngredientsName, i.ItemCategory,
        i.RecipeUOMId,   ru.UOMCode AS RecipeUOMCode,   ru.UOMName AS RecipeUOMName,
        i.PurchaseUOMId, pu.UOMCode AS PurchaseUOMCode, pu.UOMName AS PurchaseUOMName,
        ISNULL(i.PurchaseToRecipeFactor, 1) AS ConversionFactor,
-       ISNULL(i.StandardCost, 0)           AS MasterCost,
        ISNULL((
            SELECT CASE WHEN SUM(cs.BalanceQty) > 0
                        THEN SUM(cs.BalanceQty * cs.AverageCost) / SUM(cs.BalanceQty)
@@ -101,7 +100,7 @@ SELECT i.Id, i.IngredientsName, i.ItemCategory,
            FROM dbo.CurrentStock cs
            JOIN dbo.Godowns g ON g.Id = cs.GodownId
            WHERE cs.ItemId = i.Id AND g.BranchId = @BranchId AND cs.BalanceQty > 0
-       ), ISNULL(i.StandardCost, 0))       AS LiveAvgCost
+       ), 0)                               AS LiveAvgCost
 FROM   dbo.Ingredients i
 LEFT JOIN dbo.UomMaster ru ON ru.UOMId = i.RecipeUOMId
 LEFT JOIN dbo.UomMaster pu ON pu.UOMId = i.PurchaseUOMId
@@ -113,7 +112,6 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
                 return Json(new { success = false, message = "Ingredient not found." });
 
             decimal liveAvgCost = reader.GetDecimal(reader.GetOrdinal("LiveAvgCost"));
-            decimal masterCost  = reader.GetDecimal(reader.GetOrdinal("MasterCost"));
             return Json(new
             {
                 success          = true,
@@ -125,9 +123,8 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
                 purchaseUOMId    = reader["PurchaseUOMId"]   == DBNull.Value ? (int?)null : reader.GetInt32(reader.GetOrdinal("PurchaseUOMId")),
                 purchaseUOMCode  = reader["PurchaseUOMCode"]?.ToString() ?? "",
                 conversionFactor = reader.GetDecimal(reader.GetOrdinal("ConversionFactor")),
-                standardCost     = liveAvgCost,   // live branch-wise weighted avg; falls back to master
-                masterCost,
-                costSource       = liveAvgCost > 0 && liveAvgCost != masterCost ? "live" : "master"
+                standardCost     = liveAvgCost,   // branch-wise weighted avg from CurrentStock only
+                hasStock         = liveAvgCost > 0
             });
         }
 
@@ -200,6 +197,13 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
                 return Json(new { success = false, message = "No active branch selected." });
             if (!MenuItemBelongsToBranch(req.MenuItemId, branchId.Value))
                 return Json(new { success = false, message = "Access denied: item not in active branch." });
+
+            // New lines only: ingredient must have stock in this branch — no fallback to master cost
+            if (req.LineId == 0 && !IngredientHasStockInBranch(req.IngredientId, branchId.Value))
+            {
+                var ingName = GetIngredientNameForValidation(req.IngredientId);
+                return Json(new { success = false, message = $"Cannot add \u201c{ingName}\u201d \u2013 this ingredient has no stock in the current branch. Please receive stock before adding it to the BOM." });
+            }
 
             try
             {
@@ -439,7 +443,7 @@ SELECT
         FROM dbo.CurrentStock cs
         JOIN dbo.Godowns g ON g.Id = cs.GodownId
         WHERE cs.ItemId = i.Id AND g.BranchId = @BranchId AND cs.BalanceQty > 0
-    ), ISNULL(i.StandardCost, 0))       AS StandardCost,
+    ), 0)                               AS StandardCost,
     ISNULL(mii.IsOptional, 0)           AS IsOptional,
     mii.Instructions
 FROM  dbo.MenuItemIngredients mii
@@ -490,7 +494,6 @@ ORDER BY i.IngredientsName", conn))
 SELECT i.Id, i.IngredientsName, i.ItemCategory,
        ru.UOMCode AS RecipeUOMCode,
        ISNULL(i.PurchaseToRecipeFactor, 1) AS ConversionFactor,
-       ISNULL(i.StandardCost, 0)           AS MasterCost,
        ISNULL((
            SELECT CASE WHEN SUM(cs.BalanceQty) > 0
                        THEN SUM(cs.BalanceQty * cs.AverageCost) / SUM(cs.BalanceQty)
@@ -498,7 +501,7 @@ SELECT i.Id, i.IngredientsName, i.ItemCategory,
            FROM dbo.CurrentStock cs
            JOIN dbo.Godowns g ON g.Id = cs.GodownId
            WHERE cs.ItemId = i.Id AND g.BranchId = @BranchId AND cs.BalanceQty > 0
-       ), ISNULL(i.StandardCost, 0))       AS LiveAvgCost
+       ), 0)                               AS LiveAvgCost
 FROM   dbo.Ingredients i
 LEFT JOIN dbo.UomMaster ru ON ru.UOMId = i.RecipeUOMId
 WHERE  ISNULL(i.IsActive, 1) = 1
@@ -508,7 +511,6 @@ ORDER  BY i.ItemCategory, i.IngredientsName", conn);
             while (reader.Read())
             {
                 decimal liveAvgCost = reader.GetDecimal(reader.GetOrdinal("LiveAvgCost"));
-                decimal masterCost  = reader.GetDecimal(reader.GetOrdinal("MasterCost"));
                 items.Add(new
                 {
                     id           = reader.GetInt32(0),
@@ -516,9 +518,8 @@ ORDER  BY i.ItemCategory, i.IngredientsName", conn);
                     category     = reader["ItemCategory"]?.ToString() ?? "Other",
                     uomCode      = reader["RecipeUOMCode"]?.ToString() ?? "",
                     convFactor   = reader.GetDecimal(reader.GetOrdinal("ConversionFactor")),
-                    standardCost = liveAvgCost,   // branch-wise weighted avg; falls back to master
-                    masterCost,
-                    hasLiveCost  = liveAvgCost > 0 && liveAvgCost != masterCost
+                    standardCost = liveAvgCost,   // branch-wise weighted avg from CurrentStock only
+                    hasLiveCost  = liveAvgCost > 0 // true only when branch has stock for this item
                 });
             }
             return items;
@@ -645,14 +646,36 @@ WHERE  Id = @Id AND MenuItemId = @MenuItemId", conn);
         }
 
         /// <summary>
-        /// Recalculates ComputedCost on the Recipes record.
-        ///   TotalRaw = SUM(mii.Quantity / NULLIF(i.PurchaseToRecipeFactor, 0) * i.StandardCost)
-        ///   ComputedCost = TotalRaw / (YieldPercentage / 100)
+        /// Returns true when the ingredient has any positive BalanceQty in the branch.
         /// </summary>
+        private bool IngredientHasStockInBranch(int ingredientId, int branchId)
+        {
+            using var conn = new SqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new SqlCommand(@"
+SELECT TOP 1 1
+FROM   dbo.CurrentStock cs
+JOIN   dbo.Godowns g ON g.Id = cs.GodownId
+WHERE  cs.ItemId = @ItemId AND g.BranchId = @BranchId AND cs.BalanceQty > 0", conn);
+            cmd.Parameters.AddWithValue("@ItemId",   ingredientId);
+            cmd.Parameters.AddWithValue("@BranchId", branchId);
+            return cmd.ExecuteScalar() != null;
+        }
+
+        private string GetIngredientNameForValidation(int ingredientId)
+        {
+            using var conn = new SqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new SqlCommand(
+                "SELECT TOP 1 IngredientsName FROM dbo.Ingredients WHERE Id = @Id", conn);
+            cmd.Parameters.AddWithValue("@Id", ingredientId);
+            return cmd.ExecuteScalar()?.ToString() ?? $"Ingredient #{ingredientId}";
+        }
+
         /// <summary>
         /// Recalculates ComputedCost using the branch-wise weighted average cost
         /// from CurrentStock (SUM(Qty*AvgCost)/SUM(Qty) per ingredient per branch).
-        /// Falls back to Ingredients.StandardCost when no stock exists for that branch.
+        /// No fallback — ingredients with no stock contribute ₹0 to the BOM cost.
         /// </summary>
         private void RecalcBOMCost(int menuItemId, int branchId)
         {
@@ -676,11 +699,11 @@ DECLARE @FinalCost  DECIMAL(18,4);
       AND  cs.BalanceQty > 0
     GROUP BY cs.ItemId
 )
--- Step 2: roll-up BOM lines, falling back to item-master cost when no stock.
+-- Step 2: roll-up BOM lines using branch stock avg only (0 if no stock — no master fallback).
 SELECT @RawCost = SUM(
     mii.Quantity
     / NULLIF(ISNULL(i.PurchaseToRecipeFactor, 1), 0)
-    * ISNULL(iac.AvgCost, ISNULL(i.StandardCost, 0))
+    * ISNULL(iac.AvgCost, 0)
 )
 FROM  dbo.MenuItemIngredients mii
 JOIN  dbo.Ingredients i  ON i.Id = mii.IngredientId
