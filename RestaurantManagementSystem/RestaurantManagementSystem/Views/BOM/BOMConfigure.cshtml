@@ -5,15 +5,18 @@
     // Serialise for JS
     var ingredientJson = System.Text.Json.JsonSerializer.Serialize(
         ingredients.Select(i => new {
-            id             = (int)i.id,
-            name           = (string)i.name,
-            category       = (string)i.category,
-            uomCode        = (string)i.uomCode,
-            convFactor     = (decimal)i.convFactor,
-            standardCost   = (decimal)i.standardCost
+            id           = (int)i.id,
+            name         = (string)i.name,
+            category     = (string)i.category,
+            uomCode      = (string)i.uomCode,
+            convFactor   = (decimal)i.convFactor,
+            standardCost = (decimal)i.standardCost,   // live branch avg cost (fallback: master)
+            masterCost   = (decimal)i.masterCost,
+            hasLiveCost  = (bool)i.hasLiveCost
         }));
 }
 
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <style>
     .bom-header { background: linear-gradient(135deg, #1a3c5b 0%, #2563a8 100%); }
     .section-card { border-radius: 12px; border: none; }
@@ -30,9 +33,35 @@
         border-radius: 8px; font-size: .78rem; }
     .lbl { font-size: .75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; }
     #addIngredientForm { display:none; }
+    /* Select2 sizing to match Bootstrap form-control-sm */
+    .select2-container .select2-selection--single { height: 31px; }
+    .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; font-size: .875rem; padding-left: 8px; }
+    .select2-container--default .select2-selection--single .select2-selection__arrow { height: 29px; }
+    .select2-dropdown { font-size: .875rem; }
+    .select2-results__option { padding: 5px 8px; }
+    .select2-search--dropdown .select2-search__field { padding: 4px 8px; font-size: .875rem; }
 </style>
 
+<!-- Info: cost source notice -->
+<div class="alert alert-info alert-dismissible fade show py-2 px-3 mb-3 small" role="alert">
+    <i class="fas fa-info-circle me-1"></i>
+    <strong>Live Stock Cost:</strong> Ingredient costs are taken from the
+    <strong>branch-wise weighted average cost</strong> in current stock
+    (AverageCost from <em>CurrentStock</em>). If an item has no stock in this branch,
+    the item-master standard cost is used as fallback.
+    <button type="button" class="btn-close py-1" data-bs-dismiss="alert"></button>
+</div>
+
 <!-- Breadcrumb -->
+<!-- Info: live avg cost notice -->
+<div class="alert alert-info alert-dismissible fade show py-2 px-3 mb-3 small" role="alert">
+    <i class="fas fa-info-circle me-1"></i>
+    <strong>Live Stock Cost Active:</strong> Ingredient costs are sourced from the
+    <strong>branch-wise weighted average cost</strong> in current inventory
+    (AverageCost from CurrentStock). Items with no stock in this branch fall back to item-master standard cost.
+    <button type="button" class="btn-close py-1" data-bs-dismiss="alert"></button>
+</div>
+
 <nav aria-label="breadcrumb" class="mb-3">
     <ol class="breadcrumb small">
         <li class="breadcrumb-item">
@@ -93,7 +122,7 @@
                 <div class="row g-3">
                     <div class="col-md-5">
                         <label class="form-label small fw-semibold">Ingredient <span class="text-danger">*</span></label>
-                        <select id="newIngredientId" class="form-select form-select-sm" onchange="onIngredientChange()">
+                        <select id="newIngredientId" class="form-select form-select-sm">
                             <option value="">-- Select Ingredient --</option>
                             @foreach (var ing in ingredients.OrderBy(i => (string)i.category).ThenBy(i => (string)i.name))
                             {
@@ -116,8 +145,11 @@
                         <input type="text" id="newUOMDisplay" class="form-control form-control-sm bg-light" readonly placeholder="—">
                     </div>
                     <div class="col-md-2">
-                        <label class="form-label small fw-semibold">Est. Line Cost</label>
+                        <label class="form-label small fw-semibold">Est. Line Cost
+                            <span id="newCostSourceBadge" class="badge ms-1" style="font-size:.65rem;"></span>
+                        </label>
                         <input type="text" id="newLineCostDisplay" class="form-control form-control-sm bg-light fw-bold" readonly placeholder="₹ 0.00">
+                        <small id="newCostHint" class="text-muted"></small>
                     </div>
                     <div class="col-md-1 d-flex align-items-end">
                         <div class="form-check mb-1" title="Optional Ingredient">
@@ -150,7 +182,11 @@
                             <th class="section-title text-end" style="width:12%;">Qty</th>
                             <th class="section-title text-center" style="width:8%;">UOM</th>
                             <th class="section-title text-end" style="width:12%;">Conv. Factor</th>
-                            <th class="section-title text-end" style="width:12%;">Std. Cost /Pur</th>
+                            <th class="section-title text-end" style="width:12%;">Avg Cost
+                                <span class="badge bg-info-subtle text-info border ms-1" 
+                                      style="font-size:.65rem;font-weight:500;"
+                                      title="Weighted average cost from branch stock (CurrentStock). Falls back to item master cost when no stock.">Live</span>
+                            </th>
                             <th class="section-title text-end" style="width:12%;">Line Cost</th>
                             <th class="section-title text-center" style="width:7%;">Opt.</th>
                             <th class="section-title text-center" style="width:9%;">Actions</th>
@@ -200,6 +236,7 @@
                                 </td>
                                 <td class="text-end text-muted small">
                                     ₹@(line.StandardCost.HasValue ? line.StandardCost.Value.ToString("N4") : "0.0000")
+                                    <br><small class="text-info" style="font-size:.65rem;">avg</small>
                                 </td>
                                 <td class="text-end fw-semibold line-cost" id="linecost-@line.Id">
                                     @if (line.LineCost.HasValue)
@@ -264,9 +301,10 @@
                 BOM Cost Formula
             </div>
             <div class="text-muted">
-                <strong>Line Cost</strong> = Qty (Consumption UOM) &divide; Conversion Factor &times; Standard Cost (per Purchase UOM)<br>
+                <strong>Line Cost</strong> = Qty (Consumption UOM) &divide; Conversion Factor &times; <strong>Avg Stock Cost</strong> (branch weighted avg per Purchase UOM)<br>
                 <strong>Total BOM Cost</strong> = &Sigma; Line Costs &divide; (Yield % / 100)<br>
-                <strong>Gross Margin %</strong> = (Selling Price &minus; BOM Cost) &divide; Selling Price &times; 100
+                <strong>Gross Margin %</strong> = (Selling Price &minus; BOM Cost) &divide; Selling Price &times; 100<br>
+                <small class="text-info"><i class="fas fa-info-circle me-1"></i>Avg Stock Cost = SUM(BalanceQty &times; AverageCost) / SUM(BalanceQty) across all godowns of the active branch. Falls back to item-master cost when no stock.</small>
             </div>
         </div>
 
@@ -390,6 +428,7 @@
 </div>
 
 @section Scripts {
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
 const MENU_ITEM_ID  = @Model.MenuItemId;
@@ -404,7 +443,7 @@ const INGREDIENT_MAP = _ING_ARR.reduce((acc, i) => { acc[i.id] = i; return acc; 
 document.getElementById('btnShowAddForm').addEventListener('click', () => {
     document.getElementById('addIngredientForm').style.display = 'block';
     document.getElementById('btnShowAddForm').style.display = 'none';
-    document.getElementById('newIngredientId').focus();
+    setTimeout(() => $('#newIngredientId').select2('open'), 100);
 });
 
 function hideAddForm() {
@@ -414,23 +453,43 @@ function hideAddForm() {
 }
 
 function resetAddForm() {
-    document.getElementById('newIngredientId').value = '';
+    $('#newIngredientId').val(null).trigger('change');   // Select2 clear
     document.getElementById('newQty').value = '';
     document.getElementById('newUOMDisplay').value = '';
     document.getElementById('newLineCostDisplay').value = '';
+    const badge = document.getElementById('newCostSourceBadge');
+    const hint  = document.getElementById('newCostHint');
+    if (badge) badge.textContent = '';
+    if (hint)  hint.textContent  = '';
     document.getElementById('newIsOptional').checked = false;
     document.getElementById('newInstructions').value = '';
 }
 
 // ─── Ingredient selection – populate UOM + preview cost ──────────────────────
 function onIngredientChange() {
-    const sel = document.getElementById('newIngredientId');
+    const sel   = document.getElementById('newIngredientId');
     const ingId = parseInt(sel.value);
-    const info = INGREDIENT_MAP[ingId];
+    const info  = INGREDIENT_MAP[ingId];
+    const badge = document.getElementById('newCostSourceBadge');
+    const hint  = document.getElementById('newCostHint');
     if (info) {
         document.getElementById('newUOMDisplay').value = info.uomCode || '—';
+        if (badge) {
+            if (info.hasLiveCost) {
+                badge.textContent   = 'Live Avg';
+                badge.className     = 'badge bg-success-subtle text-success border ms-1';
+                hint.textContent    = 'Using live stock avg cost ₹' + info.standardCost.toFixed(4);
+            } else {
+                badge.textContent   = 'Master';
+                badge.className     = 'badge bg-secondary-subtle text-secondary border ms-1';
+                hint.textContent    = info.standardCost > 0
+                    ? 'No stock found. Using item-master cost ₹' + info.standardCost.toFixed(4)
+                    : 'No stock & no master cost — cost will be ₹0';
+            }
+        }
     } else {
         document.getElementById('newUOMDisplay').value = '';
+        if (badge) { badge.textContent = ''; hint.textContent = ''; }
     }
     previewLineCost();
 }
@@ -621,6 +680,20 @@ function showToast(msg, type = 'info') {
         alert(msg);
     }
 }
+
+// ─── Select2 Ingredient Dropdown ─────────────────────────────────────────────
+$(function () {
+    $('#newIngredientId').select2({
+        placeholder: '🔍 Type to search ingredient…',
+        allowClear: true,
+        width: '100%',
+        dropdownParent: $('#addIngredientForm')
+    });
+    // Wire change event to existing handler
+    $('#newIngredientId').on('change', function () {
+        onIngredientChange();
+    });
+});
 
 // ─── Initial margin guidance ─────────────────────────────────────────────────
 (function () {

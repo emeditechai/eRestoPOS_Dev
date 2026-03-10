@@ -73,7 +73,7 @@ namespace RestaurantManagementSystem.Controllers
                 return RedirectToAction(nameof(BOMList));
             }
 
-            ViewBag.IngredientDropdown = LoadIngredientDropdown();
+            ViewBag.IngredientDropdown = LoadIngredientDropdown(branchId.Value);
             ViewBag.ActiveBranchId = branchId.Value;
             return View(vm);
         }
@@ -85,6 +85,7 @@ namespace RestaurantManagementSystem.Controllers
         [HttpGet]
         public IActionResult GetIngredientDetails(int ingredientId)
         {
+            var branchId = GetActiveBranchId() ?? 0;
             using var conn = new SqlConnection(_connectionString);
             conn.Open();
             using var cmd = new SqlCommand(@"
@@ -92,16 +93,27 @@ SELECT i.Id, i.IngredientsName, i.ItemCategory,
        i.RecipeUOMId,   ru.UOMCode AS RecipeUOMCode,   ru.UOMName AS RecipeUOMName,
        i.PurchaseUOMId, pu.UOMCode AS PurchaseUOMCode, pu.UOMName AS PurchaseUOMName,
        ISNULL(i.PurchaseToRecipeFactor, 1) AS ConversionFactor,
-       ISNULL(i.StandardCost, 0)           AS StandardCost
+       ISNULL(i.StandardCost, 0)           AS MasterCost,
+       ISNULL((
+           SELECT CASE WHEN SUM(cs.BalanceQty) > 0
+                       THEN SUM(cs.BalanceQty * cs.AverageCost) / SUM(cs.BalanceQty)
+                       ELSE 0 END
+           FROM dbo.CurrentStock cs
+           JOIN dbo.Godowns g ON g.Id = cs.GodownId
+           WHERE cs.ItemId = i.Id AND g.BranchId = @BranchId AND cs.BalanceQty > 0
+       ), ISNULL(i.StandardCost, 0))       AS LiveAvgCost
 FROM   dbo.Ingredients i
 LEFT JOIN dbo.UomMaster ru ON ru.UOMId = i.RecipeUOMId
 LEFT JOIN dbo.UomMaster pu ON pu.UOMId = i.PurchaseUOMId
 WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
             cmd.Parameters.AddWithValue("@Id", ingredientId);
+            cmd.Parameters.AddWithValue("@BranchId", branchId);
             using var reader = cmd.ExecuteReader();
             if (!reader.Read())
                 return Json(new { success = false, message = "Ingredient not found." });
 
+            decimal liveAvgCost = reader.GetDecimal(reader.GetOrdinal("LiveAvgCost"));
+            decimal masterCost  = reader.GetDecimal(reader.GetOrdinal("MasterCost"));
             return Json(new
             {
                 success          = true,
@@ -113,7 +125,9 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
                 purchaseUOMId    = reader["PurchaseUOMId"]   == DBNull.Value ? (int?)null : reader.GetInt32(reader.GetOrdinal("PurchaseUOMId")),
                 purchaseUOMCode  = reader["PurchaseUOMCode"]?.ToString() ?? "",
                 conversionFactor = reader.GetDecimal(reader.GetOrdinal("ConversionFactor")),
-                standardCost     = reader.GetDecimal(reader.GetOrdinal("StandardCost"))
+                standardCost     = liveAvgCost,   // live branch-wise weighted avg; falls back to master
+                masterCost,
+                costSource       = liveAvgCost > 0 && liveAvgCost != masterCost ? "live" : "master"
             });
         }
 
@@ -144,7 +158,7 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
             {
                 EnsureBOMTablesReady();
                 UpsertRecipeHeader(req.MenuItemId, req.Yield, req.YieldPercentage, req.PrepTimeMinutes);
-                RecalcBOMCost(req.MenuItemId);
+                RecalcBOMCost(req.MenuItemId, branchId.Value);
 
                 var newCost = GetComputedCost(req.MenuItemId);
                 var sellingPrice = GetSellingPrice(req.MenuItemId);
@@ -195,7 +209,7 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
                 EnsureRecipeHeaderExists(req.MenuItemId);
 
                 int savedLineId = UpsertBOMLine(req);
-                RecalcBOMCost(req.MenuItemId);
+                RecalcBOMCost(req.MenuItemId, branchId.Value);
 
                 var newCost = GetComputedCost(req.MenuItemId);
                 var sellingPrice = GetSellingPrice(req.MenuItemId);
@@ -244,7 +258,7 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
                     return Json(new { success = false, message = "Access denied: item not in active branch." });
 
                 DeleteLine(req.LineId);
-                RecalcBOMCost(menuItemId);
+                RecalcBOMCost(menuItemId, branchId.Value);
 
                 var newCost = GetComputedCost(menuItemId);
                 var sellingPrice = GetSellingPrice(menuItemId);
@@ -287,7 +301,7 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
             try
             {
                 EnsureBOMTablesReady();
-                RecalcBOMCost(req.MenuItemId);
+                RecalcBOMCost(req.MenuItemId, branchId.Value);
 
                 var newCost = GetComputedCost(req.MenuItemId);
                 var sellingPrice = GetSellingPrice(req.MenuItemId);
@@ -418,7 +432,14 @@ SELECT
     i.RecipeUOMId,   ru.UOMCode AS RecipeUOMCode,
     i.PurchaseUOMId, pu.UOMCode AS PurchaseUOMCode,
     ISNULL(i.PurchaseToRecipeFactor, 1) AS ConversionFactor,
-    ISNULL(i.StandardCost, 0)           AS StandardCost,
+    ISNULL((
+        SELECT CASE WHEN SUM(cs.BalanceQty) > 0
+                    THEN SUM(cs.BalanceQty * cs.AverageCost) / SUM(cs.BalanceQty)
+                    ELSE 0 END
+        FROM dbo.CurrentStock cs
+        JOIN dbo.Godowns g ON g.Id = cs.GodownId
+        WHERE cs.ItemId = i.Id AND g.BranchId = @BranchId AND cs.BalanceQty > 0
+    ), ISNULL(i.StandardCost, 0))       AS StandardCost,
     ISNULL(mii.IsOptional, 0)           AS IsOptional,
     mii.Instructions
 FROM  dbo.MenuItemIngredients mii
@@ -429,6 +450,7 @@ WHERE mii.MenuItemId = @MenuItemId
 ORDER BY i.IngredientsName", conn))
             {
                 cmd.Parameters.AddWithValue("@MenuItemId", menuItemId);
+                cmd.Parameters.AddWithValue("@BranchId", branchId);
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
@@ -459,7 +481,7 @@ ORDER BY i.IngredientsName", conn))
             return vm;
         }
 
-        private List<dynamic> LoadIngredientDropdown()
+        private List<dynamic> LoadIngredientDropdown(int branchId)
         {
             var items = new List<dynamic>();
             using var conn = new SqlConnection(_connectionString);
@@ -468,22 +490,35 @@ ORDER BY i.IngredientsName", conn))
 SELECT i.Id, i.IngredientsName, i.ItemCategory,
        ru.UOMCode AS RecipeUOMCode,
        ISNULL(i.PurchaseToRecipeFactor, 1) AS ConversionFactor,
-       ISNULL(i.StandardCost, 0) AS StandardCost
+       ISNULL(i.StandardCost, 0)           AS MasterCost,
+       ISNULL((
+           SELECT CASE WHEN SUM(cs.BalanceQty) > 0
+                       THEN SUM(cs.BalanceQty * cs.AverageCost) / SUM(cs.BalanceQty)
+                       ELSE 0 END
+           FROM dbo.CurrentStock cs
+           JOIN dbo.Godowns g ON g.Id = cs.GodownId
+           WHERE cs.ItemId = i.Id AND g.BranchId = @BranchId AND cs.BalanceQty > 0
+       ), ISNULL(i.StandardCost, 0))       AS LiveAvgCost
 FROM   dbo.Ingredients i
 LEFT JOIN dbo.UomMaster ru ON ru.UOMId = i.RecipeUOMId
 WHERE  ISNULL(i.IsActive, 1) = 1
 ORDER  BY i.ItemCategory, i.IngredientsName", conn);
+            cmd.Parameters.AddWithValue("@BranchId", branchId);
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
+                decimal liveAvgCost = reader.GetDecimal(reader.GetOrdinal("LiveAvgCost"));
+                decimal masterCost  = reader.GetDecimal(reader.GetOrdinal("MasterCost"));
                 items.Add(new
                 {
-                    id             = reader.GetInt32(0),
-                    name           = reader["IngredientsName"]?.ToString() ?? "",
-                    category       = reader["ItemCategory"]?.ToString() ?? "Other",
-                    uomCode        = reader["RecipeUOMCode"]?.ToString() ?? "",
-                    convFactor     = reader.GetDecimal(reader.GetOrdinal("ConversionFactor")),
-                    standardCost   = reader.GetDecimal(reader.GetOrdinal("StandardCost"))
+                    id           = reader.GetInt32(0),
+                    name         = reader["IngredientsName"]?.ToString() ?? "",
+                    category     = reader["ItemCategory"]?.ToString() ?? "Other",
+                    uomCode      = reader["RecipeUOMCode"]?.ToString() ?? "",
+                    convFactor   = reader.GetDecimal(reader.GetOrdinal("ConversionFactor")),
+                    standardCost = liveAvgCost,   // branch-wise weighted avg; falls back to master
+                    masterCost,
+                    hasLiveCost  = liveAvgCost > 0 && liveAvgCost != masterCost
                 });
             }
             return items;
@@ -614,19 +649,42 @@ WHERE  Id = @Id AND MenuItemId = @MenuItemId", conn);
         ///   TotalRaw = SUM(mii.Quantity / NULLIF(i.PurchaseToRecipeFactor, 0) * i.StandardCost)
         ///   ComputedCost = TotalRaw / (YieldPercentage / 100)
         /// </summary>
-        private void RecalcBOMCost(int menuItemId)
+        /// <summary>
+        /// Recalculates ComputedCost using the branch-wise weighted average cost
+        /// from CurrentStock (SUM(Qty*AvgCost)/SUM(Qty) per ingredient per branch).
+        /// Falls back to Ingredients.StandardCost when no stock exists for that branch.
+        /// </summary>
+        private void RecalcBOMCost(int menuItemId, int branchId)
         {
             using var conn = new SqlConnection(_connectionString);
             conn.Open();
+            // SQL Server cannot use an aggregate subquery inside SUM().
+            // Fix: pre-compute branch-wise weighted avg cost per item in a CTE,
+            // then LEFT JOIN it so we can reference a plain column inside SUM().
             using var cmd = new SqlCommand(@"
 DECLARE @RawCost    DECIMAL(18,4);
 DECLARE @YieldPct   DECIMAL(18,4);
 DECLARE @FinalCost  DECIMAL(18,4);
 
-SELECT @RawCost =
-    SUM(mii.Quantity / NULLIF(ISNULL(i.PurchaseToRecipeFactor, 1), 0) * ISNULL(i.StandardCost, 0))
-FROM dbo.MenuItemIngredients mii
-JOIN dbo.Ingredients i ON i.Id = mii.IngredientId
+-- Step 1: weighted average cost per item for this branch.
+;WITH ItemAvgCost AS (
+    SELECT cs.ItemId,
+           SUM(cs.BalanceQty * cs.AverageCost) / NULLIF(SUM(cs.BalanceQty), 0) AS AvgCost
+    FROM   dbo.CurrentStock cs
+    JOIN   dbo.Godowns g ON g.Id = cs.GodownId
+    WHERE  g.BranchId = @BranchId
+      AND  cs.BalanceQty > 0
+    GROUP BY cs.ItemId
+)
+-- Step 2: roll-up BOM lines, falling back to item-master cost when no stock.
+SELECT @RawCost = SUM(
+    mii.Quantity
+    / NULLIF(ISNULL(i.PurchaseToRecipeFactor, 1), 0)
+    * ISNULL(iac.AvgCost, ISNULL(i.StandardCost, 0))
+)
+FROM  dbo.MenuItemIngredients mii
+JOIN  dbo.Ingredients i  ON i.Id = mii.IngredientId
+LEFT JOIN ItemAvgCost iac ON iac.ItemId = i.Id
 WHERE mii.MenuItemId = @MenuItemId;
 
 SELECT @YieldPct = ISNULL(YieldPercentage, 100)
@@ -636,11 +694,12 @@ WHERE  MenuItemId = @MenuItemId;
 SET @FinalCost = @RawCost / NULLIF(@YieldPct / 100.0, 0);
 
 UPDATE dbo.Recipes
-SET    ComputedCost          = @FinalCost,
-       LastCostCalculatedAt  = SYSUTCDATETIME()
+SET    ComputedCost         = @FinalCost,
+       LastCostCalculatedAt = SYSUTCDATETIME()
 WHERE  MenuItemId = @MenuItemId;
 ", conn);
             cmd.Parameters.AddWithValue("@MenuItemId", menuItemId);
+            cmd.Parameters.AddWithValue("@BranchId",   branchId);
             cmd.ExecuteNonQuery();
         }
 
