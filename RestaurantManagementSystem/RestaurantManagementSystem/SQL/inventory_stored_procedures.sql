@@ -150,6 +150,8 @@ GO
 -- ═══════════════════════════════════════════════════════════════════════════════
 IF OBJECT_ID(N'dbo.usp_SaveOpeningStock', N'P') IS NOT NULL DROP PROCEDURE dbo.usp_SaveOpeningStock;
 GO
+SET QUOTED_IDENTIFIER ON;
+GO
 CREATE PROCEDURE dbo.usp_SaveOpeningStock
     @OpeningStockId INT,
     @BranchId       INT,
@@ -193,6 +195,8 @@ GO
 -- 6. usp_PostOpeningStock
 -- ═══════════════════════════════════════════════════════════════════════════════
 IF OBJECT_ID(N'dbo.usp_PostOpeningStock', N'P') IS NOT NULL DROP PROCEDURE dbo.usp_PostOpeningStock;
+GO
+SET QUOTED_IDENTIFIER ON;
 GO
 CREATE PROCEDURE dbo.usp_PostOpeningStock
     @OpeningStockId INT,

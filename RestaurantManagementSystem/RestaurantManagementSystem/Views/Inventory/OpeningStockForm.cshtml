@@ -1,9 +1,10 @@
 @model RestaurantManagementSystem.Models.OpeningStockItem
+@using Microsoft.AspNetCore.Mvc.Rendering
 @{
     ViewData["Title"] = Model.OpeningStockId == 0 ? "Add Opening Stock" : "Edit Opening Stock";
-    var godowns = ViewBag.Godowns as SelectList;
-    var items   = ViewBag.Items   as SelectList;
-    var uoms    = ViewBag.UOMs    as SelectList;
+    var godowns = ViewBag.Godowns as IEnumerable<SelectListItem>;
+    var items   = ViewBag.Items   as IEnumerable<SelectListItem>;
+    var uoms    = ViewBag.UOMs    as IEnumerable<SelectListItem>;
 }
 
 <div class="container-fluid px-0">

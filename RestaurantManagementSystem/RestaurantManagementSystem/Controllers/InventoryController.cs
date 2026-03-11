@@ -615,6 +615,21 @@ namespace RestaurantManagementSystem.Controllers
         }
 
         // ═══════════════════════════════════════════════════════════════
+        private bool IsMainBranchById(int branchId)
+        {
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand(
+                    "SELECT TOP 1 ISNULL(Is_MainBranch,0) FROM dbo.Branches WHERE BranchId=@bid", con);
+                cmd.Parameters.AddWithValue("@bid", branchId);
+                var val = cmd.ExecuteScalar();
+                return val != null && val != DBNull.Value && Convert.ToBoolean(val);
+            }
+            catch { return false; }
+        }
+
         //  API – AJAX HELPERS
         // ═══════════════════════════════════════════════════════════════
 
@@ -747,47 +762,72 @@ namespace RestaurantManagementSystem.Controllers
             var branchId = ActiveBranchId();
             if (!branchId.HasValue) return;
 
-            // Godowns
-            var godowns = new List<object>();
+            bool isMain = IsMainBranchById(branchId.Value);
+
+            // ── Godowns ─────────────────────────────────────────────────────
+            // Main branch  → all active godowns across all branches (prefixed with branch name)
+            // Other branch → only this branch's godowns
+            var godowns = new List<SelectListItem>();
             using (var con = new SqlConnection(_connectionString))
             {
                 con.Open();
-                using var cmd = new SqlCommand(
-                    "SELECT Id AS GodownId, Code AS GodownCode, GodownName, IsMainGodown FROM dbo.Godowns WHERE BranchId = @bid AND IsActive = 1 ORDER BY GodownName", con);
-                cmd.Parameters.AddWithValue("@bid", branchId.Value);
+                string godownSql = isMain
+                    ? @"SELECT g.Id, b.BranchName, g.GodownName, g.IsMainGodown
+                          FROM dbo.Godowns g
+                          INNER JOIN dbo.Branches b ON b.BranchId = g.BranchId
+                         WHERE g.IsActive = 1
+                         ORDER BY b.BranchName, g.IsMainGodown DESC, g.GodownName"
+                    : @"SELECT g.Id, b.BranchName, g.GodownName, g.IsMainGodown
+                          FROM dbo.Godowns g
+                          INNER JOIN dbo.Branches b ON b.BranchId = g.BranchId
+                         WHERE g.BranchId = @bid AND g.IsActive = 1
+                         ORDER BY g.IsMainGodown DESC, g.GodownName";
+
+                using var cmd = new SqlCommand(godownSql, con);
+                if (!isMain) cmd.Parameters.AddWithValue("@bid", branchId.Value);
                 using var rdr = cmd.ExecuteReader();
                 while (rdr.Read())
-                    godowns.Add(new { value = GetInt(rdr, "GodownId"), text = GetStr(rdr, "GodownName"), isMain = GetBool(rdr, "IsMainGodown") });
+                {
+                    var bName = rdr.IsDBNull(1) ? "" : rdr.GetString(1);
+                    var gName = rdr.IsDBNull(2) ? "" : rdr.GetString(2);
+                    var label = isMain ? $"{bName} – {gName}" : gName;
+                    godowns.Add(new SelectListItem { Value = rdr.GetInt32(0).ToString(), Text = label });
+                }
             }
             ViewBag.Godowns = godowns;
 
-            // Ingredients
-            var items = new List<object>();
+            // ── Items (Ingredients) ─────────────────────────────────────────
+            var items = new List<SelectListItem>();
             using (var con = new SqlConnection(_connectionString))
             {
                 con.Open();
                 using var cmd = new SqlCommand(
-                    "SELECT Id, IngredientsName, Code FROM dbo.Ingredients WHERE IsActive = 1 ORDER BY IngredientsName", con);
+                    "SELECT i.Id, i.IngredientsName + ISNULL(' [' + i.Code + ']','') AS DisplayName " +
+                    "FROM dbo.Ingredients i WHERE i.IsActive = 1 ORDER BY i.IngredientsName", con);
                 using var rdr = cmd.ExecuteReader();
                 while (rdr.Read())
-                    items.Add(new { value = rdr.GetInt32(0), text = rdr.IsDBNull(1) ? "" : rdr.GetString(1) });
+                    items.Add(new SelectListItem
+                    {
+                        Value = rdr.GetInt32(0).ToString(),
+                        Text  = rdr.IsDBNull(1) ? "" : rdr.GetString(1)
+                    });
             }
             ViewBag.Items = items;
 
-            // UOMs
-            var uoms = new List<object>();
+            // ── UOMs ────────────────────────────────────────────────────────
+            var uoms = new List<SelectListItem>();
             using (var con = new SqlConnection(_connectionString))
             {
                 con.Open();
                 using var cmd = new SqlCommand(
-                    "SELECT UOMId, UOMCode, UOMName FROM dbo.UomMaster WHERE IsActive = 1 ORDER BY UOMName", con);
+                    "SELECT UOMId, UOMCode + ' - ' + UOMName FROM dbo.UomMaster WHERE IsActive = 1 ORDER BY UOMName", con);
                 using var rdr = cmd.ExecuteReader();
                 while (rdr.Read())
-                    uoms.Add(new { value = rdr.GetInt32(0), text = rdr.GetString(1) + " - " + rdr.GetString(2) });
+                    uoms.Add(new SelectListItem { Value = rdr.GetInt32(0).ToString(), Text = rdr.GetString(1) });
             }
             ViewBag.UOMs = uoms;
 
-            // Suppliers — reuse existing Party Master (PartyType='Supplier')
+            // ── Suppliers ───────────────────────────────────────────────────
             var suppliers = new List<object>();
             using (var con = new SqlConnection(_connectionString))
             {
