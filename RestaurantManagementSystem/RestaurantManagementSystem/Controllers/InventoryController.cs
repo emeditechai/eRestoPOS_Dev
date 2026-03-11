@@ -358,10 +358,18 @@ namespace RestaurantManagementSystem.Controllers
         //  CURRENT STOCK SUMMARY
         // ═══════════════════════════════════════════════════════════════
 
-        public IActionResult StockSummary(int? godownId)
+        public IActionResult StockSummary(int? godownId, bool resetFilter = false)
         {
             var branchId = ActiveBranchId();
             if (!branchId.HasValue) return NoBranch();
+
+            bool isMain = IsMainBranchById(branchId.Value);
+
+            // On first load (no godownId in URL), default to the login branch's main godown
+            if (!resetFilter && !godownId.HasValue)
+            {
+                godownId = GetMainGodownId(branchId.Value);
+            }
 
             var list = new List<CurrentStockItem>();
             try
@@ -381,7 +389,9 @@ namespace RestaurantManagementSystem.Controllers
                 TempData["ErrorMessage"] = ex.Message;
             }
 
-            // Load godown filter list (only godowns that have actual stock for this branch)
+            // Load godown filter dropdown:
+            //   Main branch    → main godowns from all branches
+            //   Non-main branch→ only own-branch godowns
             var godownItems = new List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>();
             try
             {
@@ -389,17 +399,19 @@ namespace RestaurantManagementSystem.Controllers
                 con2.Open();
                 using var cmd2 = new SqlCommand("usp_GetGodownsWithStock", con2)
                     { CommandType = CommandType.StoredProcedure };
-                cmd2.Parameters.AddWithValue("@BranchId", branchId.Value);
+                cmd2.Parameters.AddWithValue("@BranchId",     branchId.Value);
+                cmd2.Parameters.AddWithValue("@IsMainBranch", isMain ? 1 : 0);
                 using var rdr2 = cmd2.ExecuteReader();
                 while (rdr2.Read())
                 {
                     var gId    = GetInt(rdr2, "GodownId");
                     var gName  = GetStr(rdr2, "GodownName") ?? "";
                     var bName  = GetStr(rdr2, "BranchName") ?? "";
+                    var label  = isMain ? $"{bName} – {gName}" : gName;
                     godownItems.Add(new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem
                     {
                         Value    = gId.ToString(),
-                        Text     = $"{gName} ({bName})",
+                        Text     = label,
                         Selected = godownId.HasValue && godownId.Value == gId
                     });
                 }
@@ -409,7 +421,24 @@ namespace RestaurantManagementSystem.Controllers
             ViewBag.GodownList     = godownItems;
             ViewBag.SelGodown      = godownId ?? 0;
             ViewBag.ActiveBranchId = branchId.Value;
+            ViewBag.IsMainBranch   = isMain;
             return View(list);
+        }
+
+        /// <summary>Returns the Id of the IsMainGodown godown for the given branch, or null if none.</summary>
+        private int? GetMainGodownId(int branchId)
+        {
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand(
+                    "SELECT TOP 1 Id FROM dbo.Godowns WHERE BranchId=@bid AND IsMainGodown=1 AND IsActive=1", con);
+                cmd.Parameters.AddWithValue("@bid", branchId);
+                var val = cmd.ExecuteScalar();
+                return val != null && val != DBNull.Value ? (int?)Convert.ToInt32(val) : null;
+            }
+            catch { return null; }
         }
 
         // ═══════════════════════════════════════════════════════════════

@@ -43,25 +43,50 @@ BEGIN
 END;
 GO
 
--- Returns distinct godowns that have stock for a given BranchId.
--- Used to populate the filter dropdown on the StockSummary page.
+-- Returns godowns for the filter dropdown on StockSummary page.
+-- Main branch  : returns main godowns of ALL branches that have stock.
+-- Non-main     : returns only own-branch godowns that have stock.
 CREATE OR ALTER PROCEDURE dbo.usp_GetGodownsWithStock
-    @BranchId INT
+    @BranchId    INT,
+    @IsMainBranch BIT = 0
 AS
 BEGIN
     SET NOCOUNT ON;
-    SELECT DISTINCT
-        g.Id          AS GodownId,
-        g.GodownName,
-        b.BranchName,
-        g.BranchId    AS GodownBranchId,
-        g.IsMainGodown
-    FROM  dbo.CurrentStock cs
-    JOIN  dbo.Godowns  g ON g.Id       = cs.GodownId
-    JOIN  dbo.Branches b ON b.BranchId = g.BranchId
-    WHERE cs.BranchId  = @BranchId
-      AND cs.BalanceQty <> 0
-      AND g.IsActive    = 1
-    ORDER BY b.BranchName, g.GodownName;
+
+    IF @IsMainBranch = 1
+    BEGIN
+        -- Main branch: show only main godowns from every branch that has stock
+        SELECT DISTINCT
+            g.Id          AS GodownId,
+            g.GodownName,
+            b.BranchName,
+            g.BranchId    AS GodownBranchId,
+            g.IsMainGodown
+        FROM  dbo.CurrentStock cs
+        JOIN  dbo.Godowns  g ON g.Id       = cs.GodownId
+        JOIN  dbo.Branches b ON b.BranchId = g.BranchId
+        WHERE g.IsMainGodown = 1
+          AND g.IsActive     = 1
+          AND cs.BalanceQty <> 0
+        ORDER BY b.BranchName, g.GodownName;
+    END
+    ELSE
+    BEGIN
+        -- Non-main branch: show only own-branch godowns that have stock
+        SELECT DISTINCT
+            g.Id          AS GodownId,
+            g.GodownName,
+            b.BranchName,
+            g.BranchId    AS GodownBranchId,
+            g.IsMainGodown
+        FROM  dbo.CurrentStock cs
+        JOIN  dbo.Godowns  g ON g.Id       = cs.GodownId
+        JOIN  dbo.Branches b ON b.BranchId = g.BranchId
+        WHERE cs.BranchId  = @BranchId
+          AND g.BranchId   = @BranchId
+          AND cs.BalanceQty <> 0
+          AND g.IsActive    = 1
+        ORDER BY g.GodownName;
+    END
 END;
 GO

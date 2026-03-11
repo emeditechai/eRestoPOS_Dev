@@ -80,16 +80,16 @@
                                         <form method="post" asp-action="OpeningStockPost" asp-controller="Inventory" class="d-inline">
                                             @Html.AntiForgeryToken()
                                             <input type="hidden" name="id" value="@s.OpeningStockId" />
-                                            <button type="submit" class="btn btn-outline-success btn-sm py-0 px-2" title="Post to Ledger"
-                                                    onclick="return confirm('Post this opening stock to ledger?')">
+                                            <button type="button" class="btn btn-outline-success btn-sm py-0 px-2" title="Post to Ledger"
+                                                    onclick="confirmPost(this)">
                                                 <i class="fas fa-check-double"></i>
                                             </button>
                                         </form>
                                         <form method="post" asp-action="OpeningStockDelete" asp-controller="Inventory" class="d-inline">
                                             @Html.AntiForgeryToken()
                                             <input type="hidden" name="id" value="@s.OpeningStockId" />
-                                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete"
-                                                    onclick="return confirm('Delete this entry?')">
+                                            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete"
+                                                    onclick="confirmDelete(this)">
                                                 <i class="fas fa-trash"></i>
                                             </button>
                                         </form>
@@ -117,6 +117,42 @@
         }
     </div>
 </div>
+
+@section Scripts {
+<script>
+    function confirmPost(btn) {
+        const form = btn.closest('form');
+        Swal.fire({
+            title: 'Post to Ledger?',
+            text: 'This will post the opening stock entry to the ledger.',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#198754',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: '<i class="fas fa-check-double me-1"></i>Post',
+            cancelButtonText: 'Cancel'
+        }).then(result => {
+            if (result.isConfirmed) form.submit();
+        });
+    }
+
+    function confirmDelete(btn) {
+        const form = btn.closest('form');
+        Swal.fire({
+            title: 'Delete Entry?',
+            text: 'This opening stock entry will be permanently deleted.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: '<i class="fas fa-trash me-1"></i>Delete',
+            cancelButtonText: 'Cancel'
+        }).then(result => {
+            if (result.isConfirmed) form.submit();
+        });
+    }
+</script>
+}
 
 @section Scripts {
 <script>

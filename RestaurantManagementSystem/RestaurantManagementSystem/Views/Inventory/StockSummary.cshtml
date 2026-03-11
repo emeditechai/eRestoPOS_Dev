@@ -2,8 +2,9 @@
 @using Microsoft.AspNetCore.Mvc.Rendering
 @{
     ViewData["Title"] = "Current Stock Summary";
-    int selGodown    = (int)(ViewBag.SelGodown ?? 0);
-    var godownList   = ViewBag.GodownList as List<SelectListItem> ?? new();
+    int  selGodown   = (int)(ViewBag.SelGodown ?? 0);
+    var  godownList  = ViewBag.GodownList as IEnumerable<SelectListItem> ?? new List<SelectListItem>();
+    bool isMain      = (bool)(ViewBag.IsMainBranch ?? false);
 }
 
 <div class="container-fluid px-0">
@@ -51,9 +52,26 @@
                 <button type="submit" class="btn btn-primary btn-sm px-3">
                     <i class="fas fa-filter me-1"></i>Apply
                 </button>
-                <a asp-action="StockSummary" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm">
+                <a asp-action="StockSummary" asp-controller="Inventory" asp-route-resetFilter="true"
+                   class="btn btn-outline-secondary btn-sm">
                     <i class="fas fa-sync me-1"></i>Reset
                 </a>
+                @if (selGodown != 0)
+                {
+                    var currentGodown = godownList.FirstOrDefault(x => x.Value == selGodown.ToString());
+                    if (currentGodown != null)
+                    {
+                        <span class="badge bg-primary-subtle text-primary px-2 py-1 align-self-center">
+                            <i class="fas fa-warehouse me-1"></i>@currentGodown.Text
+                        </span>
+                    }
+                }
+                else if (!isMain)
+                {
+                    <span class="badge bg-secondary-subtle text-secondary px-2 py-1 align-self-center">
+                        <i class="fas fa-globe me-1"></i>All Godowns
+                    </span>
+                }
             </form>
         </div>
     </div>
