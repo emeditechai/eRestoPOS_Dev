@@ -12,22 +12,41 @@ namespace RestaurantManagementSystem.Models
         public int    MenuItemId       { get; set; }
         public string MenuItemName     { get; set; } = "";
         public string? CategoryName    { get; set; }
-        /// <summary>Selling price (dine-in).</summary>
+        /// <summary>Base (dine-in) selling price.</summary>
         public decimal SellingPrice    { get; set; }
+        /// <summary>Takeout selling price (nullable).</summary>
+        public decimal? TakeoutPrice   { get; set; }
+        /// <summary>Delivery selling price (nullable).</summary>
+        public decimal? DeliveryPrice  { get; set; }
+        /// <summary>Room Service selling price (nullable).</summary>
+        public decimal? RoomServicePrice { get; set; }
         /// <summary>Number of ingredient lines configured.</summary>
         public int    LineCount        { get; set; }
         /// <summary>Computed BOM cost (after yield adjustment). NULL = not yet calculated.</summary>
         public decimal? BOMCost        { get; set; }
-        /// <summary>Gross margin % = (SellingPrice - BOMCost) / SellingPrice × 100</summary>
+        /// <summary>Gross margin % using Base price.</summary>
         public decimal? GrossMarginPct { get; set; }
         public DateTime? LastCalculated { get; set; }
         /// <summary>BOM is Configured when at least one line exists.</summary>
         public bool   IsConfigured     => LineCount > 0;
 
-        // Margin class helper for coloring
+        // Margin helpers for all price types
+        public decimal? TakeoutMarginPct     => CalcMargin(TakeoutPrice);
+        public decimal? DeliveryMarginPct    => CalcMargin(DeliveryPrice);
+        public decimal? RoomServiceMarginPct => CalcMargin(RoomServicePrice);
+
+        private decimal? CalcMargin(decimal? price) =>
+            (BOMCost.HasValue && price.HasValue && price > 0)
+                ? Math.Round((price.Value - BOMCost.Value) / price.Value * 100, 2)
+                : null;
+
         public string MarginBadgeClass => GrossMarginPct.HasValue
             ? (GrossMarginPct >= 60 ? "bg-success" :
                GrossMarginPct >= 40 ? "bg-warning text-dark" : "bg-danger")
+            : "bg-secondary";
+
+        public static string GetMarginBadgeClass(decimal? pct) => pct.HasValue
+            ? (pct >= 60 ? "bg-success" : pct >= 40 ? "bg-warning text-dark" : "bg-danger")
             : "bg-secondary";
     }
 
@@ -36,13 +55,17 @@ namespace RestaurantManagementSystem.Models
     // ─────────────────────────────────────────────────────────
     public class BOMConfigureViewModel
     {
-        public int    MenuItemId       { get; set; }
-        public string MenuItemName     { get; set; } = "";
-        public string? CategoryName    { get; set; }
-        public decimal SellingPrice    { get; set; }
+        public int    MenuItemId         { get; set; }
+        public string MenuItemName       { get; set; } = "";
+        public string? CategoryName      { get; set; }
+        /// <summary>Base (dine-in) price.</summary>
+        public decimal SellingPrice      { get; set; }
+        public decimal? TakeoutPrice     { get; set; }
+        public decimal? DeliveryPrice    { get; set; }
+        public decimal? RoomServicePrice { get; set; }
 
         // Recipe / BOM Header (from Recipes table)
-        public int?   RecipeId         { get; set; }
+        public int?   RecipeId           { get; set; }
 
         [Range(1, 100, ErrorMessage = "Portions served must be 1–100.")]
         [Display(Name = "Portions (Yield)")]
@@ -61,14 +84,28 @@ namespace RestaurantManagementSystem.Models
         // Ingredient lines
         public List<BOMLineViewModel> Lines { get; set; } = new();
 
-        // Derived
-        public decimal? GrossMarginPct => (ComputedCost.HasValue && SellingPrice > 0)
-            ? Math.Round((SellingPrice - ComputedCost.Value) / SellingPrice * 100, 2)
-            : null;
+        // Derived – margin for each price type
+        public decimal? GrossMarginPct       => CalcMargin(SellingPrice);
+        public decimal? TakeoutMarginPct     => CalcMargin(TakeoutPrice);
+        public decimal? DeliveryMarginPct    => CalcMargin(DeliveryPrice);
+        public decimal? RoomServiceMarginPct => CalcMargin(RoomServicePrice);
+
+        private decimal? CalcMargin(decimal? price) =>
+            (ComputedCost.HasValue && price.HasValue && price > 0)
+                ? Math.Round((price.Value - ComputedCost.Value) / price.Value * 100, 2)
+                : null;
 
         public string MarginBadgeClass => GrossMarginPct.HasValue
             ? (GrossMarginPct >= 60 ? "bg-success" :
                GrossMarginPct >= 40 ? "bg-warning text-dark" : "bg-danger")
+            : "bg-secondary";
+
+        public static string GetMarginClass(decimal? pct) => pct.HasValue
+            ? (pct >= 60 ? "text-success" : pct >= 40 ? "text-warning" : "text-danger")
+            : "text-secondary";
+
+        public static string GetMarginBadgeClass(decimal? pct) => pct.HasValue
+            ? (pct >= 60 ? "bg-success" : pct >= 40 ? "bg-warning text-dark" : "bg-danger")
             : "bg-secondary";
     }
 

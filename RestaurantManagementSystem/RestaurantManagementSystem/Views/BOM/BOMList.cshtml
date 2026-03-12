@@ -169,7 +169,7 @@
                         <th class="text-end">Selling Price</th>
                         <th class="text-center">Ingredients</th>
                         <th class="text-end">BOM Cost</th>
-                        <th class="text-center">Gross Margin</th>
+                        <th class="text-center">Gross Margin (All Prices)</th>
                         <th class="text-center">Status</th>
                         <th class="text-center" style="width:110px;">Action</th>
                     </tr>
@@ -196,7 +196,21 @@
                                     <span class="text-muted">—</span>
                                 }
                             </td>
-                            <td class="text-end fw-semibold">₹@item.SellingPrice.ToString("N2")</td>
+                            <td class="text-end fw-semibold">
+                                <div class="small"><span class="text-muted" style="font-size:.7rem;">Base:</span> ₹@item.SellingPrice.ToString("N2")</div>
+                                @if (item.TakeoutPrice.HasValue)
+                                {
+                                    <div class="small text-primary" style="font-size:.8rem;"><span class="text-muted" style="font-size:.7rem;">Takeout:</span> ₹@item.TakeoutPrice.Value.ToString("N2")</div>
+                                }
+                                @if (item.DeliveryPrice.HasValue)
+                                {
+                                    <div class="small text-warning-emphasis" style="font-size:.8rem;"><span class="text-muted" style="font-size:.7rem;">Delivery:</span> ₹@item.DeliveryPrice.Value.ToString("N2")</div>
+                                }
+                                @if (item.RoomServicePrice.HasValue)
+                                {
+                                    <div class="small text-purple" style="font-size:.8rem;color:#7c3aed;"><span class="text-muted" style="font-size:.7rem;">Room:</span> ₹@item.RoomServicePrice.Value.ToString("N2")</div>
+                                }
+                            </td>
                             <td class="text-center">
                                 @if (item.LineCount > 0)
                                 {
@@ -222,11 +236,37 @@
                                 }
                             </td>
                             <td class="text-center">
-                                @if (item.GrossMarginPct.HasValue)
+                                @if (item.BOMCost.HasValue)
                                 {
-                                    <span class="badge @item.MarginBadgeClass rounded-pill">
-                                        @item.GrossMarginPct.Value.ToString("N1")%
-                                    </span>
+                                    <div>
+                                        <span class="badge @BOMListItemViewModel.GetMarginBadgeClass(item.GrossMarginPct) rounded-pill" style="font-size:.7rem;">
+                                            <span class="text-white-50" style="font-size:.65rem;">Base </span>@(item.GrossMarginPct.HasValue ? item.GrossMarginPct.Value.ToString("N1")+"%" : "—")
+                                        </span>
+                                    </div>
+                                    @if (item.TakeoutPrice.HasValue)
+                                    {
+                                        <div class="mt-1">
+                                            <span class="badge @BOMListItemViewModel.GetMarginBadgeClass(item.TakeoutMarginPct) rounded-pill" style="font-size:.7rem;">
+                                                <span class="text-white-50" style="font-size:.65rem;">Takeout </span>@(item.TakeoutMarginPct.HasValue ? item.TakeoutMarginPct.Value.ToString("N1")+"%" : "—")
+                                            </span>
+                                        </div>
+                                    }
+                                    @if (item.DeliveryPrice.HasValue)
+                                    {
+                                        <div class="mt-1">
+                                            <span class="badge @BOMListItemViewModel.GetMarginBadgeClass(item.DeliveryMarginPct) rounded-pill" style="font-size:.7rem;">
+                                                <span class="text-white-50" style="font-size:.65rem;">Delivery </span>@(item.DeliveryMarginPct.HasValue ? item.DeliveryMarginPct.Value.ToString("N1")+"%" : "—")
+                                            </span>
+                                        </div>
+                                    }
+                                    @if (item.RoomServicePrice.HasValue)
+                                    {
+                                        <div class="mt-1">
+                                            <span class="badge @BOMListItemViewModel.GetMarginBadgeClass(item.RoomServiceMarginPct) rounded-pill" style="font-size:.7rem;">
+                                                <span class="text-white-50" style="font-size:.65rem;">Room </span>@(item.RoomServiceMarginPct.HasValue ? item.RoomServiceMarginPct.Value.ToString("N1")+"%" : "—")
+                                            </span>
+                                        </div>
+                                    }
                                 }
                                 else
                                 {

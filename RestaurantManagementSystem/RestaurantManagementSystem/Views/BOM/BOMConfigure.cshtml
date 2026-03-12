@@ -75,9 +75,20 @@
                 }
             </h4>
             <p class="mb-0 text-white-50 small">
-                Selling Price: <strong class="text-white">₹@Model.SellingPrice.ToString("N2")</strong>
-                &nbsp;|&nbsp;
-                Configure ingredients and quantities to build the Bill of Material.
+                <span class="me-1">Base: <strong class="text-white">₹@Model.SellingPrice.ToString("N2")</strong></span>
+                @if (Model.TakeoutPrice.HasValue)
+                {
+                    <span class="me-1">| Takeout: <strong class="text-white">₹@Model.TakeoutPrice.Value.ToString("N2")</strong></span>
+                }
+                @if (Model.DeliveryPrice.HasValue)
+                {
+                    <span class="me-1">| Delivery: <strong class="text-white">₹@Model.DeliveryPrice.Value.ToString("N2")</strong></span>
+                }
+                @if (Model.RoomServicePrice.HasValue)
+                {
+                    <span class="me-1">| Room Svc: <strong class="text-white">₹@Model.RoomServicePrice.Value.ToString("N2")</strong></span>
+                }
+                &nbsp;&mdash;&nbsp;Configure ingredients and quantities to build the Bill of Material.
             </p>
         </div>
         <a href="@Url.Action("BOMList","BOM")" class="btn btn-outline-light btn-sm">
@@ -351,27 +362,100 @@
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-start mb-3">
                     <div>
-                        <div class="lbl mb-1">Selling Price</div>
-                        <div class="fs-5 fw-bold">₹@Model.SellingPrice.ToString("N2")</div>
-                    </div>
-                    <div class="text-end">
                         <div class="lbl mb-1">BOM Cost</div>
                         <div class="cost-big" id="summaryBOMCost">
                             @(Model.ComputedCost.HasValue ? "₹" + Model.ComputedCost.Value.ToString("N4") : "—")
                         </div>
                     </div>
+                    <div class="text-end">
+                        <div class="lbl mb-1">Last Calculated</div>
+                        <div class="fw-semibold small" id="summaryLastCalc">
+                            @(Model.LastCalculated.HasValue
+                                ? Model.LastCalculated.Value.ToString("dd MMM yyyy, HH:mm")
+                                : "Not yet")
+                        </div>
+                    </div>
                 </div>
                 <hr class="my-2">
-                <div class="text-center mb-3">
-                    <div class="lbl mb-1">Gross Margin</div>
-                    <div class="margin-big @(Model.GrossMarginPct.HasValue
-                            ? (Model.GrossMarginPct >= 60 ? "text-success" : Model.GrossMarginPct >= 40 ? "text-warning" : "text-danger")
-                            : "text-secondary")"
-                         id="summaryMargin">
-                        @(Model.GrossMarginPct.HasValue ? Model.GrossMarginPct.Value.ToString("N1") + "%" : "—")
-                    </div>
-                    <div id="marginGuidance" class="small mt-1"></div>
-                </div>
+                <!-- Margin breakdown by all price types -->
+                <div class="lbl mb-2">Gross Margin by Price Type</div>
+                <table class="table table-sm mb-0 small" id="marginBreakdownTable">
+                    <thead>
+                        <tr>
+                            <th class="text-muted" style="font-size:.7rem;">Type</th>
+                            <th class="text-end text-muted" style="font-size:.7rem;">Price</th>
+                            <th class="text-end text-muted" style="font-size:.7rem;">Margin</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr id="marginRow_base">
+                            <td class="fw-semibold">Base</td>
+                            <td class="text-end">₹@Model.SellingPrice.ToString("N2")</td>
+                            <td class="text-end">
+                                @if (Model.GrossMarginPct.HasValue)
+                                {
+                                    <span class="badge @BOMConfigureViewModel.GetMarginBadgeClass(Model.GrossMarginPct) rounded-pill" id="marginBadge_base">@Model.GrossMarginPct.Value.ToString("N1")%</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted" id="marginBadge_base">—</span>
+                                }
+                            </td>
+                        </tr>
+                        @if (Model.TakeoutPrice.HasValue)
+                        {
+                            <tr id="marginRow_takeout">
+                                <td class="text-primary">Takeout</td>
+                                <td class="text-end">₹@Model.TakeoutPrice.Value.ToString("N2")</td>
+                                <td class="text-end">
+                                    @if (Model.TakeoutMarginPct.HasValue)
+                                    {
+                                        <span class="badge @BOMConfigureViewModel.GetMarginBadgeClass(Model.TakeoutMarginPct) rounded-pill" id="marginBadge_takeout">@Model.TakeoutMarginPct.Value.ToString("N1")%</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted" id="marginBadge_takeout">—</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        @if (Model.DeliveryPrice.HasValue)
+                        {
+                            <tr id="marginRow_delivery">
+                                <td style="color:#d97706;">Delivery</td>
+                                <td class="text-end">₹@Model.DeliveryPrice.Value.ToString("N2")</td>
+                                <td class="text-end">
+                                    @if (Model.DeliveryMarginPct.HasValue)
+                                    {
+                                        <span class="badge @BOMConfigureViewModel.GetMarginBadgeClass(Model.DeliveryMarginPct) rounded-pill" id="marginBadge_delivery">@Model.DeliveryMarginPct.Value.ToString("N1")%</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted" id="marginBadge_delivery">—</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        @if (Model.RoomServicePrice.HasValue)
+                        {
+                            <tr id="marginRow_roomsvc">
+                                <td style="color:#7c3aed;">Room Svc</td>
+                                <td class="text-end">₹@Model.RoomServicePrice.Value.ToString("N2")</td>
+                                <td class="text-end">
+                                    @if (Model.RoomServiceMarginPct.HasValue)
+                                    {
+                                        <span class="badge @BOMConfigureViewModel.GetMarginBadgeClass(Model.RoomServiceMarginPct) rounded-pill" id="marginBadge_roomsvc">@Model.RoomServiceMarginPct.Value.ToString("N1")%</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted" id="marginBadge_roomsvc">—</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <hr class="my-2">
                 <div class="row g-2 small">
                     <div class="col-6">
                         <div class="p-2 bg-white rounded-2 text-center border">
@@ -383,16 +467,6 @@
                         <div class="p-2 bg-white rounded-2 text-center border">
                             <div class="lbl">Portions</div>
                             <div class="fw-semibold" id="summaryYield">@Model.Yield</div>
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <div class="p-2 bg-white rounded-2 border text-center">
-                            <div class="lbl">Last Calculated</div>
-                            <div class="fw-semibold small" id="summaryLastCalc">
-                                @(Model.LastCalculated.HasValue
-                                    ? Model.LastCalculated.Value.ToString("dd MMM yyyy, HH:mm")
-                                    : "Not yet")
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -423,9 +497,12 @@
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
-const MENU_ITEM_ID  = @Model.MenuItemId;
-const SELLING_PRICE = @Model.SellingPrice;
-const TOKEN         = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+const MENU_ITEM_ID     = @Model.MenuItemId;
+const SELLING_PRICE    = @Model.SellingPrice;
+const TAKEOUT_PRICE    = @(Model.TakeoutPrice.HasValue     ? Model.TakeoutPrice.Value.ToString("F2",System.Globalization.CultureInfo.InvariantCulture)     : "null");
+const DELIVERY_PRICE   = @(Model.DeliveryPrice.HasValue    ? Model.DeliveryPrice.Value.ToString("F2",System.Globalization.CultureInfo.InvariantCulture)    : "null");
+const ROOMSVC_PRICE    = @(Model.RoomServicePrice.HasValue ? Model.RoomServicePrice.Value.ToString("F2",System.Globalization.CultureInfo.InvariantCulture) : "null");
+const TOKEN            = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
 
 // Ingredient lookup map built from server-rendered JSON
 const _ING_ARR = @Html.Raw(ingredientJson);
@@ -513,7 +590,7 @@ async function saveHeader() {
     });
 
     if (res.success) {
-        updateSummaryPanel(res.computedCost, res.grossMarginPct);
+        updateSummaryPanel(res.computedCost, res.grossMarginPct, res.takeoutMarginPct, res.deliveryMarginPct, res.roomServiceMarginPct);
         document.getElementById('summaryYield').textContent    = yield_;
         document.getElementById('summaryYieldPct').textContent = yieldPct.toFixed(0) + '%';
         showToast('BOM header saved.', 'success');
@@ -548,7 +625,7 @@ async function submitAddLine() {
 
     if (res.success) {
         hideAddForm();
-        updateSummaryPanel(res.computedCost, res.grossMarginPct);
+        updateSummaryPanel(res.computedCost, res.grossMarginPct, res.takeoutMarginPct, res.deliveryMarginPct, res.roomServiceMarginPct);
         showToast(res.message, 'success');
         setTimeout(() => location.reload(), 800);
     } else {
@@ -575,7 +652,7 @@ async function updateLineQty(lineId, ingredientId) {
             const lineCost = qty / conv * cost;
             document.getElementById('linecost-' + lineId).textContent = '₹' + lineCost.toFixed(4);
         }
-        updateSummaryPanel(res.computedCost, res.grossMarginPct);
+        updateSummaryPanel(res.computedCost, res.grossMarginPct, res.takeoutMarginPct, res.deliveryMarginPct, res.roomServiceMarginPct);
         showToast('Quantity updated.', 'success');
     } else {
         showToast(res.message || 'Update failed.', 'danger');
@@ -592,7 +669,7 @@ async function deleteBOMLine(lineId, name) {
         document.getElementById('line-' + lineId)?.remove();
         const remaining = document.querySelectorAll('#bomLinesBody tr.ingredient-line').length;
         document.getElementById('lineCountBadge').textContent = remaining;
-        updateSummaryPanel(res.computedCost, res.grossMarginPct);
+        updateSummaryPanel(res.computedCost, res.grossMarginPct, res.takeoutMarginPct, res.deliveryMarginPct, res.roomServiceMarginPct);
         showToast(res.message, 'success');
         if (remaining === 0) {
             document.getElementById('emptyLinesMsg')?.remove();
@@ -612,7 +689,7 @@ async function deleteBOMLine(lineId, name) {
 async function recalcCost() {
     const res = await postJSON('/BOM/RecalculateCost', { menuItemId: MENU_ITEM_ID });
     if (res.success) {
-        updateSummaryPanel(res.computedCost, res.grossMarginPct);
+        updateSummaryPanel(res.computedCost, res.grossMarginPct, res.takeoutMarginPct, res.deliveryMarginPct, res.roomServiceMarginPct);
         showToast('Cost recalculated.', 'success');
     } else {
         showToast(res.message || 'Recalculation failed.', 'danger');
@@ -695,21 +772,6 @@ $(function () {
 });
 
 // ─── Initial margin guidance ─────────────────────────────────────────────────
-(function () {
-    const costEl = document.getElementById('summaryBOMCost');
-    if (costEl && costEl.textContent.trim() !== '—') {
-        const marginEl = document.getElementById('summaryMargin');
-        const txt = marginEl ? marginEl.textContent.replace('%','').trim() : '';
-        const m = parseFloat(txt);
-        if (!isNaN(m)) {
-            const guideEl = document.getElementById('marginGuidance');
-            guideEl.textContent = m >= 60 ? '✅ Excellent margin'
-                : m >= 40 ? '⚠️ Acceptable – review costs'
-                : '❌ Low margin – consider repricing';
-            marginEl.className = 'margin-big ' +
-                (m >= 60 ? 'text-success' : m >= 40 ? 'text-warning' : 'text-danger');
-        }
-    }
-})();
+// No-op: badges are fully server-rendered on page load via Razor; JS only updates dynamically.
 </script>
 }

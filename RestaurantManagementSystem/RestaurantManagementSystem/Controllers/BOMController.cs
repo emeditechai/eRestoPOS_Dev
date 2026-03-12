@@ -158,17 +158,17 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
                 RecalcBOMCost(req.MenuItemId, branchId.Value);
 
                 var newCost = GetComputedCost(req.MenuItemId);
-                var sellingPrice = GetSellingPrice(req.MenuItemId);
-                decimal? margin = (newCost.HasValue && sellingPrice > 0)
-                    ? Math.Round((sellingPrice - newCost.Value) / sellingPrice * 100, 2)
-                    : null;
+                var (baseP, takeoutP, deliveryP, roomP) = GetAllPrices(req.MenuItemId);
 
                 return Json(new
                 {
-                    success      = true,
-                    computedCost = newCost,
-                    sellingPrice,
-                    grossMarginPct = margin,
+                    success              = true,
+                    computedCost         = newCost,
+                    sellingPrice         = baseP,
+                    grossMarginPct       = CalcMargin(baseP, newCost),
+                    takeoutMarginPct     = CalcMargin(takeoutP, newCost),
+                    deliveryMarginPct    = CalcMargin(deliveryP, newCost),
+                    roomServiceMarginPct = CalcMargin(roomP, newCost),
                     message = "BOM header saved."
                 });
             }
@@ -216,19 +216,19 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
                 RecalcBOMCost(req.MenuItemId, branchId.Value);
 
                 var newCost = GetComputedCost(req.MenuItemId);
-                var sellingPrice = GetSellingPrice(req.MenuItemId);
-                decimal? margin = (newCost.HasValue && sellingPrice > 0)
-                    ? Math.Round((sellingPrice - newCost.Value) / sellingPrice * 100, 2)
-                    : null;
+                var (baseP2, takeoutP2, deliveryP2, roomP2) = GetAllPrices(req.MenuItemId);
 
                 return Json(new
                 {
-                    success        = true,
-                    lineId         = savedLineId,
-                    computedCost   = newCost,
-                    sellingPrice,
-                    grossMarginPct = margin,
-                    message        = req.LineId == 0 ? "Ingredient added to BOM." : "BOM line updated."
+                    success              = true,
+                    lineId               = savedLineId,
+                    computedCost         = newCost,
+                    sellingPrice         = baseP2,
+                    grossMarginPct       = CalcMargin(baseP2, newCost),
+                    takeoutMarginPct     = CalcMargin(takeoutP2, newCost),
+                    deliveryMarginPct    = CalcMargin(deliveryP2, newCost),
+                    roomServiceMarginPct = CalcMargin(roomP2, newCost),
+                    message              = req.LineId == 0 ? "Ingredient added to BOM." : "BOM line updated."
                 });
             }
             catch (Exception ex)
@@ -265,18 +265,18 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
                 RecalcBOMCost(menuItemId, branchId.Value);
 
                 var newCost = GetComputedCost(menuItemId);
-                var sellingPrice = GetSellingPrice(menuItemId);
-                decimal? margin = (newCost.HasValue && sellingPrice > 0)
-                    ? Math.Round((sellingPrice - newCost.Value) / sellingPrice * 100, 2)
-                    : null;
+                var (baseP3, takeoutP3, deliveryP3, roomP3) = GetAllPrices(menuItemId);
 
                 return Json(new
                 {
-                    success        = true,
-                    computedCost   = newCost,
-                    sellingPrice,
-                    grossMarginPct = margin,
-                    message        = "Ingredient removed from BOM."
+                    success              = true,
+                    computedCost         = newCost,
+                    sellingPrice         = baseP3,
+                    grossMarginPct       = CalcMargin(baseP3, newCost),
+                    takeoutMarginPct     = CalcMargin(takeoutP3, newCost),
+                    deliveryMarginPct    = CalcMargin(deliveryP3, newCost),
+                    roomServiceMarginPct = CalcMargin(roomP3, newCost),
+                    message              = "Ingredient removed from BOM."
                 });
             }
             catch (Exception ex)
@@ -308,18 +308,18 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
                 RecalcBOMCost(req.MenuItemId, branchId.Value);
 
                 var newCost = GetComputedCost(req.MenuItemId);
-                var sellingPrice = GetSellingPrice(req.MenuItemId);
-                decimal? margin = (newCost.HasValue && sellingPrice > 0)
-                    ? Math.Round((sellingPrice - newCost.Value) / sellingPrice * 100, 2)
-                    : null;
+                var (baseP4, takeoutP4, deliveryP4, roomP4) = GetAllPrices(req.MenuItemId);
 
                 return Json(new
                 {
-                    success        = true,
-                    computedCost   = newCost,
-                    sellingPrice,
-                    grossMarginPct = margin,
-                    message        = "Cost recalculated."
+                    success              = true,
+                    computedCost         = newCost,
+                    sellingPrice         = baseP4,
+                    grossMarginPct       = CalcMargin(baseP4, newCost),
+                    takeoutMarginPct     = CalcMargin(takeoutP4, newCost),
+                    deliveryMarginPct    = CalcMargin(deliveryP4, newCost),
+                    roomServiceMarginPct = CalcMargin(roomP4, newCost),
+                    message              = "Cost recalculated."
                 });
             }
             catch (Exception ex)
@@ -343,6 +343,9 @@ SELECT
     mi.Name                                                  AS MenuItemName,
     c.Name                                                   AS CategoryName,
     ISNULL(mi.Price, 0)                                      AS SellingPrice,
+    mi.TakeoutPrice,
+    mi.DeliveryPrice,
+    mi.RoomServicePrice,
     ISNULL(bomCount.LineCount, 0)                            AS LineCount,
     r.ComputedCost,
     r.LastCostCalculatedAt
@@ -362,22 +365,28 @@ ORDER  BY c.Name, mi.Name", conn);
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                decimal sellingPrice = reader.GetDecimal(reader.GetOrdinal("SellingPrice"));
-                decimal? bomCost     = reader["ComputedCost"] == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("ComputedCost"));
-                decimal? margin      = (bomCost.HasValue && sellingPrice > 0)
+                decimal sellingPrice      = reader.GetDecimal(reader.GetOrdinal("SellingPrice"));
+                decimal? takeoutPrice     = reader["TakeoutPrice"]     == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("TakeoutPrice"));
+                decimal? deliveryPrice    = reader["DeliveryPrice"]    == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("DeliveryPrice"));
+                decimal? roomServicePrice = reader["RoomServicePrice"] == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("RoomServicePrice"));
+                decimal? bomCost          = reader["ComputedCost"]      == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("ComputedCost"));
+                decimal? margin           = (bomCost.HasValue && sellingPrice > 0)
                     ? Math.Round((sellingPrice - bomCost.Value) / sellingPrice * 100, 2)
                     : null;
 
                 list.Add(new BOMListItemViewModel
                 {
-                    MenuItemId      = reader.GetInt32(reader.GetOrdinal("MenuItemId")),
-                    MenuItemName    = reader["MenuItemName"]?.ToString() ?? "",
-                    CategoryName    = reader["CategoryName"]?.ToString(),
-                    SellingPrice    = sellingPrice,
-                    LineCount       = reader.GetInt32(reader.GetOrdinal("LineCount")),
-                    BOMCost         = bomCost,
-                    GrossMarginPct  = margin,
-                    LastCalculated  = reader["LastCostCalculatedAt"] == DBNull.Value
+                    MenuItemId       = reader.GetInt32(reader.GetOrdinal("MenuItemId")),
+                    MenuItemName     = reader["MenuItemName"]?.ToString() ?? "",
+                    CategoryName     = reader["CategoryName"]?.ToString(),
+                    SellingPrice     = sellingPrice,
+                    TakeoutPrice     = takeoutPrice,
+                    DeliveryPrice    = deliveryPrice,
+                    RoomServicePrice = roomServicePrice,
+                    LineCount        = reader.GetInt32(reader.GetOrdinal("LineCount")),
+                    BOMCost          = bomCost,
+                    GrossMarginPct   = margin,
+                    LastCalculated   = reader["LastCostCalculatedAt"] == DBNull.Value
                         ? null : (DateTime?)reader.GetDateTime(reader.GetOrdinal("LastCostCalculatedAt"))
                 });
             }
@@ -395,6 +404,7 @@ ORDER  BY c.Name, mi.Name", conn);
 SELECT
     mi.Id, mi.Name, c.Name AS CategoryName,
     ISNULL(mi.Price, 0) AS SellingPrice,
+    mi.TakeoutPrice, mi.DeliveryPrice, mi.RoomServicePrice,
     r.Id AS RecipeId,
     ISNULL(r.Yield, 1)                AS Yield,
     ISNULL(r.YieldPercentage, 100)    AS YieldPercentage,
@@ -414,16 +424,19 @@ WHERE mi.Id = @MenuItemId
 
                 vm = new BOMConfigureViewModel
                 {
-                    MenuItemId      = reader.GetInt32(reader.GetOrdinal("Id")),
-                    MenuItemName    = reader["Name"]?.ToString() ?? "",
-                    CategoryName    = reader["CategoryName"]?.ToString(),
-                    SellingPrice    = reader.GetDecimal(reader.GetOrdinal("SellingPrice")),
-                    RecipeId        = reader["RecipeId"]     == DBNull.Value ? null : (int?)reader.GetInt32(reader.GetOrdinal("RecipeId")),
-                    Yield           = reader.GetInt32(reader.GetOrdinal("Yield")),
-                    YieldPercentage = reader.GetDecimal(reader.GetOrdinal("YieldPercentage")),
-                    PrepTimeMinutes = reader["PreparationTimeMinutes"] == DBNull.Value ? null : (int?)reader.GetInt32(reader.GetOrdinal("PreparationTimeMinutes")),
-                    ComputedCost    = reader["ComputedCost"]  == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("ComputedCost")),
-                    LastCalculated  = reader["LastCostCalculatedAt"] == DBNull.Value ? null : (DateTime?)reader.GetDateTime(reader.GetOrdinal("LastCostCalculatedAt"))
+                    MenuItemId       = reader.GetInt32(reader.GetOrdinal("Id")),
+                    MenuItemName     = reader["Name"]?.ToString() ?? "",
+                    CategoryName     = reader["CategoryName"]?.ToString(),
+                    SellingPrice     = reader.GetDecimal(reader.GetOrdinal("SellingPrice")),
+                    TakeoutPrice     = reader["TakeoutPrice"]     == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("TakeoutPrice")),
+                    DeliveryPrice    = reader["DeliveryPrice"]    == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("DeliveryPrice")),
+                    RoomServicePrice = reader["RoomServicePrice"] == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("RoomServicePrice")),
+                    RecipeId         = reader["RecipeId"]     == DBNull.Value ? null : (int?)reader.GetInt32(reader.GetOrdinal("RecipeId")),
+                    Yield            = reader.GetInt32(reader.GetOrdinal("Yield")),
+                    YieldPercentage  = reader.GetDecimal(reader.GetOrdinal("YieldPercentage")),
+                    PrepTimeMinutes  = reader["PreparationTimeMinutes"] == DBNull.Value ? null : (int?)reader.GetInt32(reader.GetOrdinal("PreparationTimeMinutes")),
+                    ComputedCost     = reader["ComputedCost"]  == DBNull.Value ? null : (decimal?)reader.GetDecimal(reader.GetOrdinal("ComputedCost")),
+                    LastCalculated   = reader["LastCostCalculatedAt"] == DBNull.Value ? null : (DateTime?)reader.GetDateTime(reader.GetOrdinal("LastCostCalculatedAt"))
                 };
             }
 
@@ -747,6 +760,28 @@ WHERE  MenuItemId = @MenuItemId;
             var result = cmd.ExecuteScalar();
             return result == null || result == DBNull.Value ? 0 : (decimal)result;
         }
+
+        private (decimal Base, decimal? Takeout, decimal? Delivery, decimal? RoomService) GetAllPrices(int menuItemId)
+        {
+            using var conn = new SqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new SqlCommand(
+                "SELECT TOP 1 ISNULL(Price,0) AS BasePrice, TakeoutPrice, DeliveryPrice, RoomServicePrice FROM dbo.MenuItems WHERE Id = @Id", conn);
+            cmd.Parameters.AddWithValue("@Id", menuItemId);
+            using var rdr = cmd.ExecuteReader();
+            if (!rdr.Read()) return (0, null, null, null);
+            return (
+                rdr.GetDecimal(rdr.GetOrdinal("BasePrice")),
+                rdr["TakeoutPrice"]     == DBNull.Value ? null : (decimal?)rdr.GetDecimal(rdr.GetOrdinal("TakeoutPrice")),
+                rdr["DeliveryPrice"]    == DBNull.Value ? null : (decimal?)rdr.GetDecimal(rdr.GetOrdinal("DeliveryPrice")),
+                rdr["RoomServicePrice"] == DBNull.Value ? null : (decimal?)rdr.GetDecimal(rdr.GetOrdinal("RoomServicePrice"))
+            );
+        }
+
+        private static decimal? CalcMargin(decimal? price, decimal? cost) =>
+            (cost.HasValue && price.HasValue && price > 0)
+                ? Math.Round((price.Value - cost.Value) / price.Value * 100, 2)
+                : null;
 
         private bool MenuItemBelongsToBranch(int menuItemId, int branchId)
         {
