@@ -1,0 +1,662 @@
+@model RestaurantManagementSystem.Models.PurchaseOrderHeader
+@{
+    Layout = null;
+    var isIGST = Model.GSTType?.Equals("IGST", StringComparison.OrdinalIgnoreCase) ?? false;
+    var totalCGST = Model.Lines.Sum(l => l.CGSTAmount);
+    var totalSGST = Model.Lines.Sum(l => l.SGSTAmount);
+    var totalIGST = Model.Lines.Sum(l => l.IGSTAmount);
+    var totalTaxable = Model.Lines.Sum(l => l.TaxableAmount);
+    decimal sn = 1;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Purchase Order — @Model.PONumber</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            font-size: 12px;
+            color: #222;
+            background: #fff;
+            margin: 0;
+            padding: 0;
+        }
+
+        .po-page {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto;
+            padding: 12mm 14mm 14mm 14mm;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+        }
+        .po-content-spacer {
+            flex: 1;
+            min-height: 10px;
+        }
+
+        /* ── Header / Letterhead ── */
+        .letterhead {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            border-bottom: 2px solid #1a3c6e;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+        .company-logo {
+            max-height: 64px;
+            max-width: 120px;
+            object-fit: contain;
+        }
+        .company-logo-placeholder {
+            width: 64px;
+            height: 64px;
+            background: #e8edf5;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            color: #666;
+        }
+        .company-info h2 {
+            font-size: 17px;
+            font-weight: 700;
+            color: #1a3c6e;
+            margin: 0 0 2px 0;
+        }
+        .company-info p {
+            margin: 1px 0;
+            color: #444;
+            font-size: 11px;
+        }
+        .po-title-badge {
+            margin-left: auto;
+            text-align: right;
+        }
+        .po-title-badge h1 {
+            font-size: 22px;
+            font-weight: 800;
+            color: #1a3c6e;
+            letter-spacing: 2px;
+            margin: 0;
+        }
+        .po-title-badge .po-num {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-top: 4px;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            margin-top: 4px;
+            text-transform: uppercase;
+        }
+        .status-draft     { background: #f0f4ff; color: #1a3c6e; border: 1px solid #b0c0e0; }
+        .status-approved  { background: #e6f9f0; color: #186b3a; border: 1px solid #8ed4ac; }
+        .status-cancelled { background: #fff0f0; color: #b10000; border: 1px solid #f0a0a0; }
+        .status-closed    { background: #f5f5f5; color: #555;    border: 1px solid #bbb; }
+
+        /* ── Info Grid ── */
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .info-box {
+            border: 1px solid #d0d8e8;
+            border-radius: 6px;
+            padding: 8px 10px;
+        }
+        .info-box h6 {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #1a3c6e;
+            letter-spacing: 0.5px;
+            margin: 0 0 5px 0;
+            padding-bottom: 3px;
+            border-bottom: 1px solid #e0e6f0;
+        }
+        .info-row {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 2px;
+        }
+        .info-label {
+            font-weight: 600;
+            color: #555;
+            min-width: 90px;
+            font-size: 11px;
+        }
+        .info-value {
+            color: #222;
+            font-size: 11px;
+        }
+
+        /* ── Line Items Table ── */
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8px;
+            font-size: 10.5px;
+        }
+        .items-table thead tr {
+            background: #1a3c6e;
+            color: #fff;
+        }
+        .items-table th {
+            padding: 5px 5px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 10px;
+            border: 1px solid #1a3c6e;
+            white-space: nowrap;
+        }
+        .items-table th.text-start { text-align: left; }
+        .items-table td {
+            padding: 4px 5px;
+            border: 1px solid #d0d8e8;
+            vertical-align: middle;
+        }
+        .items-table tbody tr:nth-child(even) { background: #f7f9fc; }
+        .items-table td.num   { text-align: right; }
+        .items-table td.ctr   { text-align: center; }
+        .items-table tfoot tr { background: #e8edf5; font-weight: 700; }
+        .items-table tfoot td { padding: 5px 5px; border: 1px solid #b0c0e0; font-size: 11px; }
+
+        /* ── GST Summary ── */
+        .gst-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: start;
+        }
+        .gst-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+        }
+        .gst-table th {
+            background: #e8edf5;
+            padding: 4px 7px;
+            font-weight: 700;
+            border: 1px solid #c0cce0;
+            text-align: right;
+            color: #1a3c6e;
+        }
+        .gst-table th:first-child { text-align: left; }
+        .gst-table td {
+            padding: 3px 7px;
+            border: 1px solid #d0d8e8;
+            text-align: right;
+        }
+        .gst-table td:first-child { text-align: left; }
+
+        .totals-box {
+            border: 1px solid #c0cce0;
+            border-radius: 6px;
+            padding: 8px 12px;
+        }
+        .totals-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 3px 0;
+            font-size: 11px;
+        }
+        .totals-row.grand {
+            border-top: 2px solid #1a3c6e;
+            margin-top: 4px;
+            padding-top: 5px;
+            font-size: 13px;
+            font-weight: 800;
+            color: #1a3c6e;
+        }
+        .totals-row .t-lbl { font-weight: 600; color: #444; }
+        .totals-row .t-val { font-weight: 700; }
+
+        /* ── Remarks / Footer ── */
+        .remarks-box {
+            border: 1px solid #d0d8e8;
+            border-radius: 6px;
+            padding: 7px 10px;
+            margin-bottom: 10px;
+            font-size: 11px;
+        }
+        .remarks-box h6 {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #1a3c6e;
+            margin: 0 0 4px 0;
+        }
+
+        .footer-sig {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 16px;
+            padding-top: 10px;
+            border-top: 1px solid #d0d8e8;
+        }
+        .sig-box {
+            text-align: center;
+        }
+        .sig-line {
+            border-top: 1px solid #888;
+            margin-top: 36px;
+            padding-top: 4px;
+            font-size: 10px;
+            color: #555;
+        }
+
+        .print-info {
+            text-align: center;
+            font-size: 9px;
+            color: #aaa;
+            margin-top: 12px;
+        }
+
+        /* ── Screen-only controls ── */
+        .screen-only {
+            position: fixed;
+            top: 12px;
+            right: 16px;
+            z-index: 9999;
+            display: flex;
+            gap: 8px;
+        }
+
+        @@media print {
+            @@page {
+                size: A4 portrait;
+                margin: 10mm 12mm 12mm 12mm;
+            }
+            html, body { margin: 0; padding: 0; }
+            .po-page {
+                width: 100%;
+                padding: 0;
+                min-height: auto;          /* CRITICAL: prevents blank second page */
+                display: block;
+                padding-bottom: 28mm;      /* keep content clear of fixed footer */
+            }
+            .po-content-spacer { display: none; }
+            .screen-only { display: none !important; }
+            /* Pin signature block to the very bottom of the page */
+            .footer-sig {
+                position: fixed;
+                bottom: 8mm;
+                left: 12mm;
+                right: 12mm;
+                border-top: 1px solid #d0d8e8;
+                padding-top: 8px;
+                margin-top: 0;
+                background: #fff;
+            }
+            .print-info {
+                position: fixed;
+                bottom: 2mm;
+                left: 0;
+                right: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Screen-only buttons -->
+<div class="screen-only">
+    <button onclick="window.print()" class="btn btn-primary btn-sm">
+        🖨️ Print / Save PDF
+    </button>
+    <button onclick="window.close()" class="btn btn-outline-secondary btn-sm">
+        ✕ Close
+    </button>
+</div>
+
+<div class="po-page">
+
+    <!-- ── LETTERHEAD ── -->
+    <div class="letterhead">
+        <div>
+            @if (!string.IsNullOrWhiteSpace(Model.CompanyLogoPath))
+            {
+                <img src="@Model.CompanyLogoPath" class="company-logo" alt="Logo" />
+            }
+            else
+            {
+                <div class="company-logo-placeholder">LOGO</div>
+            }
+        </div>
+        <div class="company-info">
+            <h2>@(Model.CompanyName ?? "Restaurant")</h2>
+            @if (!string.IsNullOrWhiteSpace(Model.CompanyAddress))
+            {
+                <p>@Model.CompanyAddress@(string.IsNullOrWhiteSpace(Model.CompanyCity) ? "" : $", {Model.CompanyCity}")@(string.IsNullOrWhiteSpace(Model.CompanyState) ? "" : $", {Model.CompanyState}")@(string.IsNullOrWhiteSpace(Model.CompanyPincode) ? "" : $" - {Model.CompanyPincode}")</p>
+            }
+            @if (!string.IsNullOrWhiteSpace(Model.CompanyPhone))  { <p>📞 @Model.CompanyPhone</p> }
+            @if (!string.IsNullOrWhiteSpace(Model.CompanyEmail))   { <p>✉ @Model.CompanyEmail</p> }
+            @if (!string.IsNullOrWhiteSpace(Model.CompanyGSTIN))   { <p><strong>GSTIN:</strong> @Model.CompanyGSTIN</p> }
+            @if (!string.IsNullOrWhiteSpace(Model.CompanyFssaiNo)) { <p><strong>FSSAI:</strong> @Model.CompanyFssaiNo</p> }
+        </div>
+        <div class="po-title-badge">
+            <h1>PURCHASE ORDER</h1>
+            <div class="po-num">@Model.PONumber</div>
+            <div>
+                @{
+                    var sc = (Model.Status ?? "Draft").ToLower();
+                    var scClass = sc switch {
+                        "approved" => "status-approved",
+                        "cancelled" => "status-cancelled",
+                        "closed" => "status-closed",
+                        _ => "status-draft"
+                    };
+                }
+                <span class="status-badge @scClass">@Model.Status</span>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Model.BranchName))
+            {
+                <div style="font-size:10px; color:#666; margin-top:5px;">Branch: @Model.BranchName</div>
+            }
+        </div>
+    </div>
+
+    <!-- ── INFO GRID: PO Details + Supplier ── -->
+    <div class="info-grid">
+        <div class="info-box">
+            <h6>PO Details</h6>
+            <div class="info-row">
+                <span class="info-label">PO Number</span>
+                <span class="info-value">@Model.PONumber</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">PO Date</span>
+                <span class="info-value">@Model.PODate.ToString("dd MMM yyyy")</span>
+            </div>
+            @if (Model.ExpectedDate.HasValue)
+            {
+                <div class="info-row">
+                    <span class="info-label">Expected By</span>
+                    <span class="info-value">@Model.ExpectedDate.Value.ToString("dd MMM yyyy")</span>
+                </div>
+            }
+            <div class="info-row">
+                <span class="info-label">GST Type</span>
+                <span class="info-value">@Model.GSTType</span>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Model.PaymentTerms))
+            {
+                <div class="info-row">
+                    <span class="info-label">Payment Terms</span>
+                    <span class="info-value">@Model.PaymentTerms</span>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(Model.GodownName))
+            {
+                <div class="info-row">
+                    <span class="info-label">Deliver To</span>
+                    <span class="info-value">@Model.GodownName</span>
+                </div>
+            }
+        </div>
+
+        <div class="info-box">
+            <h6>Supplier / Vendor</h6>
+            @if (!string.IsNullOrWhiteSpace(Model.SupplierName))
+            {
+                <div class="info-row">
+                    <span class="info-label">Name</span>
+                    <span class="info-value" style="font-weight:700;">@Model.SupplierName</span>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(Model.SupplierAddress))
+            {
+                <div class="info-row">
+                    <span class="info-label">Address</span>
+                    <span class="info-value">@Model.SupplierAddress@(string.IsNullOrWhiteSpace(Model.SupplierPinCode) ? "" : $" – {Model.SupplierPinCode}")</span>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(Model.SupplierPhone))
+            {
+                <div class="info-row">
+                    <span class="info-label">Phone</span>
+                    <span class="info-value">@Model.SupplierPhone</span>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(Model.SupplierEmail))
+            {
+                <div class="info-row">
+                    <span class="info-label">Email</span>
+                    <span class="info-value">@Model.SupplierEmail</span>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(Model.SupplierGST))
+            {
+                <div class="info-row">
+                    <span class="info-label">GSTIN</span>
+                    <span class="info-value">@Model.SupplierGST</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- ── LINE ITEMS ── -->
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width:28px">#</th>
+                <th class="text-start" style="min-width:120px">Item</th>
+                <th style="width:55px">Code</th>
+                <th style="width:40px">Qty</th>
+                <th style="width:35px">UOM</th>
+                <th style="width:60px">Rate (₹)</th>
+                <th style="width:65px">Taxable (₹)</th>
+                @if (!isIGST)
+                {
+                    <th style="width:40px">CGST%</th>
+                    <th style="width:55px">CGST (₹)</th>
+                    <th style="width:40px">SGST%</th>
+                    <th style="width:55px">SGST (₹)</th>
+                }
+                else
+                {
+                    <th style="width:40px">IGST%</th>
+                    <th style="width:55px">IGST (₹)</th>
+                }
+                <th style="width:65px">Net Amt (₹)</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var line in Model.Lines)
+            {
+                <tr>
+                    <td class="ctr">@(sn++)</td>
+                    <td>@line.ItemName</td>
+                    <td class="ctr">@line.ItemCode</td>
+                    <td class="num">@line.OrderedQty.ToString("N2")</td>
+                    <td class="ctr">@(line.UOMCode ?? line.UOMName)</td>
+                    <td class="num">@line.UnitRate.ToString("N2")</td>
+                    <td class="num">@line.TaxableAmount.ToString("N2")</td>
+                    @if (!isIGST)
+                    {
+                        <td class="ctr">@line.CGSTPercent.ToString("N1")%</td>
+                        <td class="num">@line.CGSTAmount.ToString("N2")</td>
+                        <td class="ctr">@line.SGSTPercent.ToString("N1")%</td>
+                        <td class="num">@line.SGSTAmount.ToString("N2")</td>
+                    }
+                    else
+                    {
+                        <td class="ctr">@line.IGSTPercent.ToString("N1")%</td>
+                        <td class="num">@line.IGSTAmount.ToString("N2")</td>
+                    }
+                    <td class="num" style="font-weight:700;">@line.NetAmount.ToString("N2")</td>
+                </tr>
+            }
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="@(isIGST ? 6 : 6)" class="text-end" style="font-weight:700;">Total</td>
+                <td class="num">@totalTaxable.ToString("N2")</td>
+                @if (!isIGST)
+                {
+                    <td></td>
+                    <td class="num">@totalCGST.ToString("N2")</td>
+                    <td></td>
+                    <td class="num">@totalSGST.ToString("N2")</td>
+                }
+                else
+                {
+                    <td></td>
+                    <td class="num">@totalIGST.ToString("N2")</td>
+                }
+                <td class="num">@Model.TotalAmount.ToString("N2")</td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <!-- ── GST SUMMARY + TOTALS ── -->
+    <div class="gst-container">
+        <!-- GST Breakup table -->
+        <div>
+            <h6 style="font-size:10px; font-weight:700; text-transform:uppercase; color:#1a3c6e; margin-bottom:5px; letter-spacing:.3px;">GST Summary</h6>
+            <table class="gst-table">
+                <thead>
+                    <tr>
+                        <th>Tax Rate</th>
+                        <th>Taxable Amt</th>
+                        @if (!isIGST) { <th>CGST</th><th>SGST</th> }
+                        else           { <th>IGST</th> }
+                        <th>Total Tax</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{
+                        var gstGroups = Model.Lines
+                            .GroupBy(l => l.GSTPercent)
+                            .OrderBy(g => g.Key);
+                    }
+                    @foreach (var grp in gstGroups)
+                    {
+                        <tr>
+                            <td>@grp.Key.ToString("N1")%</td>
+                            <td>@grp.Sum(l => l.TaxableAmount).ToString("N2")</td>
+                            @if (!isIGST)
+                            {
+                                <td>@grp.Sum(l => l.CGSTAmount).ToString("N2")</td>
+                                <td>@grp.Sum(l => l.SGSTAmount).ToString("N2")</td>
+                            }
+                            else
+                            {
+                                <td>@grp.Sum(l => l.IGSTAmount).ToString("N2")</td>
+                            }
+                            <td>@grp.Sum(l => l.TotalGSTLineAmt).ToString("N2")</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr style="font-weight:700; background:#e8edf5;">
+                        <td>Total</td>
+                        <td>@totalTaxable.ToString("N2")</td>
+                        @if (!isIGST)
+                        {
+                            <td>@totalCGST.ToString("N2")</td>
+                            <td>@totalSGST.ToString("N2")</td>
+                        }
+                        else
+                        {
+                            <td>@totalIGST.ToString("N2")</td>
+                        }
+                        <td>@Model.TotalGSTAmount.ToString("N2")</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <!-- Totals box -->
+        <div class="totals-box">
+            <div class="totals-row">
+                <span class="t-lbl">Sub Total (Taxable)</span>
+                <span class="t-val">₹ @Model.SubTotal.ToString("N2")</span>
+            </div>
+            @if (!isIGST)
+            {
+                <div class="totals-row">
+                    <span class="t-lbl">Total CGST</span>
+                    <span class="t-val">₹ @totalCGST.ToString("N2")</span>
+                </div>
+                <div class="totals-row">
+                    <span class="t-lbl">Total SGST</span>
+                    <span class="t-val">₹ @totalSGST.ToString("N2")</span>
+                </div>
+            }
+            else
+            {
+                <div class="totals-row">
+                    <span class="t-lbl">Total IGST</span>
+                    <span class="t-val">₹ @totalIGST.ToString("N2")</span>
+                </div>
+            }
+            <div class="totals-row">
+                <span class="t-lbl">Total GST</span>
+                <span class="t-val">₹ @Model.TotalGSTAmount.ToString("N2")</span>
+            </div>
+            <div class="totals-row grand">
+                <span>GRAND TOTAL</span>
+                <span>₹ @Model.TotalAmount.ToString("N2")</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── REMARKS ── -->
+    @if (!string.IsNullOrWhiteSpace(Model.Remarks))
+    {
+        <div class="remarks-box">
+            <h6>Remarks / Terms</h6>
+            <div>@Model.Remarks</div>
+        </div>
+    }
+
+    <!-- Spacer pushes the footer to the bottom (screen view only) -->
+    <div class="po-content-spacer"></div>
+
+    <!-- ── FOOTER / SIGNATURES ── -->
+    <div class="footer-sig">
+        <div class="sig-box">
+            <div class="sig-line">Supplier Acknowledgement</div>
+        </div>
+        <div class="sig-box">
+            <div class="sig-line">Authorised Signatory</div>
+            <div style="font-size:10px; color:#555; margin-top:3px;">For @(Model.CompanyName ?? "")</div>
+        </div>
+    </div>
+
+    <div class="print-info">
+        Generated on @DateTime.Now.ToString("dd MMM yyyy hh:mm tt")
+        &nbsp;|&nbsp;
+        This is a computer-generated document.
+    </div>
+
+</div>
+
+<script>
+    window.onload = function () {
+        // Small delay to ensure CSS/fonts are loaded before printing
+        setTimeout(function () { window.print(); }, 600);
+    };
+</script>
+</body>
+</html>

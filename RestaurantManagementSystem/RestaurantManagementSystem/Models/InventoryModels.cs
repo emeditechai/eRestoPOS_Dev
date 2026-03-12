@@ -111,9 +111,26 @@ namespace RestaurantManagementSystem.Models
         // Display helpers
         public string? GodownName { get; set; }
         public string? GodownCode { get; set; }
-        public string? SupplierName { get; set; }
-        public string? SupplierGST { get; set; }
-        public string? SupplierPhone { get; set; }
+        public string? SupplierName    { get; set; }
+        public string? SupplierGST     { get; set; }
+        public string? SupplierPhone   { get; set; }
+        public string? SupplierAddress { get; set; }
+        public string? SupplierEmail   { get; set; }
+        public string? SupplierPinCode { get; set; }
+        public string? BranchName      { get; set; }
+
+        // Company / restaurant fields (from RestaurantSettings, for print)
+        public string? CompanyName    { get; set; }
+        public string? CompanyAddress { get; set; }
+        public string? CompanyCity    { get; set; }
+        public string? CompanyState   { get; set; }
+        public string? CompanyPincode { get; set; }
+        public string? CompanyPhone   { get; set; }
+        public string? CompanyEmail   { get; set; }
+        public string? CompanyGSTIN   { get; set; }
+        public string? CompanyLogoPath{ get; set; }
+        public string? CompanyFssaiNo { get; set; }
+
         public int LineCount { get; set; }
 
         public List<PurchaseOrderLine> Lines { get; set; } = new();
@@ -147,7 +164,9 @@ namespace RestaurantManagementSystem.Models
         public decimal CGSTAmount    { get; set; }
         public decimal SGSTAmount    { get; set; }
         public decimal IGSTAmount    { get; set; }
-        public decimal TaxableAmount { get; set; }
+        public decimal TaxableAmount   { get; set; }
+        public decimal TotalGSTLineAmt { get; set; }
+        public decimal NetAmount       { get; set; }
 
         [StringLength(200)]
         public string? Remarks { get; set; }
@@ -195,9 +214,27 @@ namespace RestaurantManagementSystem.Models
         public DateTime? CreatedAt { get; set; }
 
         // Display helpers
-        public string? GodownName { get; set; }
-        public string? SupplierName { get; set; }
-        public string? PONumber { get; set; }
+        public string? GodownName     { get; set; }
+        public string? SupplierName   { get; set; }
+        public string? SupplierPhone  { get; set; }
+        public string? SupplierAddress{ get; set; }
+        public string? SupplierEmail  { get; set; }
+        public string? SupplierPinCode{ get; set; }
+        public string? PONumber       { get; set; }
+        public string? BranchName     { get; set; }
+
+        // Company / restaurant fields (from RestaurantSettings, for print)
+        public string? CompanyName    { get; set; }
+        public string? CompanyAddress { get; set; }
+        public string? CompanyCity    { get; set; }
+        public string? CompanyState   { get; set; }
+        public string? CompanyPincode { get; set; }
+        public string? CompanyPhone   { get; set; }
+        public string? CompanyEmail   { get; set; }
+        public string? CompanyGSTIN   { get; set; }
+        public string? CompanyLogoPath{ get; set; }
+        public string? CompanyFssaiNo { get; set; }
+
         public int LineCount { get; set; }
 
         public List<GRNLine> Lines { get; set; } = new();
@@ -225,7 +262,16 @@ namespace RestaurantManagementSystem.Models
 
         [StringLength(200)]
         public string? Remarks { get; set; }
-
+        // GST breakdown (computed by print SP)
+        public decimal TaxableAmount   { get; set; }
+        public decimal CGSTPercent     { get; set; }
+        public decimal SGSTPercent     { get; set; }
+        public decimal IGSTPercent     { get; set; }
+        public decimal CGSTAmount      { get; set; }
+        public decimal SGSTAmount      { get; set; }
+        public decimal IGSTAmount      { get; set; }
+        public decimal TotalGSTLineAmt { get; set; }
+        public decimal NetAmount       { get; set; }
         // Display helpers
         public string? ItemName { get; set; }
         public string? ItemCode { get; set; }
@@ -522,6 +568,7 @@ namespace RestaurantManagementSystem.Models
 
         public List<TopConsumedItem> TopConsumedItems { get; set; } = new();
         public List<LowStockAlert> LowStockAlerts { get; set; } = new();
+        public List<ReorderSuggestion> ReorderSuggestions { get; set; } = new();
     }
 
     public class TopConsumedItem
@@ -540,6 +587,22 @@ namespace RestaurantManagementSystem.Models
         public decimal? ReorderLevel { get; set; }
         public string? UOMCode { get; set; }
         public string? GodownName { get; set; }
+        public decimal AvgDailyConsumption { get; set; }
+        public int DaysRemaining { get; set; }
+    }
+
+    public class ReorderSuggestion
+    {
+        public string? ItemName { get; set; }
+        public string? ItemCode { get; set; }
+        public decimal BalanceQty { get; set; }
+        public decimal ReorderLevel { get; set; }
+        public string? UOMCode { get; set; }
+        public string? GodownName { get; set; }
+        public decimal AvgDailyConsumption { get; set; }
+        public int DaysRemaining { get; set; }
+        public decimal SuggestedOrderQty { get; set; }
+        public decimal LastPurchasePrice { get; set; }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

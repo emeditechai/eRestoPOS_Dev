@@ -4,6 +4,7 @@ using RestaurantManagementSystem.Middleware;
 using RestaurantManagementSystem.Filters;
 using RestaurantManagementSystem.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using RestaurantManagementSystem.Utilities;
@@ -26,6 +27,15 @@ namespace RestaurantManagementSystem
             });
             builder.Services.AddMemoryCache();
             builder.Services.AddHttpContextAccessor();
+
+            // Persist Data Protection keys to disk so auth cookies survive server restarts.
+            // Without this, every restart generates new keys and invalidates all existing cookies.
+            var keysDir = new DirectoryInfo(
+                Path.Combine(builder.Environment.ContentRootPath, ".dpkeys"));
+            if (!keysDir.Exists) keysDir.Create();
+            builder.Services.AddDataProtection()
+                .PersistKeysToFileSystem(keysDir)
+                .SetApplicationName("eRestoPOS");
 
             // Session storage (used for POS counter selection and other per-user state)
             builder.Services.AddDistributedMemoryCache();

@@ -198,6 +198,59 @@ namespace RestaurantManagementSystem.Controllers
         }
 
         // ═══════════════════════════════════════════════════════════════
+        //  PRINT PO
+        // ═══════════════════════════════════════════════════════════════
+
+        [HttpGet]
+        public IActionResult PrintPO(int id)
+        {
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand("usp_GetPOForPrint", con)
+                    { CommandType = CommandType.StoredProcedure };
+                cmd.Parameters.AddWithValue("@POId", id);
+                using var rdr = cmd.ExecuteReader();
+
+                PurchaseOrderHeader? vm = null;
+                if (rdr.Read())
+                {
+                    vm = MapPOHeader(rdr);
+                    vm.SupplierAddress  = GetStr(rdr, "SupplierAddress");
+                    vm.SupplierEmail    = GetStr(rdr, "SupplierEmail");
+                    vm.SupplierPinCode  = GetStr(rdr, "SupplierPinCode");
+                    vm.SupplierPhone    = GetStr(rdr, "SupplierPhone");
+                    vm.SupplierGST      = GetStr(rdr, "SupplierGST");
+                    vm.BranchName       = GetStr(rdr, "BranchName");
+                    vm.CompanyName      = GetStr(rdr, "CompanyName");
+                    vm.CompanyAddress   = GetStr(rdr, "CompanyAddress");
+                    vm.CompanyCity      = GetStr(rdr, "CompanyCity");
+                    vm.CompanyState     = GetStr(rdr, "CompanyState");
+                    vm.CompanyPincode   = GetStr(rdr, "CompanyPincode");
+                    vm.CompanyPhone     = GetStr(rdr, "CompanyPhone");
+                    vm.CompanyEmail     = GetStr(rdr, "CompanyEmail");
+                    vm.CompanyGSTIN     = GetStr(rdr, "CompanyGSTIN");
+                    vm.CompanyLogoPath  = GetStr(rdr, "CompanyLogoPath");
+                    vm.CompanyFssaiNo   = GetStr(rdr, "CompanyFssaiNo");
+                    vm.ExpectedDate     = TryGetDate(rdr, "ExpectedDate");
+                }
+
+                if (vm == null) return RedirectToAction(nameof(Index));
+
+                if (rdr.NextResult())
+                    while (rdr.Read())
+                        vm.Lines.Add(MapPOLine(rdr));
+
+                return View(vm);
+            }
+            catch
+            {
+                return RedirectToAction(nameof(Details), new { id });
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
         //  APPROVE / CANCEL
         // ═══════════════════════════════════════════════════════════════
 
@@ -521,15 +574,17 @@ namespace RestaurantManagementSystem.Controllers
             CGSTPercent   = GetDecimal(r, "CGSTPercent"),
             SGSTPercent   = GetDecimal(r, "SGSTPercent"),
             IGSTPercent   = GetDecimal(r, "IGSTPercent"),
-            TaxableAmount = GetDecimal(r, "TaxableAmount"),
-            CGSTAmount    = GetDecimal(r, "CGSTAmount"),
-            SGSTAmount    = GetDecimal(r, "SGSTAmount"),
-            IGSTAmount    = GetDecimal(r, "IGSTAmount"),
-            Remarks       = GetStr(r, "Remarks"),
-            ItemName      = GetStr(r, "ItemName"),
-            ItemCode      = GetStr(r, "ItemCode"),
-            UOMCode       = GetStr(r, "UOMCode"),
-            UOMName       = GetStr(r, "UOMName")
+            TaxableAmount    = GetDecimal(r, "TaxableAmount"),
+            CGSTAmount       = GetDecimal(r, "CGSTAmount"),
+            SGSTAmount       = GetDecimal(r, "SGSTAmount"),
+            IGSTAmount       = GetDecimal(r, "IGSTAmount"),
+            TotalGSTLineAmt  = GetDecimal(r, "TotalGSTLineAmt"),
+            NetAmount        = GetDecimal(r, "NetAmount"),
+            Remarks          = GetStr(r, "Remarks"),
+            ItemName         = GetStr(r, "ItemName"),
+            ItemCode         = GetStr(r, "ItemCode"),
+            UOMCode          = GetStr(r, "UOMCode"),
+            UOMName          = GetStr(r, "UOMName")
         };
 
         private static int GetInt(SqlDataReader r, string col)

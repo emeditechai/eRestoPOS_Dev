@@ -48,9 +48,9 @@
     }
 
     <!-- KPI Cards Row -->
-    <div class="row g-3 mb-4">
+    <div class="row g-3 mb-3">
         <!-- Total Stock Value -->
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4 col-xl">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body d-flex align-items-center gap-3 p-3">
                     <div class="rounded-3 bg-success bg-opacity-10 p-3 fs-4 text-success">
@@ -64,7 +64,7 @@
             </div>
         </div>
         <!-- Low Stock -->
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4 col-xl">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body d-flex align-items-center gap-3 p-3">
                     <div class="rounded-3 bg-danger bg-opacity-10 p-3 fs-4 text-danger">
@@ -72,13 +72,13 @@
                     </div>
                     <div>
                         <div class="text-muted small">Low Stock Items</div>
-                        <div class="fw-bold fs-5 text-danger">@Model.LowStockItems</div>
+                        <div class="fw-bold fs-5 @(Model.LowStockItems > 0 ? "text-danger" : "text-success")">@Model.LowStockItems</div>
                     </div>
                 </div>
             </div>
         </div>
         <!-- Pending GRN -->
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4 col-xl">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body d-flex align-items-center gap-3 p-3">
                     <div class="rounded-3 bg-warning bg-opacity-10 p-3 fs-4 text-warning">
@@ -92,7 +92,7 @@
             </div>
         </div>
         <!-- Today's Purchase -->
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4 col-xl">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body d-flex align-items-center gap-3 p-3">
                     <div class="rounded-3 bg-primary bg-opacity-10 p-3 fs-4 text-primary">
@@ -105,10 +105,89 @@
                 </div>
             </div>
         </div>
+        <!-- Today's Consumption -->
+        <div class="col-6 col-md-4 col-xl">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body d-flex align-items-center gap-3 p-3">
+                    <div class="rounded-3 bg-danger bg-opacity-10 p-3 fs-4 text-danger">
+                        <i class="fas fa-fire-flame-curved"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small">Today's Consumption</div>
+                        <div class="fw-bold fs-5 text-danger">₹@Model.TodayConsumption.ToString("N0")</div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <!-- Row 2: Module Shortcuts -->
-    <div class="row g-3 mb-4">
+    <!-- Row 2: Purchase vs Consumption Bar -->
+    @{
+        var purchaseVal    = (double)Model.TodayPurchase;
+        var consumptionVal = (double)Model.TodayConsumption;
+        var maxBarVal      = Math.Max(purchaseVal, consumptionVal);
+        var purchasePct    = maxBarVal > 0 ? (int)Math.Round(purchaseVal    / maxBarVal * 100) : 0;
+        var consumptionPct = maxBarVal > 0 ? (int)Math.Round(consumptionVal / maxBarVal * 100) : 0;
+    }
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body py-3 px-4">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <span class="fw-semibold small text-muted"><i class="fas fa-balance-scale me-1 text-info"></i>Today: Purchase vs Consumption</span>
+                <span style="font-size:11px">
+                    @if (purchaseVal > consumptionVal && purchaseVal > 0)
+                    { <span class="text-success fw-semibold"><i class="fas fa-arrow-up me-1"></i>Purchased more than consumed</span> }
+                    else if (consumptionVal > 0 && consumptionVal > purchaseVal)
+                    { <span class="text-warning fw-semibold"><i class="fas fa-fire me-1"></i>Consumption exceeds today's purchase</span> }
+                    else
+                    { <span class="text-muted">No activity today</span> }
+                </span>
+            </div>
+            <div class="row g-2 align-items-center">
+                <div class="col-auto text-end" style="width:140px">
+                    <div class="small fw-semibold text-primary">Purchase</div>
+                    <div class="fw-bold text-primary">₹@Model.TodayPurchase.ToString("N0")</div>
+                </div>
+                <div class="col">
+                    <div class="progress mb-1" style="height:12px;border-radius:6px">
+                        <div class="progress-bar bg-primary" style="width:@purchasePct%"
+                             title="₹@Model.TodayPurchase.ToString("N0")"></div>
+                    </div>
+                    <div class="progress" style="height:12px;border-radius:6px">
+                        <div class="progress-bar bg-danger" style="width:@consumptionPct%"
+                             title="₹@Model.TodayConsumption.ToString("N0")"></div>
+                    </div>
+                </div>
+                <div class="col-auto" style="width:140px">
+                    <div class="small fw-semibold text-danger">Consumption</div>
+                    <div class="fw-bold text-danger">₹@Model.TodayConsumption.ToString("N0")</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 3: Quick Stock Check -->
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-white border-bottom py-2 fw-semibold text-muted">
+            <i class="fas fa-magnifying-glass me-2 text-info"></i>Quick Stock Check
+            <span class="float-end fw-normal text-muted" style="font-size:11px">Search any ingredient instantly</span>
+        </div>
+        <div class="card-body py-3 px-4">
+            <div class="row g-2 align-items-start">
+                <div class="col-md-3">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white"><i class="fas fa-search text-muted"></i></span>
+                        <input type="text" id="qsInput" class="form-control" placeholder="Type ingredient name…" autocomplete="off">
+                    </div>
+                </div>
+                <div class="col-md-9" id="quickStockResult">
+                    <div class="text-muted small pt-1"><i class="fas fa-info-circle me-1"></i>Type at least 2 characters to search.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 4: Module Shortcuts -->
+    <div class="row g-3 mb-3">
         <div class="col-12">
             <div class="card border-0 shadow-sm">
                 <div class="card-header bg-white border-bottom py-2 fw-semibold text-muted">
@@ -145,7 +224,7 @@
     </div>
 
     <!-- Bottom Row: Top Consumed + Low Stock Alerts -->
-    <div class="row g-3">
+    <div class="row g-3 mb-3">
         <!-- Top Consumed Items -->
         <div class="col-md-6">
             <div class="card border-0 shadow-sm h-100">
@@ -213,12 +292,18 @@
                                     <tr>
                                         <th class="ps-3">Item</th>
                                         <th class="text-end">Balance</th>
-                                        <th class="text-end pe-3">Reorder</th>
+                                        <th class="text-end">Reorder</th>
+                                        <th class="text-end pe-3">Days Left</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @foreach (var a in Model.LowStockAlerts)
                                     {
+                                        var daysClass = a.DaysRemaining == 999 ? "badge bg-secondary-subtle text-secondary"
+                                                      : a.DaysRemaining <= 3   ? "badge bg-danger text-white"
+                                                      : a.DaysRemaining <= 7   ? "badge bg-warning text-dark"
+                                                      : "badge bg-success-subtle text-success";
+                                        var daysLabel = a.DaysRemaining == 999 ? "N/A" : $"{a.DaysRemaining}d";
                                         <tr>
                                             <td class="ps-3">
                                                 <div class="fw-semibold text-danger small">@a.ItemName</div>
@@ -227,8 +312,9 @@
                                             <td class="text-end">
                                                 <span class="badge bg-danger">@a.BalanceQty.ToString("N2") @a.UOMCode</span>
                                             </td>
-                                            <td class="text-end pe-3 text-muted small">
-                                                @(a.ReorderLevel?.ToString("N2") ?? "—")
+                                            <td class="text-end text-muted small">@(a.ReorderLevel?.ToString("N2") ?? "—")</td>
+                                            <td class="text-end pe-3">
+                                                <span class="@daysClass px-2">@daysLabel</span>
                                             </td>
                                         </tr>
                                     }
@@ -247,11 +333,134 @@
             </div>
         </div>
     </div>
+
+    <!-- Reorder Suggestions -->
+    @if (Model.ReorderSuggestions.Any())
+    {
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-bottom py-2 fw-semibold text-muted d-flex align-items-center">
+                <i class="fas fa-cart-plus me-2 text-warning"></i>Reorder Suggestions
+                <span class="badge bg-warning text-dark ms-2">@Model.ReorderSuggestions.Count</span>
+                <span class="ms-auto text-muted fw-normal" style="font-size:11px">
+                    <i class="fas fa-info-circle me-1"></i>Items at/below reorder level or running out within 7 days · Suggested qty = 14-day cover
+                </span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0 align-middle">
+                        <thead class="table-light small text-uppercase text-muted">
+                            <tr>
+                                <th class="ps-3">Item</th>
+                                <th class="text-end">Current Qty</th>
+                                <th class="text-end">Avg / Day</th>
+                                <th class="text-end">Days Left</th>
+                                <th class="text-end">Suggested Order</th>
+                                <th class="text-end pe-3">Last Price</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in Model.ReorderSuggestions)
+                            {
+                                var rowClass   = s.DaysRemaining == 0   ? "table-danger"
+                                              : s.DaysRemaining <= 3   ? "table-danger bg-opacity-25"
+                                              : s.DaysRemaining <= 7   ? "table-warning bg-opacity-25"
+                                              : "";
+                                var daysColor  = s.DaysRemaining == 999 ? "text-muted"
+                                              : s.DaysRemaining == 0   ? "text-danger fw-bold"
+                                              : s.DaysRemaining <= 3   ? "text-danger fw-semibold"
+                                              : s.DaysRemaining <= 7   ? "text-warning fw-semibold"
+                                              : "text-success";
+                                var daysLabel  = s.DaysRemaining == 999 ? "N/A" : s.DaysRemaining == 0 ? "Out!" : $"{s.DaysRemaining}d";
+                                <tr class="@rowClass">
+                                    <td class="ps-3">
+                                        <div class="fw-semibold small">@s.ItemName</div>
+                                        <div class="text-muted" style="font-size:.72rem">@s.GodownName</div>
+                                    </td>
+                                    <td class="text-end">
+                                        <span class="@(s.BalanceQty <= 0 ? "text-danger fw-bold" : "")">@s.BalanceQty.ToString("N3") @s.UOMCode</span>
+                                    </td>
+                                    <td class="text-end text-muted small">
+                                        @(s.AvgDailyConsumption > 0 ? s.AvgDailyConsumption.ToString("N3") + " " + s.UOMCode : "—")
+                                    </td>
+                                    <td class="text-end @daysColor">@daysLabel</td>
+                                    <td class="text-end">
+                                        @if (s.SuggestedOrderQty > 0)
+                                        { <span class="badge bg-warning text-dark">@s.SuggestedOrderQty.ToString("N0") @s.UOMCode</span> }
+                                        else
+                                        { <span class="text-muted small">Sufficient</span> }
+                                    </td>
+                                    <td class="text-end pe-3 text-muted small">
+                                        @(s.LastPurchasePrice > 0 ? "₹" + s.LastPurchasePrice.ToString("N2") : "—")
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card-footer bg-white border-top py-2 px-3 d-flex gap-2">
+                <a asp-action="Index" asp-controller="PurchaseOrder" class="btn btn-warning btn-sm text-dark">
+                    <i class="fas fa-file-invoice me-1"></i>Create Purchase Order
+                </a>
+                <a asp-action="Index" asp-controller="GRN" class="btn btn-outline-success btn-sm">
+                    <i class="fas fa-clipboard-check me-1"></i>Receive GRN
+                </a>
+            </div>
+        </div>
+    }
+
 </div>
 
 @section Scripts {
 <style>
-    .hover-lift { transition: transform .2s, box-shadow .2s; }
+    .hover-lift { transition: transform .18s, box-shadow .18s; }
     .hover-lift:hover { transform: translateY(-3px); box-shadow: 0 6px 18px rgba(0,0,0,.1) !important; }
 </style>
+<script>
+// ── Quick Stock Check ────────────────────────────────────────────────────
+let qsTimer = null;
+$('#qsInput').on('input', function () {
+    clearTimeout(qsTimer);
+    const q = $(this).val().trim();
+    if (q.length < 2) {
+        $('#quickStockResult').html('<div class="text-muted small pt-1"><i class="fas fa-info-circle me-1"></i>Type at least 2 characters to search.</div>');
+        return;
+    }
+    $('#quickStockResult').html('<div class="text-muted small pt-1"><i class="fas fa-spinner fa-spin me-1"></i>Searching…</div>');
+    qsTimer = setTimeout(function () {
+        $.getJSON('/Inventory/QuickStockCheck', { q: q }, function (data) {
+            if (!data || data.length === 0) {
+                $('#quickStockResult').html('<div class="alert alert-light py-2 mb-0 small"><i class="fas fa-search me-1"></i>No items found for "' + q + '".</div>');
+                return;
+            }
+            let html = '<div class="d-flex flex-wrap gap-2">';
+            data.forEach(function (item) {
+                const isLow  = item.reorderLevel > 0 && item.balanceQty <= item.reorderLevel;
+                const isOut  = item.balanceQty <= 0;
+                const color  = isOut ? 'danger' : isLow ? 'warning' : 'success';
+                const icon   = isOut ? 'fa-times-circle' : isLow ? 'fa-exclamation-circle' : 'fa-check-circle';
+                let daysHtml = '';
+                if (item.daysRemaining !== null) {
+                    const dc = item.daysRemaining <= 3 ? 'danger' : item.daysRemaining <= 7 ? 'warning' : 'success';
+                    daysHtml = ' <span class="badge bg-' + dc + '-subtle text-' + dc + '">' + item.daysRemaining + 'd left</span>';
+                }
+                html += '<div class="card border shadow-none p-2" style="min-width:190px;max-width:230px;">' +
+                    '<div class="fw-semibold small">' + item.itemName +
+                    (item.itemCode ? ' <span class="text-muted" style="font-size:10px">[' + item.itemCode + ']</span>' : '') + '</div>' +
+                    '<div class="d-flex align-items-center gap-1 mt-1">' +
+                    '<i class="fas ' + icon + ' text-' + color + ' small"></i>' +
+                    '<span class="fw-bold text-' + color + ' small">' + parseFloat(item.balanceQty).toFixed(3) + ' ' + item.uomCode + '</span>' +
+                    daysHtml + '</div>' +
+                    '<div class="text-muted mt-1" style="font-size:10px">' +
+                    '<i class="fas fa-warehouse me-1"></i>' + item.godownName +
+                    ' | <i class="fas fa-tag me-1"></i>Avg: ₹' + parseFloat(item.averageCost).toFixed(2) +
+                    (item.lastPurchaseDate ? ' | Last GRN: ' + item.lastPurchaseDate : '') +
+                    '</div></div>';
+            });
+            html += '</div>';
+            $('#quickStockResult').html(html);
+        });
+    }, 350);
+});
+</script>
 }

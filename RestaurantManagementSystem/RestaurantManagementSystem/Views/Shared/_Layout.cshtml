@@ -1696,85 +1696,40 @@
     </script>
     <script>
         // Session timeout handling:
-        // - Poll auth status in background
-        // - If expired, redirect to logout handler on next user interaction anywhere on the page
+        // - Pure client-side idle timer: 10 minutes of no user activity → logout
+        // - Activity events (mousemove, click, keydown, touchstart, scroll) reset the timer
+        // - On timeout, immediately redirect to SessionTimeoutLogout
         (function () {
             const sessionTokenMeta = document.querySelector('meta[name="session-token"]');
             if (!sessionTokenMeta) {
                 return;
             }
 
-            let isSessionExpired = false;
+            const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+            let idleTimer = null;
             let isRedirecting = false;
-            let isChecking = false;
 
             function redirectToTimeoutLogout() {
-                if (isRedirecting) {
-                    return;
-                }
-
+                if (isRedirecting) return;
                 isRedirecting = true;
                 window.location.href = '/Account/SessionTimeoutLogout';
             }
 
-            async function checkSessionStatus() {
-                if (isChecking || isRedirecting) {
-                    return;
-                }
-
-                isChecking = true;
-
-                try {
-                    const response = await fetch('/Account/SessionStatus', {
-                        method: 'GET',
-                        credentials: 'same-origin',
-                        cache: 'no-store',
-                        headers: {
-                            'Accept': 'application/json'
-                        }
-                    });
-
-                    if (!response.ok) {
-                        return;
-                    }
-
-                    const data = await response.json();
-                    if (data && data.isAuthenticated === false) {
-                        isSessionExpired = true;
-                    }
-                } catch (error) {
-                    console.debug('Session status check failed', error);
-                } finally {
-                    isChecking = false;
-                }
+            function resetIdleTimer() {
+                if (isRedirecting) return;
+                clearTimeout(idleTimer);
+                idleTimer = setTimeout(redirectToTimeoutLogout, IDLE_TIMEOUT_MS);
             }
 
-            function handleInteraction(event) {
-                if (!isSessionExpired) {
-                    return;
-                }
+            // Reset on any user interaction
+            ['mousemove', 'mousedown', 'click', 'keydown', 'touchstart', 'scroll', 'wheel']
+                .forEach(function(evt) {
+                    document.addEventListener(evt, resetIdleTimer, { passive: true, capture: true });
+                });
 
-                if (event && typeof event.preventDefault === 'function') {
-                    event.preventDefault();
-                }
+            // Start the idle timer immediately
+            resetIdleTimer();
 
-                if (event && typeof event.stopPropagation === 'function') {
-                    event.stopPropagation();
-                }
-
-                redirectToTimeoutLogout();
-            }
-
-            document.addEventListener('click', handleInteraction, true);
-            document.addEventListener('touchstart', handleInteraction, true);
-            document.addEventListener('keydown', function (event) {
-                if (event.key === 'Enter' || event.key === ' ') {
-                    handleInteraction(event);
-                }
-            }, true);
-
-            checkSessionStatus();
-            setInterval(checkSessionStatus, 30000);
         })();
     </script>
     <script>

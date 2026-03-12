@@ -131,9 +131,10 @@
                     </span>
                 }
             }
-            <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
+            <a href="@Url.Action("PrintPO", "PurchaseOrder", new { id = Model.POId })" target="_blank"
+               class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-print me-1"></i>Print
-            </button>
+            </a>
         </div>
     </div>
 

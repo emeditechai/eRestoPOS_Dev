@@ -79,8 +79,8 @@
                                         <form method="post" asp-action="Post" asp-controller="StockTransfer" class="d-inline">
                                             @Html.AntiForgeryToken()
                                             <input type="hidden" name="id" value="@t.TransferId" />
-                                            <button type="submit" class="btn btn-outline-success btn-sm py-0 px-2" title="Post to Stock"
-                                                    onclick="return confirm('Post this transfer to stock ledger?')">
+                                            <button type="button" class="btn btn-outline-success btn-sm py-0 px-2 btn-post-confirm" title="Post to Stock"
+                                                    data-transfer-no="@t.TransferNumber">
                                                 <i class="fas fa-check-double"></i>
                                             </button>
                                         </form>

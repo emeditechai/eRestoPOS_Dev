@@ -248,7 +248,55 @@ namespace RestaurantManagementSystem.Controllers
             return View(model);
         }
 
-        // ── HELPERS ──────────────────────────────────────────────────────────
+        [HttpGet]
+        public IActionResult PrintGRN(int id)
+        {
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand("usp_GetGRNForPrint", con)
+                    { CommandType = CommandType.StoredProcedure };
+                cmd.Parameters.AddWithValue("@GRNId", id);
+                using var rdr = cmd.ExecuteReader();
+
+                GRNHeader? vm = null;
+                if (rdr.Read())
+                {
+                    vm = MapGRNHeader(rdr);
+                    vm.SupplierPhone    = GetStr(rdr, "SupplierPhone");
+                    vm.SupplierAddress  = GetStr(rdr, "SupplierAddress");
+                    vm.SupplierEmail    = GetStr(rdr, "SupplierEmail");
+                    vm.SupplierPinCode  = GetStr(rdr, "SupplierPinCode");
+                    vm.BranchName       = GetStr(rdr, "BranchName");
+                    vm.CompanyName      = GetStr(rdr, "CompanyName");
+                    vm.CompanyAddress   = GetStr(rdr, "CompanyAddress");
+                    vm.CompanyCity      = GetStr(rdr, "CompanyCity");
+                    vm.CompanyState     = GetStr(rdr, "CompanyState");
+                    vm.CompanyPincode   = GetStr(rdr, "CompanyPincode");
+                    vm.CompanyPhone     = GetStr(rdr, "CompanyPhone");
+                    vm.CompanyEmail     = GetStr(rdr, "CompanyEmail");
+                    vm.CompanyGSTIN     = GetStr(rdr, "CompanyGSTIN");
+                    vm.CompanyLogoPath  = GetStr(rdr, "CompanyLogoPath");
+                    vm.CompanyFssaiNo   = GetStr(rdr, "CompanyFssaiNo");
+                    vm.InvoiceDate      = TryGetDate(rdr, "InvoiceDate");
+                }
+
+                if (vm == null) return RedirectToAction(nameof(Index));
+
+                if (rdr.NextResult())
+                    while (rdr.Read())
+                        vm.Lines.Add(MapGRNLinePrint(rdr));
+
+                return View(vm);
+            }
+            catch
+            {
+                return RedirectToAction(nameof(Details), new { id });
+            }
+        }
+
+        // ─ HELPERS ─────────────────────────────────────────────────────────────────
 
         private GRNHeader? LoadGRNById(int id)
         {
@@ -375,6 +423,36 @@ namespace RestaurantManagementSystem.Controllers
             PONumber       = GetStr(r, "PONumber"),
             LineCount      = TryGetInt(r, "LineCount"),
             CreatedAt      = TryGetDate(r, "CreatedAt")
+        };
+
+        // Used by PrintGRN — maps full GST breakdown from usp_GetGRNForPrint RS2
+        private static GRNLine MapGRNLinePrint(SqlDataReader r) => new()
+        {
+            GRNDetailId    = GetInt(r, "GRNDetailId"),
+            GRNId          = GetInt(r, "GRNId"),
+            PODetailId     = TryGetInt(r, "PODetailId"),
+            ItemId         = GetInt(r, "ItemId"),
+            UOMId          = GetInt(r, "UOMId"),
+            OrderedQty     = GetDecimal(r, "OrderedQty"),
+            ReceivedQty    = GetDecimal(r, "ReceivedQty"),
+            RejectedQty    = GetDecimal(r, "RejectedQty"),
+            AcceptedQty    = GetDecimal(r, "AcceptedQty"),
+            UnitRate       = GetDecimal(r, "UnitRate"),
+            GSTPercent     = GetDecimal(r, "GSTPercent"),
+            TaxableAmount  = GetDecimal(r, "TaxableAmount"),
+            CGSTPercent    = GetDecimal(r, "CGSTPercent"),
+            SGSTPercent    = GetDecimal(r, "SGSTPercent"),
+            IGSTPercent    = GetDecimal(r, "IGSTPercent"),
+            CGSTAmount     = GetDecimal(r, "CGSTAmount"),
+            SGSTAmount     = GetDecimal(r, "SGSTAmount"),
+            IGSTAmount     = GetDecimal(r, "IGSTAmount"),
+            TotalGSTLineAmt= GetDecimal(r, "TotalGSTLineAmt"),
+            NetAmount      = GetDecimal(r, "NetAmount"),
+            Remarks        = GetStr(r, "Remarks"),
+            ItemName       = GetStr(r, "ItemName"),
+            ItemCode       = GetStr(r, "ItemCode"),
+            UOMCode        = GetStr(r, "UOMCode"),
+            UOMName        = GetStr(r, "UOMName")
         };
 
         private static GRNLine MapGRNLine(SqlDataReader r) => new()

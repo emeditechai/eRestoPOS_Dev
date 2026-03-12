@@ -52,9 +52,10 @@
                     </button>
                 </form>
             }
-            <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
+            <a href="@Url.Action("PrintGRN", "GRN", new { id = Model.GRNId })" target="_blank"
+               class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-print me-1"></i>Print
-            </button>
+            </a>
         </div>
     </div>
 

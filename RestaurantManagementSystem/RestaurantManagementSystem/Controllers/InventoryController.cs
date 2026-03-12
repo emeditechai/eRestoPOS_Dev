@@ -76,18 +76,38 @@ namespace RestaurantManagementSystem.Controllers
                             UOMCode       = GetStr(rdr, "UOMCode")
                         });
                 }
-                // Result set 3 – low-stock alerts
+                // Result set 3 – low-stock alerts (with avg daily consumption + days remaining)
                 if (rdr.NextResult())
                 {
                     while (rdr.Read())
                         vm.LowStockAlerts.Add(new LowStockAlert
                         {
-                            ItemName     = GetStr(rdr, "ItemName"),
-                            ItemCode     = GetStr(rdr, "ItemCode"),
-                            BalanceQty   = GetDecimal(rdr, "BalanceQty"),
-                            ReorderLevel = rdr.IsDBNull(rdr.GetOrdinal("ReorderLevel")) ? null : (decimal?)GetDecimal(rdr, "ReorderLevel"),
-                            UOMCode      = GetStr(rdr, "UOMCode"),
-                            GodownName   = GetStr(rdr, "GodownName")
+                            ItemName             = GetStr(rdr, "ItemName"),
+                            ItemCode             = GetStr(rdr, "ItemCode"),
+                            BalanceQty           = GetDecimal(rdr, "BalanceQty"),
+                            ReorderLevel         = rdr.IsDBNull(rdr.GetOrdinal("ReorderLevel")) ? null : (decimal?)GetDecimal(rdr, "ReorderLevel"),
+                            UOMCode              = GetStr(rdr, "UOMCode"),
+                            GodownName           = GetStr(rdr, "GodownName"),
+                            AvgDailyConsumption  = GetDecimal(rdr, "AvgDailyConsumption"),
+                            DaysRemaining        = GetInt(rdr, "DaysRemaining")
+                        });
+                }
+                // Result set 4 – reorder suggestions
+                if (rdr.NextResult())
+                {
+                    while (rdr.Read())
+                        vm.ReorderSuggestions.Add(new ReorderSuggestion
+                        {
+                            ItemName            = GetStr(rdr, "ItemName"),
+                            ItemCode            = GetStr(rdr, "ItemCode"),
+                            BalanceQty          = GetDecimal(rdr, "BalanceQty"),
+                            ReorderLevel        = GetDecimal(rdr, "ReorderLevel"),
+                            UOMCode             = GetStr(rdr, "UOMCode"),
+                            GodownName          = GetStr(rdr, "GodownName"),
+                            AvgDailyConsumption = GetDecimal(rdr, "AvgDailyConsumption"),
+                            DaysRemaining       = GetInt(rdr, "DaysRemaining"),
+                            SuggestedOrderQty   = GetDecimal(rdr, "SuggestedOrderQty"),
+                            LastPurchasePrice   = GetDecimal(rdr, "LastPurchasePrice")
                         });
                 }
             }
@@ -780,6 +800,69 @@ namespace RestaurantManagementSystem.Controllers
             }
             catch { }
             return Json(avgCost);
+        }
+
+        [HttpGet]
+        public IActionResult QuickStockCheck(string? q)
+        {
+            var branchId = ActiveBranchId();
+            if (!branchId.HasValue || string.IsNullOrWhiteSpace(q)) return Json(new List<object>());
+
+            var result = new List<object>();
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand(@"
+                    SELECT TOP 8
+                        i.Id            AS ItemId,
+                        i.IngredientsName AS ItemName,
+                        ISNULL(i.Code,'') AS ItemCode,
+                        ISNULL(cs.BalanceQty, 0) AS BalanceQty,
+                        ISNULL(cs.AverageCost, 0) AS AverageCost,
+                        ISNULL(u.UOMCode,'') AS UOMCode,
+                        ISNULL(g.GodownName,'') AS GodownName,
+                        ISNULL(i.ReorderLevel, 0) AS ReorderLevel,
+                        -- Days remaining based on last 30-day avg consumption
+                        CASE WHEN ISNULL((SELECT SUM(sl.OutQuantity)/30.0 FROM dbo.StockLedger sl
+                                          WHERE sl.BranchId=@BranchId AND sl.ItemId=i.Id
+                                            AND sl.TransactionType='SaleConsumption'
+                                            AND sl.TransactionDate >= DATEADD(DAY,-30,CAST(GETDATE() AS DATE))),0) > 0
+                             THEN CAST(ISNULL(cs.BalanceQty,0) /
+                                  (SELECT SUM(sl.OutQuantity)/30.0 FROM dbo.StockLedger sl
+                                   WHERE sl.BranchId=@BranchId AND sl.ItemId=i.Id
+                                     AND sl.TransactionType='SaleConsumption'
+                                     AND sl.TransactionDate >= DATEADD(DAY,-30,CAST(GETDATE() AS DATE))) AS INT)
+                             ELSE NULL END AS DaysRemaining,
+                        (SELECT TOP 1 gm.GRNDate FROM dbo.GRNDetails gd
+                         INNER JOIN dbo.GRNMaster gm ON gm.GRNId=gd.GRNId
+                         WHERE gd.ItemId=i.Id AND gm.BranchId=@BranchId AND gm.Status='Posted'
+                         ORDER BY gm.GRNDate DESC) AS LastPurchaseDate
+                    FROM dbo.Ingredients i
+                    LEFT JOIN dbo.CurrentStock cs ON cs.ItemId=i.Id AND cs.BranchId=@BranchId
+                    LEFT JOIN dbo.Godowns g ON g.Id=cs.GodownId
+                    LEFT JOIN dbo.UomMaster u ON u.UOMId=i.PurchaseUOMId
+                    WHERE i.IsActive=1 AND i.IngredientsName LIKE '%' + @q + '%'
+                    ORDER BY i.IngredientsName", con);
+                cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                cmd.Parameters.AddWithValue("@q", q.Trim());
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                    result.Add(new {
+                        itemId         = GetInt(rdr, "ItemId"),
+                        itemName       = GetStr(rdr, "ItemName"),
+                        itemCode       = GetStr(rdr, "ItemCode"),
+                        balanceQty     = GetDecimal(rdr, "BalanceQty"),
+                        averageCost    = GetDecimal(rdr, "AverageCost"),
+                        uomCode        = GetStr(rdr, "UOMCode"),
+                        godownName     = GetStr(rdr, "GodownName"),
+                        reorderLevel   = GetDecimal(rdr, "ReorderLevel"),
+                        daysRemaining  = rdr.IsDBNull(rdr.GetOrdinal("DaysRemaining")) ? (int?)null : (int?)GetInt(rdr, "DaysRemaining"),
+                        lastPurchaseDate = rdr.IsDBNull(rdr.GetOrdinal("LastPurchaseDate")) ? null : rdr.GetDateTime(rdr.GetOrdinal("LastPurchaseDate")).ToString("dd MMM yyyy")
+                    });
+            }
+            catch { }
+            return Json(result);
         }
 
         // ═══════════════════════════════════════════════════════════════

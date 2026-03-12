@@ -601,36 +601,115 @@ async function saveHeader() {
 
 // ─── Add BOM Line ─────────────────────────────────────────────────────────────
 async function submitAddLine() {
-    const ingId = parseInt(document.getElementById('newIngredientId').value) || 0;
-    const qty   = parseFloat(document.getElementById('newQty').value) || 0;
+    // ── 1. Capture ALL form values upfront (before any async/reset) ──────────
+    const ingId       = parseInt(document.getElementById('newIngredientId').value) || 0;
+    const qty         = parseFloat(document.getElementById('newQty').value) || 0;
+    const isOptional  = document.getElementById('newIsOptional')?.checked ?? false;
+    const instructions= (document.getElementById('newInstructions')?.value ?? '').trim();
 
     if (!ingId)  { showToast('Please select an ingredient.', 'warning'); return; }
     if (qty <= 0){ showToast('Quantity must be greater than 0.', 'warning'); return; }
 
-    // Client-side guard: ensure ingredient has stock in this branch
-    const info = INGREDIENT_MAP[ingId];
-    if (info && !info.hasLiveCost) {
-        showToast(`\u201c${info.name}\u201d has no stock in this branch. Receive stock first.`, 'danger');
+    // ── 2. Client-side stock guard ────────────────────────────────────────────
+    const ingInfo = INGREDIENT_MAP[ingId];
+    if (ingInfo && !ingInfo.hasLiveCost) {
+        showToast(`\u201c${ingInfo.name}\u201d has no stock in this branch. Receive stock first.`, 'danger');
         return;
     }
 
+    // ── 3. Save to server ─────────────────────────────────────────────────────
     const res = await postJSON('/BOM/SaveBOMLine', {
         lineId: 0,
         menuItemId:   MENU_ITEM_ID,
         ingredientId: ingId,
         quantity:     qty,
-        isOptional:   document.getElementById('newIsOptional').checked,
-        instructions: document.getElementById('newInstructions').value
+        isOptional:   isOptional,
+        instructions: instructions || null
     });
 
-    if (res.success) {
-        hideAddForm();
-        updateSummaryPanel(res.computedCost, res.grossMarginPct, res.takeoutMarginPct, res.deliveryMarginPct, res.roomServiceMarginPct);
-        showToast(res.message, 'success');
-        setTimeout(() => location.reload(), 800);
-    } else {
+    if (!res.success) {
         showToast(res.message || 'Failed to add ingredient.', 'danger');
+        return;
     }
+
+    // ── 4. Update summary panel ───────────────────────────────────────────────
+    updateSummaryPanel(res.computedCost, res.grossMarginPct, res.takeoutMarginPct, res.deliveryMarginPct, res.roomServiceMarginPct);
+
+    // ── 5. Inject new row into the table ─────────────────────────────────────
+    const lineId   = res.lineId;
+    const imap     = ingInfo || {};
+    const conv     = parseFloat(imap.convFactor)   || 1;
+    const avgCost  = parseFloat(imap.standardCost) || 0;
+    const uomCode  = imap.uomCode   || '—';
+    const ingName  = imap.name      || '';
+    const category = imap.category  || '';
+    const lineCost = conv > 0 ? (qty / conv * avgCost) : 0;
+
+    // Remove "no ingredients" placeholder if showing
+    document.getElementById('emptyLinesMsg')?.remove();
+
+    const safeName = ingName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const optBadge = isOptional  ? '<span class="badge text-bg-secondary ms-1 small">Optional</span>' : '';
+    const catTag   = category    ? `<br><small class="text-muted">${category}</small>` : '';
+    const instrTag = instructions? `<br><small class="text-muted fst-italic"><i class="fas fa-sticky-note me-1"></i>${instructions}</small>` : '';
+    const optIcon  = isOptional  ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-minus text-muted"></i>';
+
+    const tr = document.createElement('tr');
+    tr.className = 'ingredient-line';
+    tr.id = 'line-' + lineId;
+    tr.setAttribute('data-lineid',       lineId);
+    tr.setAttribute('data-ingredientid', ingId);
+    tr.setAttribute('data-qty',          qty);
+    tr.setAttribute('data-conv',         conv);
+    tr.setAttribute('data-cost',         avgCost);
+    tr.setAttribute('data-uom',          uomCode);
+    tr.setAttribute('data-optional',     isOptional ? 'true' : 'false');
+    tr.innerHTML = `
+        <td class="ps-3">
+            <span class="fw-semibold">${ingName}</span>${optBadge}${catTag}${instrTag}
+        </td>
+        <td class="text-end">
+            <input type="number" class="form-control form-control-sm text-end line-qty-input"
+                   id="qty-${lineId}" value="${qty}" min="0.001" step="0.001"
+                   style="min-width:80px;width:100%;"
+                   data-lineid="${lineId}"
+                   onchange="updateLineQty(${lineId}, ${ingId})">
+        </td>
+        <td class="text-center">
+            <span class="badge text-bg-light border">${uomCode}</span>
+        </td>
+        <td class="text-end text-muted small">${conv.toFixed(3)}</td>
+        <td class="text-end text-muted small">
+            &#8377;${avgCost.toFixed(4)}<br><small class="text-info" style="font-size:.65rem;">avg</small>
+        </td>
+        <td class="text-end fw-semibold line-cost" id="linecost-${lineId}">&#8377;${lineCost.toFixed(4)}</td>
+        <td class="text-center">${optIcon}</td>
+        <td class="text-center">
+            <button class="btn btn-sm btn-outline-danger"
+                    onclick="deleteBOMLine(${lineId}, '${safeName}')"
+                    title="Remove from BOM">
+                <i class="fas fa-trash-alt"></i>
+            </button>
+        </td>`;
+
+    document.getElementById('bomLinesBody').appendChild(tr);
+
+    // ── 6. Update badge + footer total ───────────────────────────────────────
+    const allRows = document.querySelectorAll('#bomLinesBody tr.ingredient-line');
+    const badge = document.getElementById('lineCountBadge');
+    if (badge) badge.textContent = allRows.length;
+
+    let rawTotal = 0;
+    allRows.forEach(row => {
+        const cell = document.getElementById('linecost-' + row.getAttribute('data-lineid'));
+        if (cell) rawTotal += parseFloat(cell.textContent.replace(/[₹\u20B9]/g, '')) || 0;
+    });
+    const rawCostEl = document.getElementById('totalRawCost');
+    if (rawCostEl) rawCostEl.textContent = '₹' + rawTotal.toFixed(4);
+
+    // ── 7. Reset + hide form LAST (after all DOM work is done) ───────────────
+    hideAddForm();
+    showToast(res.message || 'Ingredient added to BOM.', 'success');
 }
 
 // ─── Inline Qty Update ────────────────────────────────────────────────────────
