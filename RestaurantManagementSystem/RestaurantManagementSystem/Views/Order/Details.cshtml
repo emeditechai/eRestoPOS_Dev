@@ -635,6 +635,21 @@
             // If this was the order items save endpoint and succeeded, enable Payment
             if (typeof url === 'string' && url.indexOf('/Order/UpdateMultipleOrderItems') !== -1) {
               if (response && response.ok) {
+                // Clone the response to safely read JSON without consuming the body
+                const clone = response.clone();
+                clone.json().then(function(data) {
+                  if (data && data.lowStockAlerts && data.lowStockAlerts.length > 0) {
+                    if (typeof Swal !== 'undefined') {
+                      Swal.fire({
+                        icon: 'warning',
+                        title: 'Low Stock Alert',
+                        html: data.lowStockAlerts.map(function(a) { return '<div class="text-start mb-1">⚠️ ' + a + '</div>'; }).join(''),
+                        confirmButtonText: 'OK',
+                        confirmButtonColor: '#f59e0b'
+                      });
+                    }
+                  }
+                }).catch(function() {});
                 // Saved to DB -> payment now allowed
                 setPaymentEnabled(true);
                 applyPaymentRequirementsUI();

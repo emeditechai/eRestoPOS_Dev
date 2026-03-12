@@ -206,27 +206,32 @@ END", connection))
                 using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
+                    // Check global flag OR any branch with AutoConsumptionOnSale=1
                     using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-IF OBJECT_ID('dbo.RestaurantSettings','U') IS NULL
+DECLARE @result bit = 0;
+
+-- Global flag: RestaurantSettings.IsSaleFromInventory
+IF OBJECT_ID('dbo.RestaurantSettings','U') IS NOT NULL
+   AND COL_LENGTH('dbo.RestaurantSettings','IsSaleFromInventory') IS NOT NULL
 BEGIN
-    SELECT CAST(0 AS bit);
+    IF EXISTS (SELECT 1 FROM dbo.RestaurantSettings WHERE ISNULL(IsSaleFromInventory,0)=1)
+        SET @result = 1;
 END
-ELSE
+
+-- Per-branch flag: InventoryParameters.AutoConsumptionOnSale
+IF @result = 0
+   AND OBJECT_ID('dbo.InventoryParameters','U') IS NOT NULL
+   AND COL_LENGTH('dbo.InventoryParameters','AutoConsumptionOnSale') IS NOT NULL
 BEGIN
-    SELECT TOP 1
-        CASE
-            WHEN COL_LENGTH('dbo.RestaurantSettings','IsSaleFromInventory') IS NULL THEN CAST(0 AS bit)
-            ELSE CAST(ISNULL(IsSaleFromInventory, 0) AS bit)
-        END
-    FROM dbo.RestaurantSettings
-    ORDER BY Id DESC;
-END", connection))
+    IF EXISTS (SELECT 1 FROM dbo.InventoryParameters WHERE ISNULL(AutoConsumptionOnSale,0)=1)
+        SET @result = 1;
+END
+
+SELECT @result;", connection))
                     {
                         var val = cmd.ExecuteScalar();
                         if (val != null && val != DBNull.Value)
-                        {
                             isEnabled = Convert.ToBoolean(val);
-                        }
                     }
                 }
             }
@@ -236,6 +241,32 @@ END", connection))
             }
 
             return isEnabled;
+        }
+
+        /// <summary>
+        /// Pre-flight stock check for a menu item — does NOT deduct stock.
+        /// Used by JS on both Order Details and POS pages to warn/block before adding an item.
+        /// </summary>
+        [HttpGet]
+        public IActionResult CheckMenuItemStock(int menuItemId, int quantity = 1)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue || menuItemId <= 0)
+                return Json(new { canSell = true, warnings = new List<string>(), blockedIngredients = new List<string>() });
+
+            if (!GetIsSaleFromInventoryEnabled())
+                return Json(new { canSell = true, warnings = new List<string>(), blockedIngredients = new List<string>() });
+
+            try
+            {
+                var inventoryService = new RestaurantManagementSystem.Services.InventoryService(_connectionString);
+                var (canSell, warnings, blocked) = inventoryService.CheckStockForMenuItem(menuItemId, quantity, activeBranchId.Value);
+                return Json(new { canSell, warnings, blockedIngredients = blocked });
+            }
+            catch (Exception ex)
+            {
+                return Json(new { canSell = true, warnings = new List<string>(), blockedIngredients = new List<string>(), error = ex.Message });
+            }
         }
         private List<int> GetAllowedOrderTypeIdsFromSettings()
         {

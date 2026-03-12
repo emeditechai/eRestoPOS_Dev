@@ -2042,14 +2042,35 @@
                         const last = batch[batch.length - 1];
                         lastAddedMenuItemId = last?.menuItemId || 0;
                         lastAddedAt = Date.now();
+                        // Show low-stock alerts from inventory service
+                        if (data.lowStockAlerts && data.lowStockAlerts.length > 0) {
+                            if (typeof Swal !== 'undefined') {
+                                Swal.fire({
+                                    icon: 'warning',
+                                    title: 'Low Stock Alert',
+                                    html: data.lowStockAlerts.map(a => `<div class="text-start mb-1">⚠️ ${a}</div>`).join(''),
+                                    confirmButtonText: 'OK',
+                                    confirmButtonColor: '#f59e0b'
+                                });
+                            }
+                        }
                         await refresh();
                         batch.forEach(entry => entry.resolve(true));
                     } else {
-                        alert(data && data.message ? data.message : 'Add failed');
+                        const errMsg = data && data.message ? data.message : 'Failed to add item.';
+                        if (typeof Swal !== 'undefined') {
+                            Swal.fire({ icon: 'error', title: 'Cannot Add Item', text: errMsg });
+                        } else {
+                            alert(errMsg);
+                        }
                         batch.forEach(entry => entry.resolve(false));
                     }
                 } catch {
-                    alert('Add failed');
+                    if (typeof Swal !== 'undefined') {
+                        Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to add item. Please try again.' });
+                    } else {
+                        alert('Add failed');
+                    }
                     batch.forEach(entry => entry.resolve(false));
                 } finally {
                     addFlushInProgress = false;
@@ -2080,9 +2101,26 @@
                 });
                 const data = await res.json();
                 if (data && data.success) {
+                    // Show low-stock alerts if any
+                    if (data.lowStockAlerts && data.lowStockAlerts.length > 0) {
+                        if (typeof Swal !== 'undefined') {
+                            Swal.fire({
+                                icon: 'warning',
+                                title: 'Low Stock Alert',
+                                html: data.lowStockAlerts.map(a => `<div class="text-start mb-1">⚠️ ${a}</div>`).join(''),
+                                confirmButtonText: 'OK',
+                                confirmButtonColor: '#f59e0b'
+                            });
+                        }
+                    }
                     await refresh();
                 } else {
-                    alert(data && data.message ? data.message : 'Update failed');
+                    const errMsg = data && data.message ? data.message : 'Update failed.';
+                    if (typeof Swal !== 'undefined') {
+                        Swal.fire({ icon: 'error', title: 'Cannot Update Item', text: errMsg });
+                    } else {
+                        alert(errMsg);
+                    }
                 }
             }
 
