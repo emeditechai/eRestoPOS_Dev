@@ -252,19 +252,20 @@ namespace RestaurantManagementSystem.Services
                     }
 
                     // Insert StockLedger entry
+                    // NOTE: TotalValue is a computed column — do NOT include it in INSERT
                     using (var cmd = new SqlCommand(@"
                         IF OBJECT_ID('dbo.StockLedger','U') IS NOT NULL
                         BEGIN
                             INSERT INTO dbo.StockLedger
                             (BranchId, GodownId, ItemId, TransactionDate, TransactionType,
                              ReferenceType, ReferenceId, ReferenceNumber,
-                             InQuantity, OutQuantity, UnitCost, TotalValue,
+                             InQuantity, OutQuantity, UnitCost,
                              BalanceQty, BalanceValue, AverageCost,
                              Remarks, CreatedAt, CreatedBy)
                             VALUES
                             (@BranchId, @GodownId, @ItemId, GETDATE(), 'SaleConsumption',
                              'Order', @OrderId, @OrderNumber,
-                             0, @OutQty, @UnitCost, @OutQty * @UnitCost,
+                             0, @OutQty, @UnitCost,
                              @BalanceQty, @BalanceQty * @UnitCost, @UnitCost,
                              @Remarks, GETDATE(), @UserId)
                         END", connection, transaction))
