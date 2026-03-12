@@ -1,7 +1,9 @@
 @model IEnumerable<RestaurantManagementSystem.Models.PurchaseOrderHeader>
 @{
     ViewData["Title"] = "Purchase Orders";
-    var selStatus = ViewBag.SelStatus as string ?? "";
+    var selStatus  = ViewBag.SelStatus as string ?? "";
+    var fromDate   = ViewBag.FromDate  as string ?? "";
+    var toDate     = ViewBag.ToDate    as string ?? "";
 }
 
 <div class="container-fluid px-0">
@@ -32,12 +34,47 @@
 
     <!-- Status Tabs -->
     <div class="mb-3">
-        <a asp-action="Index" asp-controller="PurchaseOrder" class="btn btn-sm @(selStatus == "" ? "btn-primary" : "btn-outline-secondary") me-1">All</a>
-        <a asp-action="Index" asp-controller="PurchaseOrder" asp-route-status="Draft" class="btn btn-sm @(selStatus == "Draft" ? "btn-warning" : "btn-outline-warning") me-1">Draft</a>
-        <a asp-action="Index" asp-controller="PurchaseOrder" asp-route-status="Approved" class="btn btn-sm @(selStatus == "Approved" ? "btn-success" : "btn-outline-success") me-1">Approved</a>
-        <a asp-action="Index" asp-controller="PurchaseOrder" asp-route-status="PartialGRN" class="btn btn-sm @(selStatus == "PartialGRN" ? "btn-info" : "btn-outline-info") me-1">Partial GRN</a>
-        <a asp-action="Index" asp-controller="PurchaseOrder" asp-route-status="FullGRN" class="btn btn-sm @(selStatus == "FullGRN" ? "btn-dark" : "btn-outline-dark") me-1">Fully Received</a>
-        <a asp-action="Index" asp-controller="PurchaseOrder" asp-route-status="Cancelled" class="btn btn-sm @(selStatus == "Cancelled" ? "btn-danger" : "btn-outline-danger")">Cancelled</a>
+        <a href="@Url.Action("Index","PurchaseOrder",new{fromDate,toDate})" class="btn btn-sm @(selStatus == "" ? "btn-primary" : "btn-outline-secondary") me-1">All</a>
+        <a href="@Url.Action("Index","PurchaseOrder",new{status="Draft",fromDate,toDate})" class="btn btn-sm @(selStatus == "Draft" ? "btn-warning" : "btn-outline-warning") me-1">Draft</a>
+        <a href="@Url.Action("Index","PurchaseOrder",new{status="Approved",fromDate,toDate})" class="btn btn-sm @(selStatus == "Approved" ? "btn-success" : "btn-outline-success") me-1">Approved</a>
+        <a href="@Url.Action("Index","PurchaseOrder",new{status="PartialGRN",fromDate,toDate})" class="btn btn-sm @(selStatus == "PartialGRN" ? "btn-info" : "btn-outline-info") me-1">Partial GRN</a>
+        <a href="@Url.Action("Index","PurchaseOrder",new{status="FullGRN",fromDate,toDate})" class="btn btn-sm @(selStatus == "FullGRN" ? "btn-dark" : "btn-outline-dark") me-1">Fully Received</a>
+        <a href="@Url.Action("Index","PurchaseOrder",new{status="Cancelled",fromDate,toDate})" class="btn btn-sm @(selStatus == "Cancelled" ? "btn-danger" : "btn-outline-danger")">Cancelled</a>
+    </div>
+
+    <!-- Date Range Filter -->
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body py-2">
+            <form method="get" asp-action="Index" asp-controller="PurchaseOrder" class="d-flex gap-2 align-items-end flex-wrap">
+                @if (!string.IsNullOrEmpty(selStatus))
+                {
+                    <input type="hidden" name="status" value="@selStatus" />
+                }
+                <div>
+                    <label class="form-label small fw-semibold mb-1">From Date</label>
+                    <input type="date" name="fromDate" value="@fromDate"
+                           class="form-control form-control-sm" style="min-width:150px;" />
+                </div>
+                <div>
+                    <label class="form-label small fw-semibold mb-1">To Date</label>
+                    <input type="date" name="toDate" value="@toDate"
+                           class="form-control form-control-sm" style="min-width:150px;" />
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm px-3">
+                    <i class="fas fa-filter me-1"></i>Apply
+                </button>
+                <a asp-action="Index" asp-controller="PurchaseOrder" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-sync me-1"></i>Reset
+                </a>
+                @if (!string.IsNullOrEmpty(fromDate) && !string.IsNullOrEmpty(toDate))
+                {
+                    <span class="badge bg-primary-subtle text-primary px-2 py-1 align-self-center" style="font-size:.8rem;">
+                        <i class="fas fa-calendar-alt me-1"></i>
+                        @DateTime.Parse(fromDate).ToString("dd MMM") &ndash; @DateTime.Parse(toDate).ToString("dd MMM yyyy")
+                    </span>
+                }
+            </form>
+        </div>
     </div>
 
     <div class="card border-0 shadow-sm">

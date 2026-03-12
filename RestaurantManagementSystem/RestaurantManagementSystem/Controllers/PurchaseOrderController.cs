@@ -41,6 +41,12 @@ namespace RestaurantManagementSystem.Controllers
             var branchId = ActiveBranchId();
             if (!branchId.HasValue) return NoBranch();
 
+            // Default to last 30 days when no dates supplied
+            if (!fromDate.HasValue && !toDate.HasValue)
+                fromDate = DateTime.Today.AddDays(-30);
+            if (!toDate.HasValue)
+                toDate = DateTime.Today;
+
             var list = new List<PurchaseOrderHeader>();
             try
             {
@@ -50,8 +56,8 @@ namespace RestaurantManagementSystem.Controllers
                     { CommandType = CommandType.StoredProcedure };
                 cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
                 cmd.Parameters.AddWithValue("@Status",   string.IsNullOrEmpty(status) ? (object)DBNull.Value : status);
-                cmd.Parameters.AddWithValue("@FromDate", fromDate.HasValue ? (object)fromDate.Value.Date : DBNull.Value);
-                cmd.Parameters.AddWithValue("@ToDate",   toDate.HasValue   ? (object)toDate.Value.Date   : DBNull.Value);
+                cmd.Parameters.AddWithValue("@FromDate", (object)fromDate.Value.Date);
+                cmd.Parameters.AddWithValue("@ToDate",   (object)toDate.Value.Date);
                 using var rdr = cmd.ExecuteReader();
                 while (rdr.Read())
                     list.Add(MapPOHeader(rdr));
@@ -61,9 +67,9 @@ namespace RestaurantManagementSystem.Controllers
                 TempData["ErrorMessage"] = ex.Message;
             }
 
-            ViewBag.Status   = status;
-            ViewBag.FromDate = fromDate?.ToString("yyyy-MM-dd");
-            ViewBag.ToDate   = toDate?.ToString("yyyy-MM-dd");
+            ViewBag.SelStatus      = status ?? "";
+            ViewBag.FromDate       = fromDate.Value.ToString("yyyy-MM-dd");
+            ViewBag.ToDate         = toDate.Value.ToString("yyyy-MM-dd");
             ViewBag.ActiveBranchId = branchId.Value;
             return View(list);
         }
