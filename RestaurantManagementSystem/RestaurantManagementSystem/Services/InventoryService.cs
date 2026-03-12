@@ -213,20 +213,18 @@ namespace RestaurantManagementSystem.Services
                 foreach (var d in deductions)
                 {
                     decimal newBalance = d.CurrentBalance - d.QtyNeeded;
-                    decimal totalValue = newBalance * d.AvgCost;
 
                     if (d.StockId > 0)
                     {
                         // Update existing CurrentStock row
+                        // NOTE: StockValue is a computed column — do NOT include it in UPDATE
                         using (var cmd = new SqlCommand(@"
                             UPDATE dbo.CurrentStock
                             SET BalanceQty  = @BalanceQty,
-                                StockValue  = @StockValue,
                                 LastUpdated = GETDATE()
                             WHERE StockId = @StockId", connection, transaction))
                         {
                             cmd.Parameters.AddWithValue("@BalanceQty", newBalance);
-                            cmd.Parameters.AddWithValue("@StockValue", totalValue < 0 ? 0m : totalValue);
                             cmd.Parameters.AddWithValue("@StockId", d.StockId);
                             cmd.ExecuteNonQuery();
                         }
@@ -234,13 +232,14 @@ namespace RestaurantManagementSystem.Services
                     else
                     {
                         // Insert new CurrentStock row (ingredient never tracked before)
+                        // NOTE: StockValue is a computed column — do NOT include it in INSERT
                         using (var cmd = new SqlCommand(@"
                             IF OBJECT_ID('dbo.CurrentStock','U') IS NOT NULL
                             BEGIN
                                 INSERT INTO dbo.CurrentStock
-                                    (BranchId, GodownId, ItemId, BalanceQty, AverageCost, StockValue, LastUpdated)
+                                    (BranchId, GodownId, ItemId, BalanceQty, AverageCost, LastUpdated)
                                 VALUES
-                                    (@BranchId, @GodownId, @ItemId, @BalanceQty, 0, 0, GETDATE())
+                                    (@BranchId, @GodownId, @ItemId, @BalanceQty, 0, GETDATE())
                             END", connection, transaction))
                         {
                             cmd.Parameters.AddWithValue("@BranchId", branchId);
@@ -288,8 +287,13 @@ namespace RestaurantManagementSystem.Services
             }
             catch (Exception ex)
             {
-                // Non-fatal: log but don't block the sale
-                System.Diagnostics.Debug.WriteLine($"InventoryService.ApplySaleQuantityDelta error: {ex.Message}");
+                // Log to file for diagnostics
+                try
+                {
+                    System.IO.File.AppendAllText("/tmp/inventory_errors.log",
+                        $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] ApplySaleQuantityDelta ERROR: {ex.GetType().Name}: {ex.Message}\nStackTrace: {ex.StackTrace}\n---\n");
+                }
+                catch { /* ignore logging failure */ }
                 stockError = string.Empty;
                 stockAlerts = new List<string>();
                 return true;
