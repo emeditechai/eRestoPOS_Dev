@@ -342,6 +342,14 @@ namespace RestaurantManagementSystem.Controllers
             var branchId = ActiveBranchId();
             if (!branchId.HasValue) return NoBranch();
 
+            // Default: last 30 days when no dates provided
+            fromDate ??= DateTime.Today.AddDays(-30);
+            toDate   ??= DateTime.Today;
+
+            // 0 means "All" from the dropdown — pass as NULL to SP so no filter is applied
+            int? effectiveGodownId = (godownId.HasValue && godownId.Value > 0) ? godownId : null;
+            int? effectiveItemId   = (itemId.HasValue   && itemId.Value   > 0) ? itemId   : null;
+
             var list = new List<StockLedgerEntry>();
             try
             {
@@ -350,11 +358,12 @@ namespace RestaurantManagementSystem.Controllers
                 using var cmd = new SqlCommand("usp_GetStockLedger", con)
                     { CommandType = CommandType.StoredProcedure };
                 cmd.Parameters.AddWithValue("@BranchId",  branchId.Value);
-                cmd.Parameters.AddWithValue("@GodownId",  godownId.HasValue ? (object)godownId.Value : DBNull.Value);
-                cmd.Parameters.AddWithValue("@ItemId",    itemId.HasValue   ? (object)itemId.Value   : DBNull.Value);
+                cmd.Parameters.AddWithValue("@GodownId",  effectiveGodownId.HasValue ? (object)effectiveGodownId.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@ItemId",    effectiveItemId.HasValue   ? (object)effectiveItemId.Value   : DBNull.Value);
                 cmd.Parameters.AddWithValue("@TxnType",   string.IsNullOrEmpty(txnType) ? (object)DBNull.Value : txnType);
-                cmd.Parameters.AddWithValue("@FromDate",  fromDate.HasValue ? (object)fromDate.Value.Date : DBNull.Value);
-                cmd.Parameters.AddWithValue("@ToDate",    toDate.HasValue   ? (object)toDate.Value.Date   : DBNull.Value);
+                cmd.Parameters.AddWithValue("@FromDate",  fromDate.Value.Date);
+                // Use end-of-day so records from ToDate (any time) are included
+                cmd.Parameters.AddWithValue("@ToDate",    toDate.Value.Date.AddDays(1).AddSeconds(-1));
                 using var rdr = cmd.ExecuteReader();
                 while (rdr.Read())
                     list.Add(MapStockLedger(rdr));
@@ -365,11 +374,11 @@ namespace RestaurantManagementSystem.Controllers
             }
 
             LoadDropdowns();
-            ViewBag.GodownId   = godownId;
-            ViewBag.ItemId     = itemId;
-            ViewBag.TxnType    = txnType;
-            ViewBag.FromDate   = fromDate?.ToString("yyyy-MM-dd");
-            ViewBag.ToDate     = toDate?.ToString("yyyy-MM-dd");
+            ViewBag.GodownId       = godownId ?? 0;
+            ViewBag.ItemId         = itemId   ?? 0;
+            ViewBag.TxnType        = txnType  ?? "";
+            ViewBag.FromDate       = fromDate.Value.ToString("yyyy-MM-dd");
+            ViewBag.ToDate         = toDate.Value.ToString("yyyy-MM-dd");
             ViewBag.ActiveBranchId = branchId.Value;
             return View(list);
         }

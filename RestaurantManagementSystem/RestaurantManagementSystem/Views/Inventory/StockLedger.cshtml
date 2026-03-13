@@ -1,13 +1,14 @@
 @model IEnumerable<RestaurantManagementSystem.Models.StockLedgerEntry>
+@using Microsoft.AspNetCore.Mvc.Rendering
 @{
     ViewData["Title"] = "Stock Ledger";
-    var godowns  = ViewBag.Godowns as SelectList;
-    var items    = ViewBag.Items   as SelectList;
-    var selGodown = ViewBag.SelGodown as int? ?? 0;
-    var selItem   = ViewBag.SelItem   as int? ?? 0;
-    var selType   = ViewBag.TxnType   as string ?? "";
-    var dateFrom  = ViewBag.DateFrom  as string ?? DateTime.Today.AddMonths(-1).ToString("yyyy-MM-dd");
-    var dateTo    = ViewBag.DateTo    as string ?? DateTime.Today.ToString("yyyy-MM-dd");
+    var godowns   = ViewBag.Godowns as List<SelectListItem> ?? new List<SelectListItem>();
+    var items     = ViewBag.Items   as List<SelectListItem> ?? new List<SelectListItem>();
+    var selGodown = (int)(ViewBag.GodownId ?? 0);
+    var selItem   = (int)(ViewBag.ItemId   ?? 0);
+    var selType   = (string)(ViewBag.TxnType  ?? "");
+    var dateFrom  = (string)(ViewBag.FromDate ?? DateTime.Today.AddDays(-30).ToString("yyyy-MM-dd"));
+    var dateTo    = (string)(ViewBag.ToDate   ?? DateTime.Today.ToString("yyyy-MM-dd"));
 }
 
 <style>
@@ -43,12 +44,12 @@
                         <label class="form-label small fw-semibold mb-1">Godown</label>
                         <select name="godownId" class="form-select form-select-sm">
                             <option value="0">All Godowns</option>
-                            @if (godowns != null)
+                            @foreach (var g in godowns)
                             {
-                                foreach (var g in godowns)
-                                {
-                                    <option value="@g.Value" selected="@(g.Value == selGodown.ToString())">@g.Text</option>
-                                }
+                                if (g.Value == selGodown.ToString())
+                                { <option value="@g.Value" selected="selected">@g.Text</option> }
+                                else
+                                { <option value="@g.Value">@g.Text</option> }
                             }
                         </select>
                     </div>
@@ -56,12 +57,12 @@
                         <label class="form-label small fw-semibold mb-1">Item</label>
                         <select name="itemId" class="form-select form-select-sm">
                             <option value="0">All Items</option>
-                            @if (items != null)
+                            @foreach (var i in items)
                             {
-                                foreach (var i in items)
-                                {
-                                    <option value="@i.Value" selected="@(i.Value == selItem.ToString())">@i.Text</option>
-                                }
+                                if (i.Value == selItem.ToString())
+                                { <option value="@i.Value" selected="selected">@i.Text</option> }
+                                else
+                                { <option value="@i.Value">@i.Text</option> }
                             }
                         </select>
                     </div>
@@ -130,7 +131,7 @@
                         @foreach (var row in Model)
                         {
                             <tr>
-                                <td class="ps-3 text-muted small">@row.TransactionDate.ToString("dd MMM yyyy")</td>
+                                <td class="ps-3 text-muted small" data-order="@row.TransactionDate.Ticks">@row.TransactionDate.ToString("dd MMM yyyy HH:mm")</td>
                                 <td class="fw-semibold">@row.ItemName</td>
                                 <td><span class="badge bg-info-subtle text-info">@row.GodownName</span></td>
                                 <td>
@@ -192,7 +193,7 @@
     $(document).ready(function () {
         var table = $('#tblLedger').DataTable({
             paging: true, pageLength: 50, searching: true, ordering: true,
-            order: [[0,'desc']], columnDefs: [{ orderable: false, targets: [4] }],
+            order: [[0,'desc']], columnDefs: [{ orderable: false, targets: [4] }, { type: 'num', targets: [0] }],
             buttons: [
                 { extend: 'excelHtml5', title: 'Stock Ledger', exportOptions: { columns: ':visible' } },
                 { extend: 'pdfHtml5', title: 'Stock Ledger', orientation: 'landscape', pageSize: 'A4', exportOptions: { columns: ':visible' } }
