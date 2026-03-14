@@ -186,7 +186,9 @@ BEGIN
             ELSE ISNULL(NULLIF(LTRIM(RTRIM(BillFormat)), ''), 'A4')
         END
     FROM dbo.RestaurantSettings
-    ORDER BY Id DESC;
+    WHERE (BranchId = @BranchId OR BranchId IS NULL)
+    ORDER BY CASE WHEN BranchId = @BranchId THEN 0 ELSE 1 END ASC,
+             Id DESC;
 END", connection))
                     {
                         var val = cmd.ExecuteScalar();
@@ -302,11 +304,15 @@ SELECT @result;", connection))
             List<int> loaded;
             try
             {
+                var branchId = GetActiveBranchId() ?? 0;
                 using (var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
-                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT TOP 1 SelectedOrderType FROM dbo.RestaurantSettings ORDER BY Id DESC", connection))
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT TOP 1 SelectedOrderType FROM dbo.RestaurantSettings
+ WHERE (COL_LENGTH('dbo.RestaurantSettings','BranchId') IS NULL OR BranchId = @BranchId OR BranchId IS NULL)
+ ORDER BY CASE WHEN COL_LENGTH('dbo.RestaurantSettings','BranchId') IS NOT NULL AND BranchId = @BranchId THEN 0 ELSE 1 END, Id DESC", connection))
                     {
+                        cmd.Parameters.AddWithValue("@BranchId", branchId);
                         var csv = cmd.ExecuteScalar()?.ToString();
                         loaded = OrderTypeHelper.ParseCsvIds(csv);
                     }
@@ -4139,10 +4145,25 @@ SELECT @result;", connection))
                 decimal gstPercentage = 5.0m; // Default fallback
                 bool isTakeawayIncludedGSTReq = false;
                 bool isTakeawayOrder = (orderType == 1 || orderType == 2); // 1=Takeout, 2=Delivery
+
+                // Read the BranchId for this order so we apply the correct branch settings
+                int settingsBranchId = 0;
+                try
+                {
+                    using (var branchCmd = new Microsoft.Data.SqlClient.SqlCommand(
+                        "SELECT ISNULL(BranchId, 0) FROM Orders WHERE Id = @OrderId", connection, transaction))
+                    {
+                        branchCmd.Parameters.AddWithValue("@OrderId", orderId);
+                        var bval = branchCmd.ExecuteScalar();
+                        if (bval != null && bval != DBNull.Value) settingsBranchId = Convert.ToInt32(bval);
+                    }
+                }
+                catch { }
+
                 try
                 {
                     using (var settingsCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                        SELECT 
+                        SELECT TOP 1
                             ISNULL(DefaultGSTPercentage, 5.0)     AS DefaultGSTPercentage,
                             ISNULL(BarGSTPerc, 5.0)               AS BarGSTPerc,
                             CASE WHEN COL_LENGTH('dbo.RestaurantSettings','TakeAwayGSTPercentage') IS NOT NULL
@@ -4151,8 +4172,11 @@ SELECT @result;", connection))
                             CASE WHEN COL_LENGTH('dbo.RestaurantSettings','Is_TakeawayIncludedGST_Req') IS NOT NULL
                                  THEN ISNULL(Is_TakeawayIncludedGST_Req, 0)
                                  ELSE 0 END                        AS IsTakeawayIncludedGSTReq
-                        FROM dbo.RestaurantSettings", connection, transaction))
+                        FROM dbo.RestaurantSettings
+                        WHERE (BranchId = @BranchId OR BranchId IS NULL)
+                        ORDER BY CASE WHEN BranchId = @BranchId THEN 0 ELSE 1 END, Id DESC", connection, transaction))
                     {
+                        settingsCmd.Parameters.AddWithValue("@BranchId", settingsBranchId);
                         using (var reader = settingsCmd.ExecuteReader())
                         {
                             if (reader.Read())
@@ -4174,8 +4198,10 @@ SELECT @result;", connection))
                 catch
                 {
                     // If extended columns don't exist, fall back to DefaultGSTPercentage only
-                    using (var fallbackCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT ISNULL(DefaultGSTPercentage, 5.0) FROM dbo.RestaurantSettings", connection, transaction))
+                    using (var fallbackCmd = new Microsoft.Data.SqlClient.SqlCommand(
+                        "SELECT TOP 1 ISNULL(DefaultGSTPercentage, 5.0) FROM dbo.RestaurantSettings WHERE (BranchId = @BranchId OR BranchId IS NULL) ORDER BY CASE WHEN BranchId = @BranchId THEN 0 ELSE 1 END, Id DESC", connection, transaction))
                     {
+                        fallbackCmd.Parameters.AddWithValue("@BranchId", settingsBranchId);
                         var result = fallbackCmd.ExecuteScalar();
                         if (result != null && result != DBNull.Value)
                         {
@@ -4316,13 +4342,19 @@ SELECT @result;", connection))
                         SELECT @isTakeawayOrder = CASE WHEN ISNULL(o.OrderType,0) IN (1,2) THEN 1 ELSE 0 END
                         FROM Orders o WHERE o.Id = @OrderId;
 
-                        -- Read TakeawayIncludedGST setting
+                        -- Get BranchId for this order to use branch-specific settings
+                        DECLARE @settingsBranchId INT = 0;
+                        SELECT @settingsBranchId = ISNULL(BranchId, 0) FROM Orders WHERE Id = @OrderId;
+
+                        -- Read TakeawayIncludedGST setting (branch-specific with NULL-branch fallback)
                         BEGIN TRY
-                            SELECT @isTakeawayInclGST =
+                            SELECT TOP 1 @isTakeawayInclGST =
                                 CASE WHEN COL_LENGTH('dbo.RestaurantSettings','Is_TakeawayIncludedGST_Req') IS NOT NULL
                                      THEN ISNULL(Is_TakeawayIncludedGST_Req, 0)
                                      ELSE 0 END
-                            FROM dbo.RestaurantSettings;
+                            FROM dbo.RestaurantSettings
+                            WHERE (BranchId = @settingsBranchId OR BranchId IS NULL)
+                            ORDER BY CASE WHEN BranchId = @settingsBranchId THEN 0 ELSE 1 END, Id DESC;
                         END TRY
                         BEGIN CATCH
                             SET @isTakeawayInclGST = 0;
@@ -4332,18 +4364,22 @@ SELECT @result;", connection))
                         SET @useInclusiveGST = CASE WHEN @isBar = 1 OR (@isTakeawayOrder = 1 AND @isTakeawayInclGST = 1) THEN 1 ELSE 0 END;
 
                         BEGIN TRY
-                            SELECT @gstPerc = CASE
+                            SELECT TOP 1 @gstPerc = CASE
                                 WHEN @isBar = 1
                                     THEN ISNULL(BarGSTPerc, ISNULL(DefaultGSTPercentage, 5.0))
                                 WHEN @isTakeawayOrder = 1 AND COL_LENGTH('dbo.RestaurantSettings','TakeAwayGSTPercentage') IS NOT NULL
                                     THEN ISNULL(TakeAwayGSTPercentage, ISNULL(DefaultGSTPercentage, 5.0))
                                 ELSE ISNULL(DefaultGSTPercentage, 5.0)
                             END
-                            FROM dbo.RestaurantSettings;
+                            FROM dbo.RestaurantSettings
+                            WHERE (BranchId = @settingsBranchId OR BranchId IS NULL)
+                            ORDER BY CASE WHEN BranchId = @settingsBranchId THEN 0 ELSE 1 END, Id DESC;
                         END TRY
                         BEGIN CATCH
-                            SELECT @gstPerc = ISNULL(DefaultGSTPercentage, 5.0)
-                            FROM dbo.RestaurantSettings;
+                            SELECT TOP 1 @gstPerc = ISNULL(DefaultGSTPercentage, 5.0)
+                            FROM dbo.RestaurantSettings
+                            WHERE (BranchId = @settingsBranchId OR BranchId IS NULL)
+                            ORDER BY CASE WHEN BranchId = @settingsBranchId THEN 0 ELSE 1 END, Id DESC;
                         END CATCH
 
                         ;WITH ItemTax AS (
@@ -5967,10 +6003,21 @@ SELECT @result;", connection))
                         bool isTakeawayOrder = (order.OrderType == 1 || order.OrderType == 2);
                         bool isTakeawayInclusiveGST = false;
                         decimal gstPercent = 0m;
+
+                        // Get BranchId for this order to use branch-specific settings
+                        int legacySettingsBranchId = 0;
+                        using (var branchCmd = new Microsoft.Data.SqlClient.SqlCommand(
+                            "SELECT ISNULL(BranchId, 0) FROM Orders WHERE Id = @OrderId", connection))
+                        {
+                            branchCmd.Parameters.AddWithValue("@OrderId", id);
+                            var bval = branchCmd.ExecuteScalar();
+                            if (bval != null && bval != DBNull.Value) legacySettingsBranchId = Convert.ToInt32(bval);
+                        }
+
                         try
                         {
                             using (var settCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                                SELECT
+                                SELECT TOP 1
                                     ISNULL(DefaultGSTPercentage, 5.0) AS DefaultGST,
                                     ISNULL(BarGSTPerc, 5.0) AS BarGST,
                                     CASE WHEN COL_LENGTH('dbo.RestaurantSettings','TakeAwayGSTPercentage') IS NOT NULL
@@ -5979,8 +6026,11 @@ SELECT @result;", connection))
                                     CASE WHEN COL_LENGTH('dbo.RestaurantSettings','Is_TakeawayIncludedGST_Req') IS NOT NULL
                                          THEN ISNULL(Is_TakeawayIncludedGST_Req, 0)
                                          ELSE 0 END AS TakeawayInclGST
-                                FROM dbo.RestaurantSettings ORDER BY Id", connection))
+                                FROM dbo.RestaurantSettings
+                                WHERE (BranchId = @BranchId OR BranchId IS NULL)
+                                ORDER BY CASE WHEN BranchId = @BranchId THEN 0 ELSE 1 END, Id", connection))
                             {
+                                settCmd.Parameters.AddWithValue("@BranchId", legacySettingsBranchId);
                                 using (var sReader = settCmd.ExecuteReader())
                                 {
                                     if (sReader.Read())
@@ -5997,8 +6047,10 @@ SELECT @result;", connection))
                         catch
                         {
                             string gstColumn = isBarOrder ? "BarGSTPerc" : "DefaultGSTPercentage";
-                            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand($"SELECT TOP 1 {gstColumn} FROM dbo.RestaurantSettings ORDER BY Id", connection))
+                            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(
+                                $"SELECT TOP 1 {gstColumn} FROM dbo.RestaurantSettings WHERE (BranchId = @BranchId OR BranchId IS NULL) ORDER BY CASE WHEN BranchId = @BranchId THEN 0 ELSE 1 END, Id", connection))
                             {
+                                cmd.Parameters.AddWithValue("@BranchId", legacySettingsBranchId);
                                 var gstObj = cmd.ExecuteScalar();
                                 if (gstObj != null && gstObj != DBNull.Value)
                                     decimal.TryParse(gstObj.ToString(), out gstPercent);

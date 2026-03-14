@@ -122,7 +122,7 @@ namespace RestaurantManagementSystem.Services
 
                     var hasBranchColumn = await HasColumnAsync(connection, "RestaurantSettings", "BranchId");
                     string sql = hasBranchColumn && branchId.HasValue
-                        ? "SELECT TOP 1 * FROM dbo.RestaurantSettings WHERE BranchId = @BranchId ORDER BY Id DESC"
+                        ? "SELECT TOP 1 * FROM dbo.RestaurantSettings WHERE (BranchId = @BranchId OR BranchId IS NULL) ORDER BY CASE WHEN BranchId = @BranchId THEN 0 ELSE 1 END, Id DESC"
                         : "SELECT TOP 1 * FROM dbo.RestaurantSettings ORDER BY Id DESC";
 
                     using (var command = new SqlCommand(sql, connection))
