@@ -28,6 +28,38 @@ namespace RestaurantManagementSystem.Controllers
 
         private int? ActiveBranchId() => User.GetActiveBranchId();
 
+        private async Task<bool> IsMainBranchAdminAsync(int? branchId)
+        {
+            bool isAdmin = User.GetActiveRoleName() == "Administrator" || User.IsSuperAdminUser();
+            if (!isAdmin || !branchId.HasValue) return false;
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                await con.OpenAsync();
+                using var cmd = new SqlCommand("SELECT Is_MainBranch FROM dbo.Branches WHERE BranchId = @BranchId", con);
+                cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                var result = await cmd.ExecuteScalarAsync();
+                return result != null && result != DBNull.Value && Convert.ToBoolean(result);
+            }
+            catch { return false; }
+        }
+
+        private async Task<List<SelectListItem>> LoadAllBranchesAsync()
+        {
+            var list = new List<SelectListItem>();
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                await con.OpenAsync();
+                using var cmd = new SqlCommand("SELECT BranchId, BranchName FROM dbo.Branches WHERE IsActive = 1 ORDER BY BranchName", con);
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
+                    list.Add(new SelectListItem(rdr["BranchName"].ToString(), rdr["BranchId"].ToString()));
+            }
+            catch { }
+            return list;
+        }
+
         private IActionResult NoBranch()
         {
             TempData["ErrorMessage"] = "Please select an active branch first.";
@@ -543,13 +575,24 @@ namespace RestaurantManagementSystem.Controllers
         //  PURCHASE REGISTER
         // ═══════════════════════════════════════════════════════════════
 
-        public IActionResult PurchaseRegister(DateTime? fromDate, DateTime? toDate, int? supplierId)
+        public async Task<IActionResult> PurchaseRegister(DateTime? fromDate, DateTime? toDate, int? supplierId, string? branchIds = null)
         {
             var branchId = ActiveBranchId();
             if (!branchId.HasValue) return NoBranch();
 
             fromDate ??= new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
             toDate   ??= DateTime.Today;
+
+            bool isMainBranchAdmin = await IsMainBranchAdminAsync(branchId);
+            List<SelectListItem> allBranches = isMainBranchAdmin ? await LoadAllBranchesAsync() : new();
+
+            // Parse selected branch ids from comma-separated or repeated query param
+            List<int> selectedBranchIds = new();
+            if (isMainBranchAdmin && !string.IsNullOrWhiteSpace(branchIds))
+            {
+                foreach (var part in branchIds.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                    if (int.TryParse(part.Trim(), out var bid)) selectedBranchIds.Add(bid);
+            }
 
             var list = new List<PurchaseRegisterItem>();
             try
@@ -562,6 +605,8 @@ namespace RestaurantManagementSystem.Controllers
                 cmd.Parameters.AddWithValue("@FromDate",   fromDate.Value.Date);
                 cmd.Parameters.AddWithValue("@ToDate",     toDate.Value.Date);
                 cmd.Parameters.AddWithValue("@SupplierId", supplierId.HasValue ? (object)supplierId.Value : DBNull.Value);
+                if (isMainBranchAdmin && selectedBranchIds.Count > 0)
+                    cmd.Parameters.AddWithValue("@BranchIds", string.Join(",", selectedBranchIds));
                 using var rdr = cmd.ExecuteReader();
                 while (rdr.Read())
                     list.Add(MapPurchaseRegister(rdr));
@@ -572,10 +617,13 @@ namespace RestaurantManagementSystem.Controllers
             }
 
             LoadDropdowns();
-            ViewBag.FromDate   = fromDate.Value.ToString("yyyy-MM-dd");
-            ViewBag.ToDate     = toDate.Value.ToString("yyyy-MM-dd");
-            ViewBag.SupplierId = supplierId;
-            ViewBag.ActiveBranchId = branchId.Value;
+            ViewBag.FromDate          = fromDate.Value.ToString("yyyy-MM-dd");
+            ViewBag.ToDate            = toDate.Value.ToString("yyyy-MM-dd");
+            ViewBag.SupplierId        = supplierId;
+            ViewBag.ActiveBranchId    = branchId.Value;
+            ViewBag.IsMainBranchAdmin = isMainBranchAdmin;
+            ViewBag.AllBranches       = allBranches;
+            ViewBag.SelectedBranchIds = selectedBranchIds;
             return View(list);
         }
 
@@ -1115,16 +1163,17 @@ namespace RestaurantManagementSystem.Controllers
 
         private static PurchaseRegisterItem MapPurchaseRegister(SqlDataReader rdr) => new()
         {
-            GRNId         = GetInt(rdr, "GRNId"),
-            GRNNumber     = GetStr(rdr, "GRNNumber"),
-            GRNDate       = rdr.GetDateTime(rdr.GetOrdinal("GRNDate")),
-            InvoiceNo     = GetStr(rdr, "InvoiceNo"),
-            SupplierName  = GetStr(rdr, "SupplierName"),
-            GodownName    = GetStr(rdr, "GodownName"),
-            SubTotal      = GetDecimal(rdr, "SubTotal"),
-            TotalGSTAmount= GetDecimal(rdr, "TotalGSTAmount"),
-            TotalAmount   = GetDecimal(rdr, "TotalAmount"),
-            PONumber      = GetStr(rdr, "PONumber")
+            GRNId          = GetInt(rdr, "GRNId"),
+            GRNNumber      = GetStr(rdr, "GRNNumber"),
+            GRNDate        = rdr.GetDateTime(rdr.GetOrdinal("GRNDate")),
+            InvoiceNo      = GetStr(rdr, "InvoiceNo"),
+            SupplierName   = GetStr(rdr, "SupplierName"),
+            GodownName     = GetStr(rdr, "GodownName"),
+            BranchName     = GetStr(rdr, "BranchName"),
+            SubTotal       = GetDecimal(rdr, "SubTotal"),
+            TotalGSTAmount = GetDecimal(rdr, "TotalGSTAmount"),
+            TotalAmount    = GetDecimal(rdr, "TotalAmount"),
+            PONumber       = GetStr(rdr, "PONumber")
         };
 
         private static PurchaseRegisterDetailItem MapPurchaseRegisterDetail(SqlDataReader rdr) => new()

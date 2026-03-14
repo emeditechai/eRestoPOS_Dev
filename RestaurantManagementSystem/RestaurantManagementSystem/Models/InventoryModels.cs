@@ -516,6 +516,7 @@ namespace RestaurantManagementSystem.Models
         public string? SupplierName { get; set; }
         public string? GSTNumber { get; set; }
         public string? GodownName { get; set; }
+        public string? BranchName { get; set; }
         public decimal SubTotal { get; set; }
         public decimal TotalGSTAmount { get; set; }
         public decimal TotalAmount { get; set; }

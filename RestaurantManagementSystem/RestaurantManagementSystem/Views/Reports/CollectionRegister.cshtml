@@ -63,6 +63,36 @@
                 <select asp-for="Filter.CounterId" asp-items="Model.Counters" class="form-select">
                 </select>
             </div>
+            @if (Model.IsMainBranchAdmin)
+            {
+                <div class="col-lg-3 col-md-6">
+                    <label class="form-label">Branches</label>
+                    <div class="dropdown" id="branchSelectorDropdown">
+                        <button class="btn btn-outline-info dropdown-toggle w-100 text-start" type="button"
+                                data-bs-auto-close="outside" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-code-branch me-1"></i>
+                            <span id="branchDropdownLabel">All Branches</span>
+                        </button>
+                        <div class="dropdown-menu p-2" style="min-width:240px" id="branchDropdownMenu">
+                            <div class="d-flex gap-2 mb-1">
+                                <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(true)">All</button>
+                                <span>·</span>
+                                <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(false)">None</button>
+                            </div>
+                            <hr class="my-1">
+                            @foreach (var b in Model.Branches)
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input branch-chk" type="checkbox" name="Filter.SelectedBranchIds"
+                                           value="@b.Value" id="bchk_@b.Value"
+                                           @(Model.Filter.SelectedBranchIds.Contains(int.Parse(b.Value)) ? "checked" : "")>
+                                    <label class="form-check-label" for="bchk_@b.Value">@b.Text</label>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
             <div class="col-lg-2 col-md-12 d-flex justify-content-lg-end justify-content-start gap-2 flex-wrap">
                 <button type="submit" class="btn btn-success"><i class="fas fa-sync-alt me-1"></i>Refresh</button>
                 @if (reportPermissions.CanExport)
@@ -155,6 +185,10 @@
                             <th>Date & Time</th>
                             <th>Order No</th>
                             <th>Bill No</th>
+                            @if (Model.IsMainBranchAdmin)
+                            {
+                                <th>Branch</th>
+                            }
                             <th>Table No</th>
                             <th>Username</th>
                             <th>Counter</th>
@@ -177,6 +211,10 @@
                                 <td class="text-nowrap">@(row.PaymentDate.ToString("dd-MMM-yyyy HH:mm"))</td>
                                 <td>@row.OrderNo</td>
                                 <td class="text-nowrap">@row.BillNo</td>
+                                @if (Model.IsMainBranchAdmin)
+                                {
+                                    <td class="text-nowrap">@row.BranchName</td>
+                                }
                                 <td>@row.TableNo</td>
                                 <td>@row.Username</td>
                                 <td class="text-nowrap">@(!string.IsNullOrWhiteSpace(row.CounterName) ? row.CounterName : "-")</td>
@@ -192,7 +230,7 @@
                     </tbody>
                     <tfoot class="table-light fw-bold">
                         <tr>
-                            <td colspan="6" class="text-end">TOTAL:</td>
+                            <td colspan="@(Model.IsMainBranchAdmin ? 7 : 6)" class="text-end">TOTAL:</td>
                             <td class="text-end">₹@(Model.Summary.TotalActualAmount.ToString("N2"))</td>
                             <td class="text-end">₹@(Model.Summary.TotalDiscount.ToString("N2"))</td>
                             <td class="text-end text-success">₹@(Model.Summary.TotalGST.ToString("N2"))</td>
@@ -285,7 +323,6 @@
 
         document.getElementById('exportPdfBtn')?.addEventListener('click', function() {
             if (!ensureExportAllowed()) return;
-            const form = document.querySelector('form[asp-action="CollectionRegister"], form[action*="CollectionRegister"]');
             const from = (document.querySelector('[name="Filter.FromDate"]')?.value || '').toString();
             const to = (document.querySelector('[name="Filter.ToDate"]')?.value || '').toString();
             const paymentMethodId = (document.querySelector('[name="Filter.PaymentMethodId"]')?.value || '').toString();
@@ -295,6 +332,9 @@
             if (to) params.set('toDate', to);
             if (paymentMethodId) params.set('paymentMethodId', paymentMethodId);
             if (counterId) params.set('counterId', counterId);
+            const checkedBranches = document.querySelectorAll('.branch-chk:checked');
+            const branchIds = Array.from(checkedBranches).map(cb => cb.value);
+            if (branchIds.length > 0) params.set('branchIds', branchIds.join(','));
 
             const url = '@Url.Action("CollectionRegisterPdf", "Reports")' + (params.toString() ? ('?' + params.toString()) : '');
             window.open(url, '_blank');
@@ -303,5 +343,21 @@
         document.getElementById('printBtn').addEventListener('click', function() {
             window.print();
         });
+
+        function selectAllBranches(checked) {
+            document.querySelectorAll('.branch-chk').forEach(cb => cb.checked = checked);
+            updateBranchLabel();
+        }
+
+        function updateBranchLabel() {
+            const total = document.querySelectorAll('.branch-chk').length;
+            const checked = document.querySelectorAll('.branch-chk:checked').length;
+            const label = document.getElementById('branchDropdownLabel');
+            if (!label) return;
+            label.textContent = checked === 0 || checked === total ? 'All Branches' : checked + ' Branch(es) Selected';
+        }
+
+        document.querySelectorAll('.branch-chk').forEach(cb => cb.addEventListener('change', updateBranchLabel));
+        updateBranchLabel();
     </script>
 }

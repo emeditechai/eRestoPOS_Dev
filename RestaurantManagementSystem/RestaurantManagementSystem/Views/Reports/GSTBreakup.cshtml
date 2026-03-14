@@ -56,9 +56,40 @@
                 <label asp-for="Filter.EndDate" class="form-label fw-semibold"></label>
                 <input asp-for="Filter.EndDate" class="form-control" type="date" />
             </div>
-            <div class="col-md-6 d-flex align-items-end flex-wrap gap-2">
+            @if (Model.IsMainBranchAdmin)
+            {
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">Branches</label>
+                    <div class="dropdown" id="branchSelectorDropdown">
+                        <button class="btn btn-outline-info dropdown-toggle w-100 text-start" type="button"
+                                data-bs-auto-close="outside" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-code-branch me-1"></i>
+                            <span id="branchDropdownLabel">All Branches</span>
+                        </button>
+                        <div class="dropdown-menu p-2" style="min-width:240px" id="branchDropdownMenu">
+                            <div class="d-flex gap-2 mb-1">
+                                <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(true)">All</button>
+                                <span>&middot;</span>
+                                <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(false)">None</button>
+                            </div>
+                            <hr class="my-1">
+                            @foreach (var b in Model.Branches)
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input branch-chk" type="checkbox" name="Filter.SelectedBranchIds"
+                                           value="@b.Value" id="bchk_@b.Value"
+                                           @(Model.Filter.SelectedBranchIds.Contains(int.Parse(b.Value)) ? "checked" : "")>
+                                    <label class="form-check-label" for="bchk_@b.Value">@b.Text</label>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+            <div class="@(Model.IsMainBranchAdmin ? "col-md-3" : "col-md-6") d-flex align-items-end flex-wrap gap-2">
                 <button type="submit" class="btn btn-success"><i class="fas fa-sync-alt me-1"></i>Refresh Report</button>
                 <button type="button" id="exportCsvBtn" class="btn btn-outline-secondary"><i class="fas fa-file-csv me-1"></i>Export CSV</button>
+                <button type="button" id="exportExcelBtn" class="btn btn-outline-success"><i class="fas fa-file-excel me-1"></i>Excel</button>
                 <button type="button" id="exportPdfBtn" class="btn btn-outline-danger"><i class="fas fa-file-pdf me-1"></i>PDF</button>
                 <button type="button" id="printBtn" class="btn btn-outline-primary"><i class="fas fa-print me-1"></i>Print</button>
             </div>
@@ -143,6 +174,10 @@
                         <th>Date/Time</th>
                         <th>Invoice #</th>
                         <th>Bill No</th>
+                        @if (Model.IsMainBranchAdmin)
+                        {
+                            <th>Branch</th>
+                        }
                         <th>Type</th>
                         <th>Table</th>
                         <th class="text-end">Subtotal</th>
@@ -160,7 +195,7 @@
                 <tbody>
                 @if (!Model.Rows.Any())
                 {
-                    <tr><td colspan="15" class="text-center text-muted py-4">No payments found for selected date range.</td></tr>
+                    <tr><td colspan="@(Model.IsMainBranchAdmin ? 16 : 15)" class="text-center text-muted py-4">No payments found for selected date range.</td></tr>
                 }
                 else
                 {
@@ -171,6 +206,10 @@
                             <td class="small">@row.PaymentDateFormatted</td>
                             <td class="fw-semibold">@row.OrderNumber</td>
                             <td class="text-nowrap small">@row.BillNo</td>
+                            @if (Model.IsMainBranchAdmin)
+                            {
+                                <td class="text-nowrap small">@row.BranchName</td>
+                            }
                             <td>
                                 @if (row.OrderType == "Bar")
                                 {
@@ -202,7 +241,7 @@
                 </tbody>
                 <tfoot class="table-secondary fw-bold">
                     <tr>
-                        <td colspan="7" class="text-end">TOTALS:</td>
+                        <td colspan="@(Model.IsMainBranchAdmin ? 8 : 7)" class="text-end">TOTALS:</td>
                         <td class="text-end bg-warning bg-opacity-25 text-dark">₹@(Model.Summary.TotalTaxableValue.ToString("N2"))</td>
                         <td colspan="2"></td>
                         <td class="text-end">₹@(Model.Summary.TotalCGST.ToString("N2"))</td>
@@ -272,6 +311,33 @@
             // Load jsPDF
             await tryCandidates(jspdfCandidates, () => (typeof window.jspdf !== 'undefined' && window.jspdf.jsPDF) || typeof window.jsPDF !== 'undefined');
         }
+
+        document.getElementById('exportExcelBtn')?.addEventListener('click', function () {
+            const table = document.getElementById('gstBreakupTable').outerHTML;
+            const blob = new Blob([table], { type: 'application/vnd.ms-excel' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            const from = document.querySelector('[name="Filter.StartDate"]')?.value || '';
+            const to   = document.querySelector('[name="Filter.EndDate"]')?.value   || '';
+            link.download = 'GSTBreakup_' + (from || 'start') + '_to_' + (to || 'end') + '.xls';
+            link.click();
+        });
+
+        function selectAllBranches(checked) {
+            document.querySelectorAll('.branch-chk').forEach(cb => cb.checked = checked);
+            updateBranchLabel();
+        }
+
+        function updateBranchLabel() {
+            const total   = document.querySelectorAll('.branch-chk').length;
+            const checked = document.querySelectorAll('.branch-chk:checked').length;
+            const label   = document.getElementById('branchDropdownLabel');
+            if (!label) return;
+            label.textContent = checked === 0 || checked === total ? 'All Branches' : checked + ' Branch(es) Selected';
+        }
+
+        document.querySelectorAll('.branch-chk').forEach(cb => cb.addEventListener('change', updateBranchLabel));
+        updateBranchLabel();
 
         document.getElementById('exportCsvBtn').addEventListener('click', function () {
             const rows = Array.from(document.querySelectorAll('#gstBreakupTable tr'));

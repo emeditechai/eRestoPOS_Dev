@@ -2,10 +2,13 @@
 @using Microsoft.AspNetCore.Mvc.Rendering
 @{
     ViewData["Title"] = "Purchase Register";
-    var dateFrom    = ViewBag.FromDate   as string ?? DateTime.Today.AddMonths(-1).ToString("yyyy-MM-dd");
-    var dateTo      = ViewBag.ToDate     as string ?? DateTime.Today.ToString("yyyy-MM-dd");
-    var selSupplier = (int?)(ViewBag.SupplierId) ?? 0;
-    var suppliers   = ViewBag.Suppliers as List<SelectListItem> ?? new List<SelectListItem>();
+    var dateFrom          = ViewBag.FromDate   as string ?? DateTime.Today.AddMonths(-1).ToString("yyyy-MM-dd");
+    var dateTo            = ViewBag.ToDate     as string ?? DateTime.Today.ToString("yyyy-MM-dd");
+    var selSupplier       = (int?)(ViewBag.SupplierId) ?? 0;
+    var suppliers         = ViewBag.Suppliers as List<SelectListItem> ?? new List<SelectListItem>();
+    bool isMainBranchAdmin = (bool)(ViewBag.IsMainBranchAdmin ?? false);
+    var allBranches        = ViewBag.AllBranches as List<SelectListItem> ?? new List<SelectListItem>();
+    var selectedBranchIds  = ViewBag.SelectedBranchIds as List<int> ?? new List<int>();
     var totalAmt   = Model.Sum(x => x.SubTotal);
     var totalGst   = Model.Sum(x => x.TotalGSTAmount);
     var totalNet   = Model.Sum(x => x.TotalAmount);
@@ -51,6 +54,36 @@
                     <label class="form-label small fw-semibold mb-1">To Date</label>
                     <input type="date" name="toDate" class="form-control form-control-sm" value="@dateTo" />
                 </div>
+                @if (isMainBranchAdmin)
+                {
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold mb-1">Branches</label>
+                        <div class="dropdown" id="branchSelectorDropdown">
+                            <button class="btn btn-outline-info btn-sm dropdown-toggle w-100 text-start" type="button"
+                                    data-bs-auto-close="outside" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-code-branch me-1"></i>
+                                <span id="branchDropdownLabel">All Branches</span>
+                            </button>
+                            <div class="dropdown-menu p-2" style="min-width:240px" id="branchDropdownMenu">
+                                <div class="d-flex gap-2 mb-1">
+                                    <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(true)">All</button>
+                                    <span>&middot;</span>
+                                    <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(false)">None</button>
+                                </div>
+                                <hr class="my-1">
+                                @foreach (var b in allBranches)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input branch-chk" type="checkbox" name="branchIds"
+                                               value="@b.Value" id="bchk_@b.Value"
+                                               @(selectedBranchIds.Contains(int.Parse(b.Value)) ? "checked" : "")>
+                                        <label class="form-check-label" for="bchk_@b.Value">@b.Text</label>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
                 <div class="col-auto">
                     <button type="submit" class="btn btn-primary btn-sm px-3"><i class="fas fa-filter me-1"></i>Apply</button>
                     <a asp-action="PurchaseRegister" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm ms-1"><i class="fas fa-sync me-1"></i>Reset</a>
@@ -98,6 +131,10 @@
                             <th>PO No</th>
                             <th>Supplier</th>
                             <th>Godown</th>
+                            @if (isMainBranchAdmin)
+                            {
+                                <th>Branch</th>
+                            }
                             <th class="text-end">Sub Total</th>
                             <th class="text-end">GST Amt</th>
                             <th class="text-end pe-3">Net Amt</th>
@@ -114,6 +151,10 @@
                                 <td class="text-muted small">@(r.PONumber ?? "—")</td>
                                 <td>@r.SupplierName</td>
                                 <td><span class="badge bg-info-subtle text-info small">@r.GodownName</span></td>
+                                @if (isMainBranchAdmin)
+                                {
+                                    <td class="text-nowrap small">@r.BranchName</td>
+                                }
                                 <td class="text-end">₹@r.SubTotal.ToString("N2")</td>
                                 <td class="text-end text-warning">₹@r.TotalGSTAmount.ToString("N2")</td>
                                 <td class="text-end pe-3 fw-semibold">₹@r.TotalAmount.ToString("N2")</td>
@@ -155,5 +196,21 @@
         $('#btnExportExcel').on('click', function () { table.button(0).trigger(); });
         $('#btnExportPdf').on('click', function () { table.button(1).trigger(); });
     });
+
+    function selectAllBranches(checked) {
+        document.querySelectorAll('.branch-chk').forEach(cb => cb.checked = checked);
+        updateBranchLabel();
+    }
+
+    function updateBranchLabel() {
+        const total   = document.querySelectorAll('.branch-chk').length;
+        const checked = document.querySelectorAll('.branch-chk:checked').length;
+        const label   = document.getElementById('branchDropdownLabel');
+        if (!label) return;
+        label.textContent = checked === 0 || checked === total ? 'All Branches' : checked + ' Branch(es) Selected';
+    }
+
+    document.querySelectorAll('.branch-chk').forEach(cb => cb.addEventListener('change', updateBranchLabel));
+    updateBranchLabel();
 </script>
 }

@@ -9,6 +9,8 @@ namespace RestaurantManagementSystem.ViewModels
         public List<SelectListItem> Counters { get; set; } = new List<SelectListItem>();
         public List<CollectionRegisterRow> Rows { get; set; } = new List<CollectionRegisterRow>();
         public CollectionRegisterSummary Summary { get; set; } = new CollectionRegisterSummary();
+        public List<SelectListItem> Branches { get; set; } = new List<SelectListItem>();
+        public bool IsMainBranchAdmin { get; set; }
     }
 
     public class CollectionRegisterFilter
@@ -21,12 +23,14 @@ namespace RestaurantManagementSystem.ViewModels
         public string CounterName { get; set; } = "ALL";
         public int? UserId { get; set; }
         public string UserDisplayName { get; set; } = string.Empty;
+        public List<int> SelectedBranchIds { get; set; } = new List<int>();
     }
 
     public class CollectionRegisterRow
     {
         public string OrderNo { get; set; }
         public string BillNo { get; set; } = string.Empty;
+        public string BranchName { get; set; } = string.Empty;
         public string TableNo { get; set; }
         public string Username { get; set; }
         public int? CounterId { get; set; }

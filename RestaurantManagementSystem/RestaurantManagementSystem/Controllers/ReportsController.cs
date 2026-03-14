@@ -1307,6 +1307,9 @@ namespace RestaurantManagementSystem.Controllers
 
             ViewData["Title"] = "GST Breakup Report";
             var model = new GSTBreakupReportViewModel();
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin)
+                model.Branches = await LoadAllBranchesAsync();
             await LoadGSTBreakupReportAsync(model, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Gst);
             return View(model);
@@ -1321,6 +1324,9 @@ namespace RestaurantManagementSystem.Controllers
 
             ViewData["Title"] = "GST Breakup Report";
             var model = new GSTBreakupReportViewModel { Filter = filter };
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin)
+                model.Branches = await LoadAllBranchesAsync();
             await LoadGSTBreakupReportAsync(model, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.Gst);
             return View(model);
@@ -1336,7 +1342,17 @@ namespace RestaurantManagementSystem.Controllers
                 { CommandType = CommandType.StoredProcedure };
                 command.Parameters.AddWithValue("@StartDate", (object?)model.Filter.StartDate?.Date ?? DBNull.Value);
                 command.Parameters.AddWithValue("@EndDate", (object?)model.Filter.EndDate?.Date ?? DBNull.Value);
-                await TryAddBranchParameterAsync(connection, command, branchId);
+
+                // Multi-branch: pass comma-separated @BranchIds when admin has selected branches;
+                // otherwise fall back to the single active branch filter
+                var selectedIds = model.IsMainBranchAdmin && model.Filter.SelectedBranchIds?.Count > 0
+                    ? model.Filter.SelectedBranchIds
+                    : null;
+                if (selectedIds != null)
+                    command.Parameters.AddWithValue("@BranchIds", string.Join(",", selectedIds));
+                else
+                    await TryAddBranchParameterAsync(connection, command, branchId);
+
                 using var reader = await command.ExecuteReaderAsync();
                 if (await reader.ReadAsync())
                 {
@@ -1400,6 +1416,9 @@ namespace RestaurantManagementSystem.Controllers
                                 : string.Empty,
                             BillNo = billNoOrdinal >= 0 && !reader.IsDBNull(billNoOrdinal)
                                 ? reader.GetString(billNoOrdinal)
+                                : string.Empty,
+                            BranchName = GetOrdinalSafe(reader, "BranchName") >= 0 && !reader.IsDBNull(GetOrdinalSafe(reader, "BranchName"))
+                                ? reader.GetString(GetOrdinalSafe(reader, "BranchName"))
                                 : string.Empty,
                             TaxableValue = taxableValueOrdinal >= 0 && !reader.IsDBNull(taxableValueOrdinal)
                                 ? reader.GetDecimal(taxableValueOrdinal)
@@ -1741,6 +1760,9 @@ namespace RestaurantManagementSystem.Controllers
             {
                 model.Filter.UserId = currentUserId;
             }
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin)
+                model.Branches = await LoadAllBranchesAsync();
             await LoadPaymentMethodsAsync(model);
             await LoadCountersAsync(model, activeBranchId.Value);
             await LoadCollectionRegisterDataAsync(model, canViewAllCollections, currentUserId, activeBranchId.Value);
@@ -1780,6 +1802,9 @@ namespace RestaurantManagementSystem.Controllers
             {
                 model.Filter.UserId = currentUserId;
             }
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin)
+                model.Branches = await LoadAllBranchesAsync();
             await LoadPaymentMethodsAsync(model);
             await LoadCountersAsync(model, activeBranchId.Value);
             await LoadCollectionRegisterDataAsync(model, canViewAllCollections, currentUserId, activeBranchId.Value);
@@ -1789,12 +1814,17 @@ namespace RestaurantManagementSystem.Controllers
 
         [HttpGet]
         [RequirePermission(MenuCodes.Collection, PermissionAction.Export)]
-        public async Task<IActionResult> CollectionRegisterPdf(DateTime? fromDate, DateTime? toDate, int? paymentMethodId, int? counterId)
+        public async Task<IActionResult> CollectionRegisterPdf(DateTime? fromDate, DateTime? toDate, int? paymentMethodId, int? counterId, string? branchIds = null)
         {
             var activeBranchId = GetActiveBranchId();
             if (!activeBranchId.HasValue) return RedirectNoBranch();
 
             ViewData["Title"] = "Order Wise Payment Method Wise Collection Register";
+
+            var selectedIdList = string.IsNullOrWhiteSpace(branchIds)
+                ? new List<int>()
+                : branchIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => int.TryParse(s.Trim(), out var v) ? v : 0).Where(v => v > 0).ToList();
 
             var model = new CollectionRegisterViewModel
             {
@@ -1803,7 +1833,8 @@ namespace RestaurantManagementSystem.Controllers
                     FromDate = fromDate?.Date ?? DateTime.Today,
                     ToDate = toDate?.Date ?? DateTime.Today,
                     PaymentMethodId = paymentMethodId,
-                    CounterId = counterId
+                    CounterId = counterId,
+                    SelectedBranchIds = selectedIdList
                 }
             };
 
@@ -1813,6 +1844,7 @@ namespace RestaurantManagementSystem.Controllers
             {
                 model.Filter.UserId = currentUserId;
             }
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
 
             await LoadPaymentMethodsAsync(model);
             await LoadCountersAsync(model, activeBranchId.Value);
@@ -1868,17 +1900,20 @@ namespace RestaurantManagementSystem.Controllers
 
             // Columns (sum should fit within (pageWidth - 2*margin))
             var contentWidth = pageWidth - (2 * margin);
-            // Date, Order, BillNo, Table, User, Counter, Actual, Disc, GST, Round, Receipt, Method, Details
-            float[] colWidths = { 75, 58, 72, 35, 48, 75, 50, 46, 46, 46, 56, 52, 127 };
+            // Date, Order, BillNo, Branch, Table, User, Counter, Actual, Disc, GST, Round, Receipt, Method, Details
+            float[] colWidths = model.IsMainBranchAdmin
+                ? new float[] { 72, 55, 68, 52, 33, 44, 60, 48, 44, 44, 44, 52, 48, 118 }
+                : new float[] { 75, 58, 72, 35, 48, 75, 50, 46, 46, 46, 56, 52, 127 };
+            string[] headers = model.IsMainBranchAdmin
+                ? new[] { "Date/Time", "Order No", "Bill No", "Branch", "Table", "User", "Counter", "Actual", "Discount", "GST", "Round", "Receipt", "Method", "Details" }
+                : new[] { "Date/Time", "Order No", "Bill No", "Table", "User", "Counter", "Actual", "Discount", "GST", "Round", "Receipt", "Method", "Details" };
+
             var totalWidth = colWidths.Sum();
             if (totalWidth > contentWidth)
             {
-                // Scale down proportionally if needed
                 var scale = contentWidth / totalWidth;
                 for (int i = 0; i < colWidths.Length; i++) colWidths[i] *= scale;
             }
-
-            string[] headers = { "Date/Time", "Order No", "Bill No", "Table", "User", "Counter", "Actual", "Discount", "GST", "Round", "Receipt", "Method", "Details" };
 
             int rowIndex = 0;
             int pageNumber = 0;
@@ -1926,21 +1961,38 @@ namespace RestaurantManagementSystem.Controllers
                         ? new SKPaint { Color = SKColors.DarkRed, IsAntialias = true }
                         : textPaint;
 
-                    string[] values = {
-                        r.PaymentDate.ToString("dd-MMM HH:mm"),
-                        r.OrderNo ?? "",
-                        r.BillNo ?? "",
-                        r.TableNo ?? "",
-                        r.Username ?? "",
-                        string.IsNullOrWhiteSpace(r.CounterName) ? "-" : r.CounterName,
-                        r.ActualBillAmount.ToString("N2"),
-                        Math.Abs(r.DiscountAmount).ToString("N2"),
-                        r.GSTAmount.ToString("N2"),
-                        r.RoundOffAmount.ToString("+0.00;-0.00;0.00"),
-                        r.ReceiptAmount.ToString("N2"),
-                        r.PaymentMethod ?? "",
-                        r.Details ?? ""
-                    };
+                    string[] values = model.IsMainBranchAdmin
+                        ? new[] {
+                            r.PaymentDate.ToString("dd-MMM HH:mm"),
+                            r.OrderNo ?? "",
+                            r.BillNo ?? "",
+                            r.BranchName ?? "",
+                            r.TableNo ?? "",
+                            r.Username ?? "",
+                            string.IsNullOrWhiteSpace(r.CounterName) ? "-" : r.CounterName,
+                            r.ActualBillAmount.ToString("N2"),
+                            Math.Abs(r.DiscountAmount).ToString("N2"),
+                            r.GSTAmount.ToString("N2"),
+                            r.RoundOffAmount.ToString("+0.00;-0.00;0.00"),
+                            r.ReceiptAmount.ToString("N2"),
+                            r.PaymentMethod ?? "",
+                            r.Details ?? ""
+                        }
+                        : new[] {
+                            r.PaymentDate.ToString("dd-MMM HH:mm"),
+                            r.OrderNo ?? "",
+                            r.BillNo ?? "",
+                            r.TableNo ?? "",
+                            r.Username ?? "",
+                            string.IsNullOrWhiteSpace(r.CounterName) ? "-" : r.CounterName,
+                            r.ActualBillAmount.ToString("N2"),
+                            Math.Abs(r.DiscountAmount).ToString("N2"),
+                            r.GSTAmount.ToString("N2"),
+                            r.RoundOffAmount.ToString("+0.00;-0.00;0.00"),
+                            r.ReceiptAmount.ToString("N2"),
+                            r.PaymentMethod ?? "",
+                            r.Details ?? ""
+                        };
 
                     for (int c = 0; c < values.Length; c++)
                     {
@@ -2104,7 +2156,14 @@ ORDER BY CounterCode, CounterName";
                 command.Parameters.AddWithValue("@ToDate", (object?)model.Filter.ToDate?.Date ?? DBNull.Value);
                 command.Parameters.AddWithValue("@PaymentMethodId", (object?)model.Filter.PaymentMethodId ?? DBNull.Value);
                 command.Parameters.AddWithValue("@UserId", (object?)requestedUserId ?? DBNull.Value);
-                await TryAddBranchParameterAsync(connection, command, branchId);
+
+                // Multi-branch: pass @BranchIds when Main Branch Admin has selected branches
+                var selectedBranchIds = model.IsMainBranchAdmin && model.Filter.SelectedBranchIds?.Count > 0
+                    ? model.Filter.SelectedBranchIds : null;
+                if (selectedBranchIds != null)
+                    command.Parameters.AddWithValue("@BranchIds", string.Join(",", selectedBranchIds));
+                else
+                    await TryAddBranchParameterAsync(connection, command, branchId);
 
                 // Counter filter (only if the stored procedure supports it)
                 var hasCounterParam = false;
@@ -2164,10 +2223,19 @@ WHERE object_id = OBJECT_ID('dbo.usp_GetCollectionRegister')
                     }
                     catch { /* column may not exist on older DB */ }
 
+                    string branchName = string.Empty;
+                    try
+                    {
+                        var bnOrdinal = reader.GetOrdinal("BranchName");
+                        if (!reader.IsDBNull(bnOrdinal)) branchName = reader.GetString(bnOrdinal);
+                    }
+                    catch { /* column may not exist on older DB */ }
+
                     var row = new CollectionRegisterRow
                     {
                         OrderNo = reader.GetString(reader.GetOrdinal("OrderNo")),
                         BillNo = billNo,
+                        BranchName = branchName,
                         TableNo = reader.GetString(reader.GetOrdinal("TableNo")),
                         Username = reader.GetString(reader.GetOrdinal("Username")),
                         CounterId = counterId,
@@ -2438,6 +2506,45 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
             {
                 return false;
             }
+        }
+
+        // Returns true only when: current active branch is the Main Branch AND role is Administrator
+        private async Task<bool> IsMainBranchAdminAsync(int? branchId)
+        {
+            try
+            {
+                if (!branchId.HasValue) return false;
+                var roleName = User.GetActiveRoleName();
+                bool isAdmin = string.Equals(roleName, "Administrator", StringComparison.OrdinalIgnoreCase)
+                               || User.IsSuperAdminUser();
+                if (!isAdmin) return false;
+
+                using var con = new SqlConnection(_connectionString);
+                await con.OpenAsync();
+                using var cmd = new SqlCommand(
+                    "SELECT ISNULL(Is_MainBranch, 0) FROM dbo.Branches WHERE BranchId = @Id", con);
+                cmd.Parameters.AddWithValue("@Id", branchId.Value);
+                var result = await cmd.ExecuteScalarAsync();
+                return result != null && result != DBNull.Value && Convert.ToInt32(result) == 1;
+            }
+            catch { return false; }
+        }
+
+        private async Task<List<SelectListItem>> LoadAllBranchesAsync()
+        {
+            var list = new List<SelectListItem>();
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                await con.OpenAsync();
+                using var cmd = new SqlCommand(
+                    "SELECT BranchId, BranchName FROM dbo.Branches WHERE IsActive = 1 ORDER BY BranchName", con);
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
+                    list.Add(new SelectListItem(rdr.GetString(1), rdr.GetInt32(0).ToString()));
+            }
+            catch { /* ignore — branch list is optional */ }
+            return list;
         }
 
         [HttpPost]

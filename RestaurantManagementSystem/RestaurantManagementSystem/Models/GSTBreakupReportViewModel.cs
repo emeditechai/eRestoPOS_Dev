@@ -7,6 +7,8 @@ namespace RestaurantManagementSystem.Models
         public GSTBreakupReportFilter Filter { get; set; } = new GSTBreakupReportFilter();
         public GSTBreakupReportSummary Summary { get; set; } = new GSTBreakupReportSummary();
         public List<GSTBreakupReportRow> Rows { get; set; } = new List<GSTBreakupReportRow>();
+        public List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem> Branches { get; set; } = new();
+        public bool IsMainBranchAdmin { get; set; }
     }
 
     public class GSTBreakupReportFilter
@@ -18,6 +20,8 @@ namespace RestaurantManagementSystem.Models
         [Display(Name = "To Date")]
         [DataType(DataType.Date)]
         public DateTime? EndDate { get; set; } = DateTime.Today;
+
+        public List<int> SelectedBranchIds { get; set; } = new List<int>();
     }
 
     public class GSTBreakupReportSummary
@@ -39,6 +43,7 @@ namespace RestaurantManagementSystem.Models
         public DateTime PaymentDate { get; set; }
         public string OrderNumber { get; set; } = string.Empty;
         public string BillNo { get; set; } = string.Empty;
+        public string BranchName { get; set; } = string.Empty;
         public decimal TaxableValue { get; set; } // Order Subtotal - Discount (base for GST calculation)
         public decimal DiscountAmount { get; set; }
         public decimal GSTPercentage { get; set; } // Total GST % (e.g., 20% for BAR, 10% for Foods)
