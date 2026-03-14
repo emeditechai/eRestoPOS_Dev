@@ -604,7 +604,7 @@ namespace RestaurantManagementSystem.Controllers
                 cmd.Parameters.AddWithValue("@BranchId",   branchId.Value);
                 cmd.Parameters.AddWithValue("@FromDate",   fromDate.Value.Date);
                 cmd.Parameters.AddWithValue("@ToDate",     toDate.Value.Date);
-                cmd.Parameters.AddWithValue("@SupplierId", supplierId.HasValue ? (object)supplierId.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@SupplierId", supplierId.HasValue && supplierId.Value > 0 ? (object)supplierId.Value : DBNull.Value);
                 if (isMainBranchAdmin && selectedBranchIds.Count > 0)
                     cmd.Parameters.AddWithValue("@BranchIds", string.Join(",", selectedBranchIds));
                 using var rdr = cmd.ExecuteReader();
