@@ -154,6 +154,7 @@
                         <tr>
                             <th>Date & Time</th>
                             <th>Order No</th>
+                            <th>Bill No</th>
                             <th>Table No</th>
                             <th>Username</th>
                             <th>Counter</th>
@@ -175,6 +176,7 @@
                             <tr class="@rowClass">
                                 <td class="text-nowrap">@(row.PaymentDate.ToString("dd-MMM-yyyy HH:mm"))</td>
                                 <td>@row.OrderNo</td>
+                                <td class="text-nowrap">@row.BillNo</td>
                                 <td>@row.TableNo</td>
                                 <td>@row.Username</td>
                                 <td class="text-nowrap">@(!string.IsNullOrWhiteSpace(row.CounterName) ? row.CounterName : "-")</td>
@@ -190,7 +192,7 @@
                     </tbody>
                     <tfoot class="table-light fw-bold">
                         <tr>
-                            <td colspan="5" class="text-end">TOTAL:</td>
+                            <td colspan="6" class="text-end">TOTAL:</td>
                             <td class="text-end">₹@(Model.Summary.TotalActualAmount.ToString("N2"))</td>
                             <td class="text-end">₹@(Model.Summary.TotalDiscount.ToString("N2"))</td>
                             <td class="text-end text-success">₹@(Model.Summary.TotalGST.ToString("N2"))</td>

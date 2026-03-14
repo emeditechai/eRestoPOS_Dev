@@ -38,6 +38,7 @@ namespace RestaurantManagementSystem.Models
     {
         public DateTime PaymentDate { get; set; }
         public string OrderNumber { get; set; } = string.Empty;
+        public string BillNo { get; set; } = string.Empty;
         public decimal TaxableValue { get; set; } // Order Subtotal - Discount (base for GST calculation)
         public decimal DiscountAmount { get; set; }
         public decimal GSTPercentage { get; set; } // Total GST % (e.g., 20% for BAR, 10% for Foods)

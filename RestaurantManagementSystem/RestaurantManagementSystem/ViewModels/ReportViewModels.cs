@@ -26,6 +26,7 @@ namespace RestaurantManagementSystem.ViewModels
     public class CollectionRegisterRow
     {
         public string OrderNo { get; set; }
+        public string BillNo { get; set; } = string.Empty;
         public string TableNo { get; set; }
         public string Username { get; set; }
         public int? CounterId { get; set; }

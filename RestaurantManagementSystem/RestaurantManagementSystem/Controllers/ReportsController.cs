@@ -1368,6 +1368,7 @@ namespace RestaurantManagementSystem.Controllers
 
                     var paymentDateOrdinal = GetOrdinalSafe(reader, "PaymentDate");
                     var orderNumberOrdinal = GetOrdinalSafe(reader, "OrderNumber");
+                    var billNoOrdinal = GetOrdinalSafe(reader, "BillNo");
                     var taxableValueOrdinal = GetOrdinalSafe(reader, "TaxableValue");
                     var discountAmountOrdinal = GetOrdinalSafe(reader, "DiscountAmount");
                     var gstPercentageOrdinal = GetOrdinalSafe(reader, "GSTPercentage");
@@ -1396,6 +1397,9 @@ namespace RestaurantManagementSystem.Controllers
                                 : DateTime.MinValue,
                             OrderNumber = orderNumberOrdinal >= 0 && !reader.IsDBNull(orderNumberOrdinal)
                                 ? reader.GetString(orderNumberOrdinal)
+                                : string.Empty,
+                            BillNo = billNoOrdinal >= 0 && !reader.IsDBNull(billNoOrdinal)
+                                ? reader.GetString(billNoOrdinal)
                                 : string.Empty,
                             TaxableValue = taxableValueOrdinal >= 0 && !reader.IsDBNull(taxableValueOrdinal)
                                 ? reader.GetDecimal(taxableValueOrdinal)
@@ -1864,8 +1868,8 @@ namespace RestaurantManagementSystem.Controllers
 
             // Columns (sum should fit within (pageWidth - 2*margin))
             var contentWidth = pageWidth - (2 * margin);
-            // Date, Order, Table, User, Counter, Actual, Disc, GST, Round, Receipt, Method, Details
-            float[] colWidths = { 90, 70, 45, 60, 95, 60, 55, 55, 55, 65, 60, 176 };
+            // Date, Order, BillNo, Table, User, Counter, Actual, Disc, GST, Round, Receipt, Method, Details
+            float[] colWidths = { 75, 58, 72, 35, 48, 75, 50, 46, 46, 46, 56, 52, 127 };
             var totalWidth = colWidths.Sum();
             if (totalWidth > contentWidth)
             {
@@ -1874,7 +1878,7 @@ namespace RestaurantManagementSystem.Controllers
                 for (int i = 0; i < colWidths.Length; i++) colWidths[i] *= scale;
             }
 
-            string[] headers = { "Date/Time", "Order No", "Table", "User", "Counter", "Actual", "Discount", "GST", "Round", "Receipt", "Method", "Details" };
+            string[] headers = { "Date/Time", "Order No", "Bill No", "Table", "User", "Counter", "Actual", "Discount", "GST", "Round", "Receipt", "Method", "Details" };
 
             int rowIndex = 0;
             int pageNumber = 0;
@@ -1925,6 +1929,7 @@ namespace RestaurantManagementSystem.Controllers
                     string[] values = {
                         r.PaymentDate.ToString("dd-MMM HH:mm"),
                         r.OrderNo ?? "",
+                        r.BillNo ?? "",
                         r.TableNo ?? "",
                         r.Username ?? "",
                         string.IsNullOrWhiteSpace(r.CounterName) ? "-" : r.CounterName,
@@ -2151,9 +2156,18 @@ WHERE object_id = OBJECT_ID('dbo.usp_GetCollectionRegister')
                     }
                     catch { /* ignore */ }
 
+                    string billNo = string.Empty;
+                    try
+                    {
+                        var billNoOrdinal = reader.GetOrdinal("BillNo");
+                        if (!reader.IsDBNull(billNoOrdinal)) billNo = reader.GetString(billNoOrdinal);
+                    }
+                    catch { /* column may not exist on older DB */ }
+
                     var row = new CollectionRegisterRow
                     {
                         OrderNo = reader.GetString(reader.GetOrdinal("OrderNo")),
+                        BillNo = billNo,
                         TableNo = reader.GetString(reader.GetOrdinal("TableNo")),
                         Username = reader.GetString(reader.GetOrdinal("Username")),
                         CounterId = counterId,

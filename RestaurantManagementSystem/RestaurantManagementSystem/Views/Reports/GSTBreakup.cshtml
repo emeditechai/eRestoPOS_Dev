@@ -142,6 +142,7 @@
                     <tr>
                         <th>Date/Time</th>
                         <th>Invoice #</th>
+                        <th>Bill No</th>
                         <th>Type</th>
                         <th>Table</th>
                         <th class="text-end">Subtotal</th>
@@ -159,7 +160,7 @@
                 <tbody>
                 @if (!Model.Rows.Any())
                 {
-                    <tr><td colspan="14" class="text-center text-muted py-4">No payments found for selected date range.</td></tr>
+                    <tr><td colspan="15" class="text-center text-muted py-4">No payments found for selected date range.</td></tr>
                 }
                 else
                 {
@@ -169,6 +170,7 @@
                         <tr>
                             <td class="small">@row.PaymentDateFormatted</td>
                             <td class="fw-semibold">@row.OrderNumber</td>
+                            <td class="text-nowrap small">@row.BillNo</td>
                             <td>
                                 @if (row.OrderType == "Bar")
                                 {
@@ -200,7 +202,7 @@
                 </tbody>
                 <tfoot class="table-secondary fw-bold">
                     <tr>
-                        <td colspan="6" class="text-end">TOTALS:</td>
+                        <td colspan="7" class="text-end">TOTALS:</td>
                         <td class="text-end bg-warning bg-opacity-25 text-dark">₹@(Model.Summary.TotalTaxableValue.ToString("N2"))</td>
                         <td colspan="2"></td>
                         <td class="text-end">₹@(Model.Summary.TotalCGST.ToString("N2"))</td>
