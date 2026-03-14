@@ -81,11 +81,16 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        private bool GetIsCounterRequiredForPos()
+        private bool GetIsCounterRequiredForPos(int? branchId = null)
         {
+            // Use a branch-specific cache key so different branches don't share the value
+            string cacheKey = branchId.HasValue
+                ? $"{IsCounterRequiredCacheKey}.Branch{branchId.Value}"
+                : IsCounterRequiredCacheKey;
+
             try
             {
-                if (_cache != null && _cache.TryGetValue(IsCounterRequiredCacheKey, out bool cached))
+                if (_cache != null && _cache.TryGetValue(cacheKey, out bool cached))
                 {
                     return cached;
                 }
@@ -114,9 +119,14 @@ BEGIN
             ELSE CAST(ISNULL(IsCounterRequired, 0) AS bit)
         END
     FROM dbo.RestaurantSettings
+    WHERE (@BranchId IS NULL
+           OR COL_LENGTH('dbo.RestaurantSettings','BranchId') IS NULL
+           OR BranchId = @BranchId)
     ORDER BY Id DESC;
 END", connection))
                     {
+                        cmd.Parameters.Add("@BranchId", System.Data.SqlDbType.Int).Value =
+                            branchId.HasValue ? (object)branchId.Value : DBNull.Value;
                         var val = cmd.ExecuteScalar();
                         if (val != null && val != DBNull.Value)
                         {
@@ -133,7 +143,7 @@ END", connection))
 
             try
             {
-                _cache?.Set(IsCounterRequiredCacheKey, isRequired, new MemoryCacheEntryOptions
+                _cache?.Set(cacheKey, isRequired, new MemoryCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = CounterRequiredCacheDuration,
                     SlidingExpiration = CounterRequiredCacheDuration
@@ -3035,7 +3045,7 @@ SELECT @result;", connection))
 
             ViewData["Title"] = "POS Order";
 
-            var isCounterRequired = GetIsCounterRequiredForPos();
+            var isCounterRequired = GetIsCounterRequiredForPos(activeBranchId);
 
             // Defaults (no counter UI unless explicitly required)
             ViewBag.PosIsCounterRequired = isCounterRequired;
@@ -3424,7 +3434,7 @@ SELECT @result;", connection))
                 return BadRequest("Invalid request.");
             }
 
-            var isCounterRequired = GetIsCounterRequiredForPos();
+            var isCounterRequired = GetIsCounterRequiredForPos(activeBranchId);
             int? selectedCounterId = null;
 
             // Enforce counter selection when Restaurant Settings requires it
@@ -3673,7 +3683,7 @@ SELECT @result;", connection))
                 return Json(new { success = false, message = "No active branch selected. Please select a branch first." });
             }
 
-            var isCounterRequired = GetIsCounterRequiredForPos();
+            var isCounterRequired = GetIsCounterRequiredForPos(activeBranchId);
             int? selectedCounterId = null;
 
             // Enforce counter selection when Restaurant Settings requires it
