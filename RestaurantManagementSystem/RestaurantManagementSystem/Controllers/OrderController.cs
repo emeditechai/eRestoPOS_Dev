@@ -4069,6 +4069,7 @@ SELECT @result;", connection))
                 decimal discountAmount = 0m;
                 decimal tipAmount = 0m;
                 bool isBarOrder = false;
+                int orderType = 0; // 0=DineIn, 1=Takeout, 2=Delivery, 3=Online, 4=RoomService
                 
                 using (var readCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT 
@@ -4092,7 +4093,8 @@ SELECT @result;", connection))
                             WHEN EXISTS (SELECT 1 FROM KitchenTickets kt WHERE kt.OrderId = o.Id 
                                 AND (kt.KitchenStation = 'BAR' OR kt.TicketNumber LIKE 'BOT-%')) THEN 1
                             ELSE 0
-                        END AS IsBarOrder
+                        END AS IsBarOrder,
+                        ISNULL(o.OrderType, 0) AS OrderType
                     FROM Orders o
                     WHERE o.Id = @OrderId", connection, transaction))
                 {
@@ -4106,6 +4108,7 @@ SELECT @result;", connection))
                             discountAmount = reader.GetDecimal(2);
                             tipAmount = reader.GetDecimal(3);
                             isBarOrder = reader.GetInt32(4) == 1;
+                            orderType = reader.IsDBNull(5) ? 0 : reader.GetInt32(5);
                         }
                         else
                         {
@@ -4115,30 +4118,45 @@ SELECT @result;", connection))
                     }
                 }
                 
-                // Step 2: Get applicable GST percentage from settings (BAR vs Foods)
+                // Step 2: Get applicable GST percentage + inclusive flag from settings (BAR / Takeaway / Foods)
                 decimal gstPercentage = 5.0m; // Default fallback
+                bool isTakeawayIncludedGSTReq = false;
+                bool isTakeawayOrder = (orderType == 1 || orderType == 2); // 1=Takeout, 2=Delivery
                 try
                 {
                     using (var settingsCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
                         SELECT 
-                            ISNULL(DefaultGSTPercentage, 5.0) AS DefaultGSTPercentage,
-                            ISNULL(BarGSTPerc, 5.0) AS BarGSTPerc
+                            ISNULL(DefaultGSTPercentage, 5.0)     AS DefaultGSTPercentage,
+                            ISNULL(BarGSTPerc, 5.0)               AS BarGSTPerc,
+                            CASE WHEN COL_LENGTH('dbo.RestaurantSettings','TakeAwayGSTPercentage') IS NOT NULL
+                                 THEN ISNULL(TakeAwayGSTPercentage, ISNULL(DefaultGSTPercentage, 5.0))
+                                 ELSE ISNULL(DefaultGSTPercentage, 5.0) END AS TakeAwayGSTPercentage,
+                            CASE WHEN COL_LENGTH('dbo.RestaurantSettings','Is_TakeawayIncludedGST_Req') IS NOT NULL
+                                 THEN ISNULL(Is_TakeawayIncludedGST_Req, 0)
+                                 ELSE 0 END                        AS IsTakeawayIncludedGSTReq
                         FROM dbo.RestaurantSettings", connection, transaction))
                     {
                         using (var reader = settingsCmd.ExecuteReader())
                         {
                             if (reader.Read())
                             {
-                                decimal defaultGst = reader.GetDecimal(0);
-                                decimal barGst = reader.GetDecimal(1);
-                                gstPercentage = isBarOrder ? barGst : defaultGst;
+                                decimal defaultGst   = reader.GetDecimal(0);
+                                decimal barGst       = reader.GetDecimal(1);
+                                decimal takeawayGst  = reader.GetDecimal(2);
+                                isTakeawayIncludedGSTReq = reader.GetInt32(3) == 1;
+                                if (isBarOrder)
+                                    gstPercentage = barGst;
+                                else if (isTakeawayOrder)
+                                    gstPercentage = takeawayGst;
+                                else
+                                    gstPercentage = defaultGst;
                             }
                         }
                     }
                 }
                 catch
                 {
-                    // If BarGSTPerc column doesn't exist, fall back to DefaultGSTPercentage only
+                    // If extended columns don't exist, fall back to DefaultGSTPercentage only
                     using (var fallbackCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT ISNULL(DefaultGSTPercentage, 5.0) FROM dbo.RestaurantSettings", connection, transaction))
                     {
                         var result = fallbackCmd.ExecuteScalar();
@@ -4148,6 +4166,9 @@ SELECT @result;", connection))
                         }
                     }
                 }
+                
+                // Takeaway inclusive GST: prices include GST (same math as Bar)
+                bool useInclusiveGST = isBarOrder || (isTakeawayOrder && isTakeawayIncludedGSTReq);
                 
                 // Step 3: Calculate GST based on order type, but only for GST-applicable items
                 decimal gstAmount;
@@ -4171,21 +4192,22 @@ SELECT @result;", connection))
                 decimal nonApplicableAfterDiscount = Math.Max(0m, nonApplicableGross - discountOnNonApplicable);
                 decimal grossAfterDiscount = Math.Max(0m, totalGross - discountAmount);
 
-                if (isBarOrder)
+                if (useInclusiveGST)
                 {
-                    // BAR: menu prices include GST for applicable items; non-applicable items have no GST
+                    // BAR / Takeaway-Inclusive: menu prices already include GST
+                    // Back-calculate the taxable base, then extract GST from it
                     decimal gstMultiplier = 1m + (gstPercentage / 100m);
                     decimal taxableApplicable = Math.Round(applicableAfterDiscount / gstMultiplier, 2, MidpointRounding.AwayFromZero);
                     gstAmount = Math.Round(taxableApplicable * (gstPercentage / 100m), 2, MidpointRounding.AwayFromZero);
 
                     // Subtotal stored as GST-exclusive base: taxable base + non-taxable base
                     adjustedSubtotal = taxableApplicable + nonApplicableAfterDiscount;
-                    // Total customer pays is gross-after-discount (already includes GST for applicable items) + tip
+                    // Total customer pays is gross-after-discount (price already includes GST) + tip
                     totalAmount = grossAfterDiscount + tipAmount;
                 }
                 else
                 {
-                    // Foods: prices exclude GST; GST applies only on applicable items
+                    // Dine-In / Takeaway-Exclusive: prices exclude GST; GST is added on top
                     gstAmount = Math.Round(applicableAfterDiscount * gstPercentage / 100m, 2, MidpointRounding.AwayFromZero);
                     adjustedSubtotal = grossAfterDiscount;
                     totalAmount = adjustedSubtotal + gstAmount + tipAmount;
@@ -4256,9 +4278,13 @@ SELECT @result;", connection))
                        AND EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.OrderItems') AND name = 'SGST_Amount')
                        AND EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.OrderItems') AND name = 'isGstApplicable')
                     BEGIN
-                        DECLARE @isBar bit = 0;
-                        DECLARE @gstPerc decimal(12,2) = 5.00;
+                        DECLARE @isBar              bit             = 0;
+                        DECLARE @isTakeawayOrder    bit             = 0;
+                        DECLARE @isTakeawayInclGST  bit             = 0;
+                        DECLARE @useInclusiveGST    bit             = 0;
+                        DECLARE @gstPerc            decimal(12,2)   = 5.00;
 
+                        -- Determine if Bar order
                         SELECT @isBar = CASE 
                             WHEN EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType')
                                 AND ISNULL(o.OrderKitchenType,'') = 'Bar' THEN 1
@@ -4269,9 +4295,31 @@ SELECT @result;", connection))
                         FROM Orders o
                         WHERE o.Id = @OrderId;
 
+                        -- Determine if Takeout (1) or Delivery (2)
+                        SELECT @isTakeawayOrder = CASE WHEN ISNULL(o.OrderType,0) IN (1,2) THEN 1 ELSE 0 END
+                        FROM Orders o WHERE o.Id = @OrderId;
+
+                        -- Read TakeawayIncludedGST setting
                         BEGIN TRY
-                            SELECT @gstPerc = CASE WHEN @isBar = 1 
-                                THEN ISNULL(BarGSTPerc, ISNULL(DefaultGSTPercentage, 5.0))
+                            SELECT @isTakeawayInclGST =
+                                CASE WHEN COL_LENGTH('dbo.RestaurantSettings','Is_TakeawayIncludedGST_Req') IS NOT NULL
+                                     THEN ISNULL(Is_TakeawayIncludedGST_Req, 0)
+                                     ELSE 0 END
+                            FROM dbo.RestaurantSettings;
+                        END TRY
+                        BEGIN CATCH
+                            SET @isTakeawayInclGST = 0;
+                        END CATCH
+
+                        -- Use inclusive GST when Bar OR (Takeaway + setting ON)
+                        SET @useInclusiveGST = CASE WHEN @isBar = 1 OR (@isTakeawayOrder = 1 AND @isTakeawayInclGST = 1) THEN 1 ELSE 0 END;
+
+                        BEGIN TRY
+                            SELECT @gstPerc = CASE
+                                WHEN @isBar = 1
+                                    THEN ISNULL(BarGSTPerc, ISNULL(DefaultGSTPercentage, 5.0))
+                                WHEN @isTakeawayOrder = 1 AND COL_LENGTH('dbo.RestaurantSettings','TakeAwayGSTPercentage') IS NOT NULL
+                                    THEN ISNULL(TakeAwayGSTPercentage, ISNULL(DefaultGSTPercentage, 5.0))
                                 ELSE ISNULL(DefaultGSTPercentage, 5.0)
                             END
                             FROM dbo.RestaurantSettings;
@@ -4289,9 +4337,11 @@ SELECT @result;", connection))
                                 CAST(CASE
                                     WHEN ISNULL(mi.IsGstApplicable, 1) = 1 AND @gstPerc > 0 THEN
                                         CASE
-                                            WHEN @isBar = 1 THEN
+                                            WHEN @useInclusiveGST = 1 THEN
+                                                -- Inclusive: extract GST from the price that already includes it
                                                 ROUND(oi.Subtotal - ROUND(oi.Subtotal / (1 + (@gstPerc / 100.0)), 2), 2)
                                             ELSE
+                                                -- Exclusive: GST is added on top
                                                 ROUND(oi.Subtotal * @gstPerc / 100.0, 2)
                                         END
                                     ELSE 0
@@ -5896,26 +5946,73 @@ SELECT @result;", connection))
                             isBarOrder = result != null && Convert.ToInt32(result) == 1;
                         }
                         
-                        // Retrieve appropriate GST % from settings table
-                        string gstColumn = isBarOrder ? "BarGSTPerc" : "DefaultGSTPercentage";
-                        using (var cmd = new Microsoft.Data.SqlClient.SqlCommand($"SELECT TOP 1 {gstColumn} FROM dbo.RestaurantSettings ORDER BY Id", connection))
+                        // Retrieve appropriate GST % from settings table, also read Takeaway inclusive setting
+                        bool isTakeawayOrder = (order.OrderType == 1 || order.OrderType == 2);
+                        bool isTakeawayInclusiveGST = false;
+                        decimal gstPercent = 0m;
+                        try
                         {
-                            var gstObj = cmd.ExecuteScalar();
-                            decimal gstPercent = 0m;
-                            if (gstObj != null && gstObj != DBNull.Value)
+                            using (var settCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                                SELECT
+                                    ISNULL(DefaultGSTPercentage, 5.0) AS DefaultGST,
+                                    ISNULL(BarGSTPerc, 5.0) AS BarGST,
+                                    CASE WHEN COL_LENGTH('dbo.RestaurantSettings','TakeAwayGSTPercentage') IS NOT NULL
+                                         THEN ISNULL(TakeAwayGSTPercentage, ISNULL(DefaultGSTPercentage, 5.0))
+                                         ELSE ISNULL(DefaultGSTPercentage, 5.0) END AS TakeawayGST,
+                                    CASE WHEN COL_LENGTH('dbo.RestaurantSettings','Is_TakeawayIncludedGST_Req') IS NOT NULL
+                                         THEN ISNULL(Is_TakeawayIncludedGST_Req, 0)
+                                         ELSE 0 END AS TakeawayInclGST
+                                FROM dbo.RestaurantSettings ORDER BY Id", connection))
                             {
-                                decimal.TryParse(gstObj.ToString(), out gstPercent);
+                                using (var sReader = settCmd.ExecuteReader())
+                                {
+                                    if (sReader.Read())
+                                    {
+                                        decimal defGst  = sReader.GetDecimal(0);
+                                        decimal barGst  = sReader.GetDecimal(1);
+                                        decimal twGst   = sReader.GetDecimal(2);
+                                        isTakeawayInclusiveGST = sReader.GetInt32(3) == 1 && isTakeawayOrder;
+                                        gstPercent = isBarOrder ? barGst : (isTakeawayOrder ? twGst : defGst);
+                                    }
+                                }
                             }
+                        }
+                        catch
+                        {
+                            string gstColumn = isBarOrder ? "BarGSTPerc" : "DefaultGSTPercentage";
+                            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand($"SELECT TOP 1 {gstColumn} FROM dbo.RestaurantSettings ORDER BY Id", connection))
+                            {
+                                var gstObj = cmd.ExecuteScalar();
+                                if (gstObj != null && gstObj != DBNull.Value)
+                                    decimal.TryParse(gstObj.ToString(), out gstPercent);
+                            }
+                        }
+                        bool useInclusiveGSTLegacy = isBarOrder || isTakeawayInclusiveGST;
+                        {
                             order.GSTPercentage = gstPercent;
-                            // Recalculate subtotal from items (exclude cancelled status=5)
                             var effectiveSubtotal = order.Items?.Where(i => i.Status != 5).Sum(i => i.Subtotal) ?? order.Subtotal;
-                            // Calculate GST amount (round to 2 decimals)
-                            var gstAmount = Math.Round(effectiveSubtotal * gstPercent / 100m, 2, MidpointRounding.AwayFromZero);
-                            order.TaxAmount = gstAmount; // maintain backward compatibility field
-                            order.CGSTAmount = Math.Round(gstAmount / 2m, 2, MidpointRounding.AwayFromZero);
-                            order.SGSTAmount = gstAmount - order.CGSTAmount; // ensure total matches after rounding
-                            order.TotalAmount = effectiveSubtotal + gstAmount + order.TipAmount - order.DiscountAmount;
-                            order.Subtotal = effectiveSubtotal; // ensure stored value aligns
+                            decimal gstAmount;
+                            if (useInclusiveGSTLegacy && gstPercent > 0)
+                            {
+                                // Inclusive: back-calculate GST from the price that already includes it
+                                decimal taxableBase = Math.Round(effectiveSubtotal / (1m + gstPercent / 100m), 2, MidpointRounding.AwayFromZero);
+                                gstAmount = Math.Round(taxableBase * gstPercent / 100m, 2, MidpointRounding.AwayFromZero);
+                                order.TaxAmount = gstAmount;
+                                order.CGSTAmount = Math.Round(gstAmount / 2m, 2, MidpointRounding.AwayFromZero);
+                                order.SGSTAmount = gstAmount - order.CGSTAmount;
+                                order.Subtotal = taxableBase;
+                                order.TotalAmount = effectiveSubtotal + order.TipAmount - order.DiscountAmount;
+                            }
+                            else
+                            {
+                                // Exclusive: GST added on top
+                                gstAmount = Math.Round(effectiveSubtotal * gstPercent / 100m, 2, MidpointRounding.AwayFromZero);
+                                order.TaxAmount = gstAmount;
+                                order.CGSTAmount = Math.Round(gstAmount / 2m, 2, MidpointRounding.AwayFromZero);
+                                order.SGSTAmount = gstAmount - order.CGSTAmount;
+                                order.TotalAmount = effectiveSubtotal + gstAmount + order.TipAmount - order.DiscountAmount;
+                                order.Subtotal = effectiveSubtotal;
+                            }
                         }
                     }
                 }
