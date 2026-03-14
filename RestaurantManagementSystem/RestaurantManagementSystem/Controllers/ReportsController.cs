@@ -1814,6 +1814,108 @@ namespace RestaurantManagementSystem.Controllers
 
         [HttpGet]
         [RequirePermission(MenuCodes.Collection, PermissionAction.Export)]
+        public async Task<IActionResult> CollectionRegisterExcel(DateTime? fromDate, DateTime? toDate, int? paymentMethodId, int? counterId, string? branchIds = null)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
+            var selectedIdList = string.IsNullOrWhiteSpace(branchIds)
+                ? new List<int>()
+                : branchIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => int.TryParse(s.Trim(), out var v) ? v : 0).Where(v => v > 0).ToList();
+
+            var model = new CollectionRegisterViewModel
+            {
+                Filter = new CollectionRegisterFilter
+                {
+                    FromDate = fromDate?.Date ?? DateTime.Today,
+                    ToDate = toDate?.Date ?? DateTime.Today,
+                    PaymentMethodId = paymentMethodId,
+                    CounterId = counterId,
+                    SelectedBranchIds = selectedIdList
+                }
+            };
+
+            var canViewAllCollections = CurrentUserCanViewAllReportData();
+            var currentUserId = GetCurrentUserId();
+            if (!canViewAllCollections) model.Filter.UserId = currentUserId;
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+
+            await LoadPaymentMethodsAsync(model);
+            await LoadCountersAsync(model, activeBranchId.Value);
+            await LoadCollectionRegisterDataAsync(model, canViewAllCollections, currentUserId, activeBranchId.Value);
+
+            var fileName = BuildCollectionRegisterExportFileName(model.Filter, "xlsx");
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            sb.AppendLine("<?mso-application progid=\"Excel.Sheet\"?>");
+            sb.AppendLine("<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\"");
+            sb.AppendLine(" xmlns:o=\"urn:schemas-microsoft-com:office:office\"");
+            sb.AppendLine(" xmlns:x=\"urn:schemas-microsoft-com:office:excel\"");
+            sb.AppendLine(" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\"");
+            sb.AppendLine(" xmlns:html=\"http://www.w3.org/TR/REC-html40\">");
+            sb.AppendLine("<Styles>");
+            sb.AppendLine("<Style ss:ID=\"H\"><Font ss:Bold=\"1\"/><Interior ss:Color=\"#198754\" ss:Pattern=\"Solid\"/><Font ss:Color=\"#FFFFFF\" ss:Bold=\"1\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"B\"><Font ss:Bold=\"1\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"N\"><NumberFormat ss:Format=\"#,##0.00\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"BN\"><Font ss:Bold=\"1\"/><NumberFormat ss:Format=\"#,##0.00\"/></Style>");
+            sb.AppendLine("</Styles>");
+            sb.AppendLine("<Worksheet ss:Name=\"Collection Register\">");
+            sb.AppendLine("<Table>");
+
+            // Title row
+            int colCount = model.IsMainBranchAdmin ? 14 : 13;
+            sb.AppendLine($"<Row><Cell ss:MergeAcross=\"{colCount - 1}\" ss:StyleID=\"B\"><Data ss:Type=\"String\">Collection Register Report — {(model.Filter.FromDate ?? DateTime.Today):dd-MMM-yyyy} to {(model.Filter.ToDate ?? DateTime.Today):dd-MMM-yyyy} | {model.Filter.PaymentMethodName} | {model.Filter.CounterName}</Data></Cell></Row>");
+
+            // Header row
+            sb.Append("<Row ss:StyleID=\"H\">");
+            void AddHeaderCell(string s) => sb.Append($"<Cell><Data ss:Type=\"String\">{System.Security.SecurityElement.Escape(s)}</Data></Cell>");
+            AddHeaderCell("Date & Time"); AddHeaderCell("Order No"); AddHeaderCell("Bill No");
+            if (model.IsMainBranchAdmin) AddHeaderCell("Branch");
+            AddHeaderCell("Table No"); AddHeaderCell("Username"); AddHeaderCell("Counter");
+            AddHeaderCell("Actual Bill"); AddHeaderCell("Discount"); AddHeaderCell("GST Amount");
+            AddHeaderCell("Round Off"); AddHeaderCell("Receipt Amount"); AddHeaderCell("Payment Method"); AddHeaderCell("Details");
+            sb.AppendLine("</Row>");
+
+            // Data rows
+            foreach (var row in model.Rows)
+            {
+                sb.Append("<Row>");
+                void AddStr(string? v) => sb.Append($"<Cell><Data ss:Type=\"String\">{System.Security.SecurityElement.Escape(v ?? "")}</Data></Cell>");
+                void AddNum(decimal v) => sb.Append($"<Cell ss:StyleID=\"N\"><Data ss:Type=\"Number\">{v}</Data></Cell>");
+                AddStr(row.PaymentDate.ToString("dd-MMM-yyyy HH:mm"));
+                AddStr(row.OrderNo); AddStr(row.BillNo);
+                if (model.IsMainBranchAdmin) AddStr(row.BranchName);
+                AddStr(row.TableNo); AddStr(row.Username);
+                AddStr(string.IsNullOrWhiteSpace(row.CounterName) ? "-" : row.CounterName);
+                AddNum(row.ActualBillAmount); AddNum(Math.Abs(row.DiscountAmount));
+                AddNum(row.GSTAmount); AddNum(row.RoundOffAmount); AddNum(row.ReceiptAmount);
+                AddStr(row.PaymentMethod); AddStr(row.Details);
+                sb.AppendLine("</Row>");
+            }
+
+            // Totals row
+            sb.Append("<Row ss:StyleID=\"B\">");
+            int spanCols = model.IsMainBranchAdmin ? 7 : 6;
+            sb.Append($"<Cell ss:MergeAcross=\"{spanCols - 1}\"><Data ss:Type=\"String\">TOTALS</Data></Cell>");
+            void AddTotalNum(decimal v) => sb.Append($"<Cell ss:StyleID=\"BN\"><Data ss:Type=\"Number\">{v}</Data></Cell>");
+            AddTotalNum(model.Summary.TotalActualAmount);
+            AddTotalNum(model.Summary.TotalDiscount);
+            AddTotalNum(model.Summary.TotalGST);
+            AddTotalNum(model.Summary.TotalRoundOff);
+            AddTotalNum(model.Summary.TotalReceiptAmount);
+            sb.Append("<Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell>");
+            sb.AppendLine("</Row>");
+
+            sb.AppendLine("</Table></Worksheet></Workbook>");
+
+            var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+            return File(bytes, "application/vnd.ms-excel", fileName);
+        }
+
+        [HttpGet]
+        [RequirePermission(MenuCodes.Collection, PermissionAction.Export)]
         public async Task<IActionResult> CollectionRegisterPdf(DateTime? fromDate, DateTime? toDate, int? paymentMethodId, int? counterId, string? branchIds = null)
         {
             var activeBranchId = GetActiveBranchId();

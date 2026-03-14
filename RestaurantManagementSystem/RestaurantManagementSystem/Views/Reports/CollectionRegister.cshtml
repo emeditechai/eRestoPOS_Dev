@@ -44,64 +44,78 @@
             <strong>Note:</strong> Shows individual payment records (split payments appear as separate rows)
         </div>
         
-        <form asp-action="CollectionRegister" method="post" class="row g-3 mb-3 align-items-end">
-            <div class="col-lg-2 col-md-3">
-                <label asp-for="Filter.FromDate" class="form-label">From Date</label>
-                <input asp-for="Filter.FromDate" class="form-control" type="date" />
-            </div>
-            <div class="col-lg-2 col-md-3">
-                <label asp-for="Filter.ToDate" class="form-label">To Date</label>
-                <input asp-for="Filter.ToDate" class="form-control" type="date" />
-            </div>
-            <div class="col-lg-3 col-md-6">
-                <label asp-for="Filter.PaymentMethodId" class="form-label">Payment Method</label>
-                <select asp-for="Filter.PaymentMethodId" asp-items="Model.PaymentMethods" class="form-select">
-                </select>
-            </div>
-            <div class="col-lg-3 col-md-6">
-                <label asp-for="Filter.CounterId" class="form-label">Counter</label>
-                <select asp-for="Filter.CounterId" asp-items="Model.Counters" class="form-select">
-                </select>
-            </div>
-            @if (Model.IsMainBranchAdmin)
-            {
+        <form asp-action="CollectionRegister" method="post" class="mb-4" id="filterForm">
+            <!-- Filter Row -->
+            <div class="row g-3 align-items-end mb-3">
+                <div class="col-lg-2 col-md-3 col-sm-6">
+                    <label asp-for="Filter.FromDate" class="form-label fw-semibold">From Date</label>
+                    <input asp-for="Filter.FromDate" class="form-control" type="date" />
+                </div>
+                <div class="col-lg-2 col-md-3 col-sm-6">
+                    <label asp-for="Filter.ToDate" class="form-label fw-semibold">To Date</label>
+                    <input asp-for="Filter.ToDate" class="form-control" type="date" />
+                </div>
                 <div class="col-lg-3 col-md-6">
-                    <label class="form-label">Branches</label>
-                    <div class="dropdown" id="branchSelectorDropdown">
-                        <button class="btn btn-outline-info dropdown-toggle w-100 text-start" type="button"
-                                data-bs-auto-close="outside" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-code-branch me-1"></i>
-                            <span id="branchDropdownLabel">All Branches</span>
-                        </button>
-                        <div class="dropdown-menu p-2" style="min-width:240px" id="branchDropdownMenu">
-                            <div class="d-flex gap-2 mb-1">
-                                <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(true)">All</button>
-                                <span>·</span>
-                                <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(false)">None</button>
-                            </div>
-                            <hr class="my-1">
-                            @foreach (var b in Model.Branches)
-                            {
-                                <div class="form-check">
-                                    <input class="form-check-input branch-chk" type="checkbox" name="Filter.SelectedBranchIds"
-                                           value="@b.Value" id="bchk_@b.Value"
-                                           @(Model.Filter.SelectedBranchIds.Contains(int.Parse(b.Value)) ? "checked" : "")>
-                                    <label class="form-check-label" for="bchk_@b.Value">@b.Text</label>
+                    <label asp-for="Filter.PaymentMethodId" class="form-label fw-semibold">Payment Method</label>
+                    <select asp-for="Filter.PaymentMethodId" asp-items="Model.PaymentMethods" class="form-select"></select>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <label asp-for="Filter.CounterId" class="form-label fw-semibold">Counter</label>
+                    <select asp-for="Filter.CounterId" asp-items="Model.Counters" class="form-select"></select>
+                </div>
+                @if (Model.IsMainBranchAdmin)
+                {
+                    <div class="col-lg-2 col-md-6">
+                        <label class="form-label fw-semibold">Branches</label>
+                        <div class="dropdown" id="branchSelectorDropdown">
+                            <button class="btn btn-outline-info dropdown-toggle w-100 text-start" type="button"
+                                    data-bs-auto-close="outside" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-code-branch me-1"></i>
+                                <span id="branchDropdownLabel">All Branches</span>
+                            </button>
+                            <div class="dropdown-menu p-2" style="min-width:220px" id="branchDropdownMenu">
+                                <div class="d-flex gap-2 mb-1">
+                                    <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(true)">All</button>
+                                    <span>·</span>
+                                    <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(false)">None</button>
                                 </div>
-                            }
+                                <hr class="my-1">
+                                @foreach (var b in Model.Branches)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input branch-chk" type="checkbox" name="Filter.SelectedBranchIds"
+                                               value="@b.Value" id="bchk_@b.Value"
+                                               @(Model.Filter.SelectedBranchIds.Contains(int.Parse(b.Value)) ? "checked" : "")>
+                                        <label class="form-check-label" for="bchk_@b.Value">@b.Text</label>
+                                    </div>
+                                }
+                            </div>
                         </div>
                     </div>
-                </div>
-            }
-            <div class="col-lg-2 col-md-12 d-flex justify-content-lg-end justify-content-start gap-2 flex-wrap">
-                <button type="submit" class="btn btn-success"><i class="fas fa-sync-alt me-1"></i>Refresh</button>
+                }
+            </div>
+            <!-- Action Buttons Row -->
+            <div class="d-flex flex-wrap gap-2 align-items-center border-top pt-3">
+                <button type="submit" class="btn btn-success">
+                    <i class="fas fa-sync-alt me-1"></i>Refresh
+                </button>
+                <div class="vr mx-1 d-none d-sm-block"></div>
                 @if (reportPermissions.CanExport)
                 {
-                    <button type="button" id="exportCsvBtn" class="btn btn-outline-secondary"><i class="fas fa-file-csv me-1"></i>CSV</button>
-                    <button type="button" id="exportExcelBtn" class="btn btn-outline-success"><i class="fas fa-file-excel me-1"></i>Excel</button>
-                    <button type="button" id="exportPdfBtn" class="btn btn-outline-danger"><i class="fas fa-file-pdf me-1"></i>PDF</button>
+                    <button type="button" id="exportCsvBtn" class="btn btn-outline-secondary">
+                        <i class="fas fa-file-csv me-1"></i>CSV
+                    </button>
+                    <button type="button" id="exportExcelBtn" class="btn btn-outline-success">
+                        <i class="fas fa-file-excel me-1"></i>Excel
+                    </button>
+                    <button type="button" id="exportPdfBtn" class="btn btn-outline-danger">
+                        <i class="fas fa-file-pdf me-1"></i>PDF
+                    </button>
+                    <div class="vr mx-1 d-none d-sm-block"></div>
                 }
-                <button type="button" id="printBtn" class="btn btn-outline-primary"><i class="fas fa-print me-1"></i>Print</button>
+                <button type="button" id="printBtn" class="btn btn-outline-primary">
+                    <i class="fas fa-print me-1"></i>Print
+                </button>
             </div>
         </form>
 
@@ -262,6 +276,22 @@
             return true;
         }
 
+        function buildExportParams() {
+            const params = new URLSearchParams();
+            const from = (document.querySelector('[name="Filter.FromDate"]')?.value || '').toString();
+            const to = (document.querySelector('[name="Filter.ToDate"]')?.value || '').toString();
+            const paymentMethodId = (document.querySelector('[name="Filter.PaymentMethodId"]')?.value || '').toString();
+            const counterId = (document.querySelector('[name="Filter.CounterId"]')?.value || '').toString();
+            if (from) params.set('fromDate', from);
+            if (to) params.set('toDate', to);
+            if (paymentMethodId) params.set('paymentMethodId', paymentMethodId);
+            if (counterId) params.set('counterId', counterId);
+            const checkedBranches = document.querySelectorAll('.branch-chk:checked');
+            const branchIds = Array.from(checkedBranches).map(cb => cb.value);
+            if (branchIds.length > 0) params.set('branchIds', branchIds.join(','));
+            return params;
+        }
+
         function buildExportFileSuffix() {
             const from = (document.querySelector('[name="Filter.FromDate"]')?.value || '').toString();
             const to = (document.querySelector('[name="Filter.ToDate"]')?.value || '').toString();
@@ -276,14 +306,10 @@
             if (!ensureExportAllowed()) return;
             const table = document.getElementById('collectionTable');
             let csv = [];
-            
-            // Header
             const headerCells = table.querySelectorAll('thead th');
             let headerRow = [];
             headerCells.forEach(cell => headerRow.push('"' + cell.textContent.trim() + '"'));
             csv.push(headerRow.join(','));
-            
-            // Body
             const rows = table.querySelectorAll('tbody tr');
             rows.forEach(row => {
                 const cells = row.querySelectorAll('td');
@@ -294,14 +320,10 @@
                 });
                 csv.push(rowData.join(','));
             });
-            
-            // Footer
             const footerCells = table.querySelectorAll('tfoot td');
             let footerRow = [];
             footerCells.forEach(cell => footerRow.push('"' + cell.textContent.trim() + '"'));
             csv.push(footerRow.join(','));
-            
-            // Download
             const csvContent = csv.join('\n');
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
@@ -312,30 +334,14 @@
 
         document.getElementById('exportExcelBtn')?.addEventListener('click', function() {
             if (!ensureExportAllowed()) return;
-            // For Excel export, we'll use HTML table format which Excel can open
-            const table = document.getElementById('collectionTable').outerHTML;
-            const blob = new Blob([table], { type: 'application/vnd.ms-excel' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = 'CollectionRegister_' + buildExportFileSuffix() + '.xls';
-            link.click();
+            const params = buildExportParams();
+            const url = '@Url.Action("CollectionRegisterExcel", "Reports")' + (params.toString() ? ('?' + params.toString()) : '');
+            window.open(url, '_blank');
         });
 
         document.getElementById('exportPdfBtn')?.addEventListener('click', function() {
             if (!ensureExportAllowed()) return;
-            const from = (document.querySelector('[name="Filter.FromDate"]')?.value || '').toString();
-            const to = (document.querySelector('[name="Filter.ToDate"]')?.value || '').toString();
-            const paymentMethodId = (document.querySelector('[name="Filter.PaymentMethodId"]')?.value || '').toString();
-            const counterId = (document.querySelector('[name="Filter.CounterId"]')?.value || '').toString();
-            const params = new URLSearchParams();
-            if (from) params.set('fromDate', from);
-            if (to) params.set('toDate', to);
-            if (paymentMethodId) params.set('paymentMethodId', paymentMethodId);
-            if (counterId) params.set('counterId', counterId);
-            const checkedBranches = document.querySelectorAll('.branch-chk:checked');
-            const branchIds = Array.from(checkedBranches).map(cb => cb.value);
-            if (branchIds.length > 0) params.set('branchIds', branchIds.join(','));
-
+            const params = buildExportParams();
             const url = '@Url.Action("CollectionRegisterPdf", "Reports")' + (params.toString() ? ('?' + params.toString()) : '');
             window.open(url, '_blank');
         });
