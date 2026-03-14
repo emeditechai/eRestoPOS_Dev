@@ -149,7 +149,7 @@
                                 <td class="text-muted small">@s.ItemCategory</td>
                                 <td><span class="badge bg-info-subtle text-info">@s.GodownName</span></td>
                                 <td class="text-end @(isZero ? "text-danger fw-bold" : isLow ? "text-warning fw-bold" : "fw-semibold")">
-                                    @s.BalanceQty.ToString("N3")
+                                    @s.BalanceQty.ToString("0.######")
                                 </td>
                                 <td class="text-end text-muted small">@s.BaseUOMCode</td>
                                 <td class="text-end text-muted small">₹@s.AverageCost.ToString("N2")</td>

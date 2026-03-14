@@ -310,7 +310,7 @@
                                                 <div class="text-muted" style="font-size:.72rem">@a.GodownName</div>
                                             </td>
                                             <td class="text-end">
-                                                <span class="badge bg-danger">@a.BalanceQty.ToString("N2") @a.UOMCode</span>
+                                                <span class="badge bg-danger">@a.BalanceQty.ToString("0.######") @a.UOMCode</span>
                                             </td>
                                             <td class="text-end text-muted small">@(a.ReorderLevel?.ToString("N2") ?? "—")</td>
                                             <td class="text-end pe-3">
@@ -377,10 +377,10 @@
                                         <div class="text-muted" style="font-size:.72rem">@s.GodownName</div>
                                     </td>
                                     <td class="text-end">
-                                        <span class="@(s.BalanceQty <= 0 ? "text-danger fw-bold" : "")">@s.BalanceQty.ToString("N3") @s.UOMCode</span>
+                                        <span class="@(s.BalanceQty <= 0 ? "text-danger fw-bold" : "")">@s.BalanceQty.ToString("0.######") @s.UOMCode</span>
                                     </td>
                                     <td class="text-end text-muted small">
-                                        @(s.AvgDailyConsumption > 0 ? s.AvgDailyConsumption.ToString("N3") + " " + s.UOMCode : "—")
+                                        @(s.AvgDailyConsumption > 0 ? s.AvgDailyConsumption.ToString("0.######") + " " + s.UOMCode : "—")
                                     </td>
                                     <td class="text-end @daysColor">@daysLabel</td>
                                     <td class="text-end">
