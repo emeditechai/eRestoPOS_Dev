@@ -1,4 +1,4 @@
-@model RestaurantManagementSystem.Models.GSTBreakupReportViewModel
+content = r"""@model RestaurantManagementSystem.Models.GSTBreakupReportViewModel
 @using RestaurantManagementSystem.Models.Authorization
 @{
     ViewData["Title"] = "GST Breakup Report";
@@ -311,3 +311,9 @@
         updateBranchLabel();
     </script>
 }
+"""
+
+path = '/Users/abhikporel/dev/Restaurantapp/RestaurantManagementSystem/RestaurantManagementSystem/Views/Reports/GSTBreakup.cshtml'
+with open(path, 'w', encoding='utf-8') as f:
+    f.write(content)
+print(f'OK: wrote {len(content)} chars, {content.count(chr(10))} lines')

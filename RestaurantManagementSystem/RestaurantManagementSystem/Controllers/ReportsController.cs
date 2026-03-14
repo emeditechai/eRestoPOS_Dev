@@ -1332,6 +1332,249 @@ namespace RestaurantManagementSystem.Controllers
             return View(model);
         }
 
+        [HttpGet]
+        [RequirePermission(MenuCodes.Gst, PermissionAction.Export)]
+        public async Task<IActionResult> GSTBreakupExcel(DateTime? startDate, DateTime? endDate, string? branchIds = null)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
+            var selectedIdList = string.IsNullOrWhiteSpace(branchIds)
+                ? new List<int>()
+                : branchIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => int.TryParse(s.Trim(), out var v) ? v : 0).Where(v => v > 0).ToList();
+
+            var model = new GSTBreakupReportViewModel
+            {
+                Filter = new GSTBreakupReportFilter
+                {
+                    StartDate = startDate?.Date ?? DateTime.Today,
+                    EndDate = endDate?.Date ?? DateTime.Today,
+                    SelectedBranchIds = selectedIdList
+                }
+            };
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin) model.Branches = await LoadAllBranchesAsync();
+            await LoadGSTBreakupReportAsync(model, activeBranchId.Value);
+
+            var from = (model.Filter.StartDate ?? DateTime.Today).ToString("yyyy-MM-dd");
+            var to = (model.Filter.EndDate ?? DateTime.Today).ToString("yyyy-MM-dd");
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            sb.AppendLine("<?mso-application progid=\"Excel.Sheet\"?>");
+            sb.AppendLine("<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\"");
+            sb.AppendLine(" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\">");
+            sb.AppendLine("<Styles>");
+            sb.AppendLine("<Style ss:ID=\"H\"><Interior ss:Color=\"#1e3c72\" ss:Pattern=\"Solid\"/><Font ss:Color=\"#FFFFFF\" ss:Bold=\"1\" ss:Size=\"10\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"B\"><Font ss:Bold=\"1\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"N\"><NumberFormat ss:Format=\"#,##0.00\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"P\"><NumberFormat ss:Format=\"0.00\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"BN\"><Font ss:Bold=\"1\"/><NumberFormat ss:Format=\"#,##0.00\"/></Style>");
+            sb.AppendLine("</Styles>");
+            sb.AppendLine("<Worksheet ss:Name=\"GST Breakup\">");
+            sb.AppendLine("<Table>");
+
+            int colCount = model.IsMainBranchAdmin ? 16 : 15;
+            sb.AppendLine($"<Row><Cell ss:MergeAcross=\"{colCount - 1}\" ss:StyleID=\"B\"><Data ss:Type=\"String\">GST Breakup Report — {from} to {to}</Data></Cell></Row>");
+
+            sb.Append("<Row ss:StyleID=\"H\">");
+            void AddH(string s) => sb.Append($"<Cell><Data ss:Type=\"String\">{System.Security.SecurityElement.Escape(s)}</Data></Cell>");
+            AddH("Date/Time"); AddH("Invoice #"); AddH("Bill No");
+            if (model.IsMainBranchAdmin) AddH("Branch");
+            AddH("Type"); AddH("Table"); AddH("Subtotal"); AddH("Discount"); AddH("Taxable Value");
+            AddH("GST %"); AddH("CGST %"); AddH("CGST ₹"); AddH("SGST %"); AddH("SGST ₹"); AddH("Total GST"); AddH("Invoice Total");
+            sb.AppendLine("</Row>");
+
+            foreach (var r in model.Rows)
+            {
+                decimal subtotal = r.TaxableValue + r.DiscountAmount;
+                sb.Append("<Row>");
+                void AddStr(string? v) => sb.Append($"<Cell><Data ss:Type=\"String\">{System.Security.SecurityElement.Escape(v ?? "")}</Data></Cell>");
+                void AddNum(decimal v, string style = "N") => sb.Append($"<Cell ss:StyleID=\"{style}\"><Data ss:Type=\"Number\">{v}</Data></Cell>");
+                AddStr(r.PaymentDate.ToString("yyyy-MM-dd HH:mm"));
+                AddStr(r.OrderNumber); AddStr(r.BillNo);
+                if (model.IsMainBranchAdmin) AddStr(r.BranchName);
+                AddStr(r.OrderType); AddStr(r.TableNumber);
+                AddNum(subtotal); AddNum(r.DiscountAmount); AddNum(r.TaxableValue);
+                AddNum(r.GSTPercentage, "P"); AddNum(r.CGSTPercentage, "P"); AddNum(r.CGSTAmount);
+                AddNum(r.SGSTPercentage, "P"); AddNum(r.SGSTAmount); AddNum(r.TotalGST); AddNum(r.InvoiceTotal);
+                sb.AppendLine("</Row>");
+            }
+
+            int spanCols = model.IsMainBranchAdmin ? 8 : 7;
+            sb.Append("<Row ss:StyleID=\"B\">");
+            sb.Append($"<Cell ss:MergeAcross=\"{spanCols - 1}\"><Data ss:Type=\"String\">TOTALS</Data></Cell>");
+            void AddTotal(decimal v) => sb.Append($"<Cell ss:StyleID=\"BN\"><Data ss:Type=\"Number\">{v}</Data></Cell>");
+            sb.Append("<Cell></Cell>"); // GST %
+            sb.Append("<Cell></Cell>"); // CGST %
+            AddTotal(model.Summary.TotalCGST);
+            sb.Append("<Cell></Cell>"); // SGST %
+            AddTotal(model.Summary.TotalSGST);
+            AddTotal(model.Summary.TotalGST);
+            AddTotal(model.Summary.NetAmount);
+            sb.AppendLine("</Row>");
+            sb.AppendLine("</Table></Worksheet></Workbook>");
+
+            var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+            return File(bytes, "application/vnd.ms-excel", $"GSTBreakup_{from}_to_{to}.xlsx");
+        }
+
+        [HttpGet]
+        [RequirePermission(MenuCodes.Gst, PermissionAction.Export)]
+        public async Task<IActionResult> GSTBreakupPdf(DateTime? startDate, DateTime? endDate, string? branchIds = null)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
+            var selectedIdList = string.IsNullOrWhiteSpace(branchIds)
+                ? new List<int>()
+                : branchIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => int.TryParse(s.Trim(), out var v) ? v : 0).Where(v => v > 0).ToList();
+
+            var model = new GSTBreakupReportViewModel
+            {
+                Filter = new GSTBreakupReportFilter
+                {
+                    StartDate = startDate?.Date ?? DateTime.Today,
+                    EndDate = endDate?.Date ?? DateTime.Today,
+                    SelectedBranchIds = selectedIdList
+                }
+            };
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin) model.Branches = await LoadAllBranchesAsync();
+            await LoadGSTBreakupReportAsync(model, activeBranchId.Value);
+
+            var from = (model.Filter.StartDate ?? DateTime.Today).ToString("yyyy-MM-dd");
+            var to = (model.Filter.EndDate ?? DateTime.Today).ToString("yyyy-MM-dd");
+
+            var pdfBytes = BuildGSTBreakupPdf(model);
+            return File(pdfBytes, "application/pdf", $"GSTBreakup_{from}_to_{to}.pdf");
+        }
+
+        private static byte[] BuildGSTBreakupPdf(GSTBreakupReportViewModel model)
+        {
+            using var stream = new MemoryStream();
+            using var document = SKDocument.CreatePdf(stream);
+
+            const float pageWidth = 842f;
+            const float pageHeight = 595f;
+            const float margin = 24f;
+
+            var regularTypeface = SKTypeface.Default;
+            var boldTypeface = SKTypeface.FromFamilyName(regularTypeface?.FamilyName, SKFontStyle.Bold) ?? regularTypeface;
+
+            using var headerFont   = new SKFont(boldTypeface, 15);
+            using var subFont      = new SKFont(regularTypeface, 9);
+            using var labelFont    = new SKFont(boldTypeface, 8);
+            using var textFont     = new SKFont(regularTypeface, 8);
+
+            var headerPaint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
+            var labelPaint  = new SKPaint { Color = SKColors.White, IsAntialias = true };
+            var textPaint   = new SKPaint { Color = SKColors.Black, IsAntialias = true };
+            var mutedPaint  = new SKPaint { Color = SKColors.DimGray, IsAntialias = true };
+            var linePaint   = new SKPaint { Color = SKColors.LightGray, StrokeWidth = 0.5f };
+            var thdBgPaint  = new SKPaint { Color = new SKColor(30, 60, 114) };
+
+            float rowH = 14f;
+            float contentWidth = pageWidth - 2 * margin;
+
+            float[] colWidths = model.IsMainBranchAdmin
+                ? new float[] { 66, 55, 62, 46, 30, 28, 42, 36, 46, 28, 28, 34, 28, 34, 40, 50 }
+                : new float[] { 66, 58, 65, 32, 32, 44, 38, 50, 30, 30, 36, 30, 36, 44, 56 };
+            string[] headers = model.IsMainBranchAdmin
+                ? new[] { "Date/Time","Invoice #","Bill No","Branch","Type","Table","Subtotal","Discount","Taxable Val","GST%","CGST%","CGST₹","SGST%","SGST₹","Total GST","Inv Total" }
+                : new[] { "Date/Time","Invoice #","Bill No","Type","Table","Subtotal","Discount","Taxable Val","GST%","CGST%","CGST₹","SGST%","SGST₹","Total GST","Inv Total" };
+
+            var totalW = colWidths.Sum();
+            if (totalW > contentWidth) { var sc = contentWidth / totalW; for (int i = 0; i < colWidths.Length; i++) colWidths[i] *= sc; }
+
+            int rowIndex = 0, pageNumber = 0;
+            while (rowIndex < model.Rows.Count || rowIndex == 0)
+            {
+                pageNumber++;
+                using var canvas = document.BeginPage(pageWidth, pageHeight);
+                float y = margin;
+
+                canvas.DrawText("GST Breakup Report", margin, y + 14, SKTextAlign.Left, headerFont, headerPaint);
+                var period = $"Period: {(model.Filter.StartDate ?? DateTime.Today):dd-MMM-yyyy} to {(model.Filter.EndDate ?? DateTime.Today):dd-MMM-yyyy}  |  Invoices: {model.Summary.InvoiceCount}  |  Total GST: ₹{model.Summary.TotalGST:N2}  |  Net Invoice Total: ₹{model.Summary.NetAmount:N2}";
+                canvas.DrawText(period, margin, y + 28, SKTextAlign.Left, subFont, mutedPaint);
+                canvas.DrawText($"Generated: {DateTime.Now:dd-MMM-yyyy HH:mm}  |  Page {pageNumber}", pageWidth - margin, y + 28, SKTextAlign.Right, subFont, mutedPaint);
+                y += 40f;
+
+                // Table header
+                float x = margin;
+                canvas.DrawRect(SKRect.Create(margin, y, contentWidth, rowH + 2), thdBgPaint);
+                for (int c = 0; c < headers.Length; c++)
+                {
+                    canvas.DrawText(headers[c], x + 2, y + rowH - 2, SKTextAlign.Left, labelFont, labelPaint);
+                    x += colWidths[c];
+                }
+                y += rowH + 2;
+                canvas.DrawLine(margin, y, margin + contentWidth, y, linePaint);
+
+                int rowsPerPage = (int)((pageHeight - y - margin - 16f) / rowH);
+                if (rowsPerPage < 1) rowsPerPage = 1;
+                int end = Math.Min(model.Rows.Count, rowIndex + rowsPerPage);
+
+                for (int i = rowIndex; i < end; i++)
+                {
+                    var r = model.Rows[i];
+                    x = margin;
+                    decimal subtotal = r.TaxableValue + r.DiscountAmount;
+                    string[] vals = model.IsMainBranchAdmin
+                        ? new[] { r.PaymentDate.ToString("dd-MMM HH:mm"), r.OrderNumber, r.BillNo, r.BranchName, r.OrderType, r.TableNumber,
+                                  subtotal.ToString("N2"), r.DiscountAmount.ToString("N2"), r.TaxableValue.ToString("N2"),
+                                  r.GSTPercentage.ToString("N1")+"%", r.CGSTPercentage.ToString("N2")+"%", r.CGSTAmount.ToString("N2"),
+                                  r.SGSTPercentage.ToString("N2")+"%", r.SGSTAmount.ToString("N2"), r.TotalGST.ToString("N2"), r.InvoiceTotal.ToString("N2") }
+                        : new[] { r.PaymentDate.ToString("dd-MMM HH:mm"), r.OrderNumber, r.BillNo, r.OrderType, r.TableNumber,
+                                  subtotal.ToString("N2"), r.DiscountAmount.ToString("N2"), r.TaxableValue.ToString("N2"),
+                                  r.GSTPercentage.ToString("N1")+"%", r.CGSTPercentage.ToString("N2")+"%", r.CGSTAmount.ToString("N2"),
+                                  r.SGSTPercentage.ToString("N2")+"%", r.SGSTAmount.ToString("N2"), r.TotalGST.ToString("N2"), r.InvoiceTotal.ToString("N2") };
+
+                    for (int c = 0; c < vals.Length; c++)
+                    {
+                        var val = vals[c];
+                        var maxW = colWidths[c] - 3;
+                        if (textFont.MeasureText(val) > maxW) { while (val.Length > 1 && textFont.MeasureText(val + "…") > maxW) val = val[..^1]; val += "…"; }
+                        canvas.DrawText(val, x + 2, y + rowH - 2, SKTextAlign.Left, textFont, textPaint);
+                        x += colWidths[c];
+                    }
+                    y += rowH;
+                    canvas.DrawLine(margin, y, margin + contentWidth, y, linePaint);
+                }
+                rowIndex = end;
+
+                // Totals row
+                if (rowIndex >= model.Rows.Count && model.Rows.Count > 0)
+                {
+                    x = margin;
+                    int spanCols = model.IsMainBranchAdmin ? 8 : 7;
+                    float spanW = colWidths.Take(spanCols).Sum();
+                    canvas.DrawText("TOTALS", x + spanW - 30, y + rowH - 2, SKTextAlign.Left, labelFont, headerPaint);
+                    x += spanW;
+                    // skip GST%, CGST%
+                    x += colWidths[spanCols]; x += colWidths[spanCols + 1];
+                    void DrawTotal(decimal v, int ci)
+                    {
+                        var s = v.ToString("N2");
+                        canvas.DrawText(s, x + 2, y + rowH - 2, SKTextAlign.Left, labelFont, headerPaint);
+                        x += colWidths[ci];
+                    }
+                    DrawTotal(model.Summary.TotalCGST, spanCols + 2);
+                    x += colWidths[spanCols + 3]; // SGST%
+                    DrawTotal(model.Summary.TotalSGST, spanCols + 4);
+                    DrawTotal(model.Summary.TotalGST, spanCols + 5);
+                    DrawTotal(model.Summary.NetAmount, spanCols + 6);
+                }
+
+                document.EndPage();
+                if (model.Rows.Count == 0) break;
+            }
+            document.Close();
+            return stream.ToArray();
+        }
+
         private async Task LoadGSTBreakupReportAsync(GSTBreakupReportViewModel model, int? branchId = null)
         {
             try
