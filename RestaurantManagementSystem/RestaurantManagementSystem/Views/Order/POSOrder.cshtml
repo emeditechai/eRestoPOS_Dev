@@ -1627,6 +1627,13 @@
 
                 const payTop = document.getElementById('posPayBtnTop');
                 if (payTop) payTop.disabled = isLocked || !orderId;
+
+                // Always restore the Complete Payment button to its default state when lock state changes
+                const payBtn = document.getElementById('posPayBtn');
+                if (payBtn) {
+                    payBtn.textContent = 'Complete Payment';
+                    payBtn.disabled = isLocked;
+                }
             }
 
             function getSelectedPaymentText(){
@@ -1871,6 +1878,10 @@
                 }
                 if (!validatePaymentFields()) return;
 
+                // Disable the button immediately to prevent double-submit
+                const payBtn = document.getElementById('posPayBtn');
+                if (payBtn) { payBtn.disabled = true; payBtn.textContent = 'Processing...'; }
+
                 // If the order becomes fully paid, we auto-open PrintPOS.
                 // Pre-open the window on the click gesture to avoid popup blockers.
                 let printWin = null;
@@ -1908,6 +1919,7 @@
                     // For partial payments, use Split Payments screen.
                     if (Math.abs(diff) > 0.50) {
                         showPayMsg('Amount should be within ₹0.50 of Remaining (round off). For partial payments, use Split Payment.', true);
+                        if (payBtn) { payBtn.disabled = false; payBtn.textContent = 'Complete Payment'; }
                         return;
                     }
 
@@ -1958,6 +1970,12 @@
                 } catch (e) {
                     showPayMsg('Payment error: ' + (e && e.message ? e.message : e), true);
                     try { if (printWin && !printWin.closed) printWin.close(); } catch { }
+                } finally {
+                    // Re-enable button unless the order is now fully paid/locked
+                    if (!isLocked && payBtn) {
+                        payBtn.disabled = false;
+                        payBtn.textContent = 'Complete Payment';
+                    }
                 }
             }
 
@@ -2209,10 +2227,18 @@
             // Add from product card
             document.getElementById('posProductGrid')?.addEventListener('click', function(e){
                 const btn = e.target.closest('.pos-add-btn');
-                if (!btn) return;
+                if (!btn || btn.disabled) return;
                 const card = btn.closest('.pos-product');
                 const id = parseInt(card?.getAttribute('data-id') || '0');
-                if (id) addItemById(id);
+                if (!id) return;
+                // Disable immediately to prevent double-add; re-enable once server confirms
+                btn.disabled = true;
+                const origHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Adding...';
+                addItemById(id).finally(() => {
+                    btn.innerHTML = origHtml;
+                    btn.disabled = isLocked || !orderId;
+                });
             });
 
             // Cart controls
