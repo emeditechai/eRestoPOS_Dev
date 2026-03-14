@@ -626,4 +626,37 @@ namespace RestaurantManagementSystem.Models
         public DateTime? ToDate { get; set; }
         public DateTime? AsOfDate { get; set; }
     }
+
+    public class PurchaseRegisterDetailItem
+    {
+        // GRN Header fields
+        public int GRNId { get; set; }
+        public string? GRNNumber { get; set; }
+        public DateTime GRNDate { get; set; }
+        public string? InvoiceNo { get; set; }
+        public DateTime? InvoiceDate { get; set; }
+        public string? SupplierName { get; set; }
+        public string? GodownName { get; set; }
+        public string? GSTType { get; set; }
+        public string? PONumber { get; set; }
+        // Line Item fields
+        public int GRNDetailId { get; set; }
+        public string? ItemName { get; set; }
+        public string? ItemCode { get; set; }
+        public string? UOMCode { get; set; }
+        public decimal ReceivedQty { get; set; }
+        public decimal AcceptedQty { get; set; }
+        public decimal UnitRate { get; set; }
+        public decimal TaxableAmount { get; set; }
+        public decimal GSTPercent { get; set; }
+        public decimal IGSTPercent { get; set; }
+        public decimal IGSTAmount { get; set; }
+        public decimal CGSTPercent { get; set; }
+        public decimal CGSTAmount { get; set; }
+        public decimal SGSTPercent { get; set; }
+        public decimal SGSTAmount { get; set; }
+        public decimal TotalGSTAmount { get; set; }
+        public decimal LineAmount { get; set; }
+        public string? LineRemarks { get; set; }
+    }
 }

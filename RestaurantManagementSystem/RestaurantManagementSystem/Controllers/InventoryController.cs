@@ -580,6 +580,60 @@ namespace RestaurantManagementSystem.Controllers
         }
 
         // ═══════════════════════════════════════════════════════════════
+        //  PURCHASE REGISTER DETAILS (line-item drill-down)
+        // ═══════════════════════════════════════════════════════════════
+
+        public IActionResult PurchaseRegisterDetails(DateTime? fromDate, DateTime? toDate, int? supplierId, int? grnId)
+        {
+            var branchId = ActiveBranchId();
+            if (!branchId.HasValue) return NoBranch();
+
+            fromDate ??= new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+            toDate   ??= DateTime.Today;
+
+            var list = new List<PurchaseRegisterDetailItem>();
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand("usp_GetPurchaseRegisterDetails", con)
+                    { CommandType = CommandType.StoredProcedure };
+                cmd.Parameters.AddWithValue("@BranchId",   branchId.Value);
+                cmd.Parameters.AddWithValue("@FromDate",   fromDate.Value.Date);
+                cmd.Parameters.AddWithValue("@ToDate",     toDate.Value.Date);
+                cmd.Parameters.AddWithValue("@SupplierId", supplierId.HasValue && supplierId.Value > 0 ? (object)supplierId.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@GrnId",      grnId.HasValue && grnId.Value > 0 ? (object)grnId.Value : DBNull.Value);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                    list.Add(MapPurchaseRegisterDetail(rdr));
+            }
+            catch (Exception ex)
+            {
+                TempData["ErrorMessage"] = ex.Message;
+            }
+
+            // Supplier dropdown
+            var suppliers = new List<SelectListItem>();
+            using (var con = new SqlConnection(_connectionString))
+            {
+                con.Open();
+                using var cmd = new SqlCommand(
+                    "SELECT Id, PartyName FROM dbo.Parties WHERE IsActive=1 AND PartyType='Supplier' ORDER BY PartyName", con);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                    suppliers.Add(new SelectListItem { Value = rdr.GetInt32(0).ToString(), Text = rdr.GetString(1) });
+            }
+
+            ViewBag.Suppliers  = suppliers;
+            ViewBag.FromDate   = fromDate.Value.ToString("yyyy-MM-dd");
+            ViewBag.ToDate     = toDate.Value.ToString("yyyy-MM-dd");
+            ViewBag.SupplierId = supplierId ?? 0;
+            ViewBag.GrnId      = grnId ?? 0;
+            ViewBag.ActiveBranchId = branchId.Value;
+            return View(list);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
         //  TRANSFER REGISTER
         // ═══════════════════════════════════════════════════════════════
 
@@ -949,7 +1003,7 @@ namespace RestaurantManagementSystem.Controllers
             ViewBag.UOMs = uoms;
 
             // ── Suppliers ───────────────────────────────────────────────────
-            var suppliers = new List<object>();
+            var suppliers = new List<SelectListItem>();
             using (var con = new SqlConnection(_connectionString))
             {
                 con.Open();
@@ -957,7 +1011,7 @@ namespace RestaurantManagementSystem.Controllers
                     "SELECT Id, PartyName FROM dbo.Parties WHERE IsActive=1 AND PartyType='Supplier' ORDER BY PartyName", con);
                 using var rdr = cmd.ExecuteReader();
                 while (rdr.Read())
-                    suppliers.Add(new { value = rdr.GetInt32(0), text = rdr.GetString(1) });
+                    suppliers.Add(new SelectListItem { Value = rdr.GetInt32(0).ToString(), Text = rdr.GetString(1) });
             }
             ViewBag.Suppliers = suppliers;
         }
@@ -1071,6 +1125,37 @@ namespace RestaurantManagementSystem.Controllers
             TotalGSTAmount= GetDecimal(rdr, "TotalGSTAmount"),
             TotalAmount   = GetDecimal(rdr, "TotalAmount"),
             PONumber      = GetStr(rdr, "PONumber")
+        };
+
+        private static PurchaseRegisterDetailItem MapPurchaseRegisterDetail(SqlDataReader rdr) => new()
+        {
+            GRNId          = GetInt(rdr, "GRNId"),
+            GRNNumber      = GetStr(rdr, "GRNNumber"),
+            GRNDate        = rdr.GetDateTime(rdr.GetOrdinal("GRNDate")),
+            InvoiceNo      = GetStr(rdr, "InvoiceNo"),
+            InvoiceDate    = rdr.IsDBNull(rdr.GetOrdinal("InvoiceDate")) ? (DateTime?)null : rdr.GetDateTime(rdr.GetOrdinal("InvoiceDate")),
+            SupplierName   = GetStr(rdr, "SupplierName"),
+            GodownName     = GetStr(rdr, "GodownName"),
+            GSTType        = GetStr(rdr, "GSTType"),
+            PONumber       = GetStr(rdr, "PONumber"),
+            GRNDetailId    = GetInt(rdr, "GRNDetailId"),
+            ItemName       = GetStr(rdr, "ItemName"),
+            ItemCode       = GetStr(rdr, "ItemCode"),
+            UOMCode        = GetStr(rdr, "UOMCode"),
+            ReceivedQty    = GetDecimal(rdr, "ReceivedQty"),
+            AcceptedQty    = GetDecimal(rdr, "AcceptedQty"),
+            UnitRate       = GetDecimal(rdr, "UnitRate"),
+            TaxableAmount  = GetDecimal(rdr, "TaxableAmount"),
+            GSTPercent     = GetDecimal(rdr, "GSTPercent"),
+            IGSTPercent    = GetDecimal(rdr, "IGSTPercent"),
+            IGSTAmount     = GetDecimal(rdr, "IGSTAmount"),
+            CGSTPercent    = GetDecimal(rdr, "CGSTPercent"),
+            CGSTAmount     = GetDecimal(rdr, "CGSTAmount"),
+            SGSTPercent    = GetDecimal(rdr, "SGSTPercent"),
+            SGSTAmount     = GetDecimal(rdr, "SGSTAmount"),
+            TotalGSTAmount = GetDecimal(rdr, "TotalGSTAmount"),
+            LineAmount     = GetDecimal(rdr, "LineAmount"),
+            LineRemarks    = GetStr(rdr, "LineRemarks")
         };
 
         private static TransferRegisterItem MapTransferRegister(SqlDataReader rdr) => new()

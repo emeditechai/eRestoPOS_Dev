@@ -1,10 +1,11 @@
 @model IEnumerable<RestaurantManagementSystem.Models.PurchaseRegisterItem>
+@using Microsoft.AspNetCore.Mvc.Rendering
 @{
     ViewData["Title"] = "Purchase Register";
-    var dateFrom   = ViewBag.DateFrom   as string ?? DateTime.Today.AddMonths(-1).ToString("yyyy-MM-dd");
-    var dateTo     = ViewBag.DateTo     as string ?? DateTime.Today.ToString("yyyy-MM-dd");
-    var selSupplier= ViewBag.SelSupplier as int?  ?? 0;
-    var suppliers  = ViewBag.Suppliers  as SelectList;
+    var dateFrom    = ViewBag.FromDate   as string ?? DateTime.Today.AddMonths(-1).ToString("yyyy-MM-dd");
+    var dateTo      = ViewBag.ToDate     as string ?? DateTime.Today.ToString("yyyy-MM-dd");
+    var selSupplier = (int?)(ViewBag.SupplierId) ?? 0;
+    var suppliers   = ViewBag.Suppliers as List<SelectListItem> ?? new List<SelectListItem>();
     var totalAmt   = Model.Sum(x => x.SubTotal);
     var totalGst   = Model.Sum(x => x.TotalGSTAmount);
     var totalNet   = Model.Sum(x => x.TotalAmount);
@@ -17,6 +18,9 @@
             <small class="text-muted">All GRN-based purchase transactions</small>
         </div>
         <div class="d-flex gap-2">
+            <a asp-action="PurchaseRegisterDetails" asp-controller="Inventory"
+               asp-route-fromDate="@ViewBag.FromDate" asp-route-toDate="@ViewBag.ToDate" asp-route-supplierId="@(selSupplier > 0 ? selSupplier.ToString() : "")"
+               class="btn btn-outline-info btn-sm"><i class="fas fa-list-ul me-1"></i>Detailed Report</a>
             <button onclick="window.print()" class="btn btn-outline-secondary btn-sm"><i class="fas fa-print me-1"></i>Print</button>
             <button id="btnExportExcel" class="btn btn-success btn-sm" title="Export to Excel"><i class="fas fa-file-excel me-1"></i>Excel</button>
             <button id="btnExportPdf" class="btn btn-danger btn-sm" title="Export to PDF"><i class="fas fa-file-pdf me-1"></i>PDF</button>
@@ -30,10 +34,12 @@
                     <label class="form-label small fw-semibold mb-1">Supplier</label>
                     <select name="supplierId" class="form-select form-select-sm">
                         <option value="0">All Suppliers</option>
-                        @if (suppliers != null)
+                        @foreach (var s in suppliers)
                         {
-                            foreach (var s in suppliers)
-                            { <option value="@s.Value" selected="@(s.Value == selSupplier.ToString())">@s.Text</option> }
+                            if (s.Value == selSupplier.ToString())
+                            { <option value="@s.Value" selected="selected">@s.Text</option> }
+                            else
+                            { <option value="@s.Value">@s.Text</option> }
                         }
                     </select>
                 </div>
@@ -95,6 +101,7 @@
                             <th class="text-end">Sub Total</th>
                             <th class="text-end">GST Amt</th>
                             <th class="text-end pe-3">Net Amt</th>
+                            <th class="text-center">Details</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -110,6 +117,14 @@
                                 <td class="text-end">₹@r.SubTotal.ToString("N2")</td>
                                 <td class="text-end text-warning">₹@r.TotalGSTAmount.ToString("N2")</td>
                                 <td class="text-end pe-3 fw-semibold">₹@r.TotalAmount.ToString("N2")</td>
+                                <td class="text-center">
+                                    <a asp-action="PurchaseRegisterDetails" asp-controller="Inventory"
+                                       asp-route-grnId="@r.GRNId"
+                                       asp-route-fromDate="@ViewBag.FromDate" asp-route-toDate="@ViewBag.ToDate" asp-route-supplierId="@(selSupplier > 0 ? selSupplier.ToString() : "")"
+                                       class="btn btn-outline-primary btn-sm py-0 px-2" title="View Line Items">
+                                        <i class="fas fa-list-ul me-1"></i>Items
+                                    </a>
+                                </td>
                             </tr>
                         }
                     </tbody>
