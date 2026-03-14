@@ -119,10 +119,17 @@ BEGIN
             ELSE CAST(ISNULL(IsCounterRequired, 0) AS bit)
         END
     FROM dbo.RestaurantSettings
-    WHERE (@BranchId IS NULL
-           OR COL_LENGTH('dbo.RestaurantSettings','BranchId') IS NULL
-           OR BranchId = @BranchId)
-    ORDER BY Id DESC;
+    WHERE @BranchId IS NULL
+       OR COL_LENGTH('dbo.RestaurantSettings','BranchId') IS NULL
+       OR BranchId = @BranchId
+       OR BranchId IS NULL
+    ORDER BY
+        CASE
+            WHEN COL_LENGTH('dbo.RestaurantSettings','BranchId') IS NOT NULL
+             AND BranchId = @BranchId THEN 0
+            ELSE 1
+        END ASC,
+        Id DESC;
 END", connection))
                     {
                         cmd.Parameters.Add("@BranchId", System.Data.SqlDbType.Int).Value =
