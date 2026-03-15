@@ -5534,14 +5534,24 @@ END", connection))
                         IF COL_LENGTH('dbo.Orders','BranchId') IS NOT NULL
                            AND OBJECT_ID('dbo.Branches','U') IS NOT NULL
                         BEGIN
-                            SELECT TOP 1 b.BranchName
+                            SELECT TOP 1
+                                b.BranchName
+                              + CASE
+                                    WHEN OBJECT_ID('dbo.BranchLocations','U') IS NOT NULL
+                                         AND b.BranchLocationId IS NOT NULL
+                                         AND bl.LocationName IS NOT NULL
+                                         AND LTRIM(RTRIM(bl.LocationName)) <> ''
+                                    THEN ' — ' + LTRIM(RTRIM(bl.LocationName))
+                                    ELSE ''
+                                END
                             FROM dbo.Orders o
                             LEFT JOIN dbo.Branches b ON b.BranchId = o.BranchId
+                            LEFT JOIN dbo.BranchLocations bl ON bl.LocationId = b.BranchLocationId
                             WHERE o.Id = @OrderId;
                         END
                         ELSE
                         BEGIN
-                            SELECT CAST(NULL AS nvarchar(150));
+                            SELECT CAST(NULL AS nvarchar(300));
                         END", connection))
                     {
                         command.Parameters.AddWithValue("@OrderId", orderId);

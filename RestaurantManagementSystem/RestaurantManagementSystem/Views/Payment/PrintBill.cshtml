@@ -37,6 +37,10 @@
             <p><strong>Order #:</strong> @Model.OrderNumber</p>
             <p><strong>Date:</strong> @DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss")</p>
             <p><strong>Type:</strong> @Model.OrderTypeDisplay</p>
+            @if (!string.IsNullOrWhiteSpace(Model.CustomerName))
+            {
+                <p><strong>Guest Name:</strong> @Model.CustomerName</p>
+            }
         </div>
         <div class="col-6 text-end">
             @if (Model.OrderType == 0)
@@ -187,8 +191,11 @@
                     <td><strong>Grand Total:</strong></td>
                     <td class="text-end"><strong>₹@totalRounded.ToString("F0")</strong></td>
                 </tr>
-                <tr>
-                    <td>Paid:</td>
+                <tr>                    <td colspan="2" class="text-muted" style="font-size:0.85rem; font-style:italic; padding-top:2px;">
+                        <strong>In Words:</strong> @AmountToWords.Convert(totalRounded)
+                    </td>
+                </tr>
+                <tr>                    <td>Paid:</td>
                     <td class="text-end text-success">₹@Model.PaidAmount.ToString("F2")</td>
                 </tr>
                 @if (Model.RemainingAmount > 0)

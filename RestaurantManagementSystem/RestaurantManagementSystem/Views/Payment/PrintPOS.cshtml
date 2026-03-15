@@ -11,184 +11,298 @@
     <meta charset="utf-8" />
     <title>POS Bill - Order #@Model.OrderNumber</title>
     <style>
-    /* Narrow receipt style (approx 80mm) */
-    body { font-family: Arial, Helvetica, sans-serif; width: 320px; margin: 0; padding: 6px; color: #000; box-sizing: border-box; }
-        .center { text-align: center; }
-        .small { font-size: 12px; }
-        .tiny { font-size: 11px; }
-        .divider { border-top: 1px solid #000; margin: 6px 0; }
-        .dashed { border-top: 1px dashed #000; margin: 6px 0; }
-    /* Use grid so columns align exactly with header; reserve fixed px for numeric columns so they never overflow */
-    .item { display:grid; grid-template-columns: calc(100% - 176px) 48px 64px 64px; gap:6px; margin:3px 0; font-size:13px; align-items:baseline; box-sizing: border-box; }
-    .header-row { display:grid; grid-template-columns: calc(100% - 176px) 48px 64px 64px; gap:6px; margin:0 0 6px 0; font-size:14px; align-items:center; box-sizing: border-box; }
-    .header-row div { font-weight:700; }
-    .qty { text-align:center; padding-right:4px; box-sizing: border-box; white-space:nowrap; }
-    .name { padding:0 6px; word-break: break-word; }
-    .price { text-align:right; padding-right:6px; box-sizing: border-box; white-space:nowrap; }
-        .bold { font-weight:700; }
-    .totals { margin-top:6px; font-size:13px; width:100%; }
-    .totals .row { display:flex; justify-content:space-between; margin:6px 0; align-items:center; }
-    .totals .row div:first-child { flex:1; }
-    .totals .row .right { width:110px; text-align:right; padding-right:6px; box-sizing: border-box; }
-    .right { text-align:right; }
-        @@media print { body { margin:0; } }
+        /* ── 80 mm thermal paper ── */
+        @@page {
+            size: 80mm auto;
+            margin: 4mm 3mm;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            width: 72mm;          /* printable area inside 80mm */
+            max-width: 72mm;
+            margin: 0 auto;
+            padding: 0;
+            color: #000;
+            background: #fff;
+            -webkit-print-color-adjust: exact;
+        }
+
+        /* ── typography helpers ── */
+        .center  { text-align: center; }
+        .right   { text-align: right; }
+        .bold    { font-weight: bold; }
+        .small   { font-size: 11px; }
+        .tiny    { font-size: 10px; }
+
+        /* ── shop header ── */
+        .shop-name {
+            font-size: 15px;
+            font-weight: bold;
+            letter-spacing: .5px;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+
+        /* ── dividers ── */
+        .dashed  { border: none; border-top: 1px dashed #000; margin: 5px 0; }
+        .solid   { border: none; border-top: 1px solid  #000; margin: 5px 0; }
+        .double  { border: none; border-top: 3px double #000; margin: 5px 0; }
+
+        /* ── bill meta (Name / Date / Counter etc.) ── */
+        .meta-table { width: 100%; font-size: 11px; border-collapse: collapse; }
+        .meta-table td { padding: 1px 0; vertical-align: top; }
+        .meta-table .lbl { font-weight: bold; white-space: nowrap; padding-right: 3px; }
+        .meta-table .val { }
+        .meta-table .right-col { text-align: right; }
+
+        /* ── item lines ── */
+        /* 4 cols: Name | Qty | Price | Amount
+           Name gets all remaining width; numeric cols are fixed */
+        .item-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .item-table th {
+            font-weight: bold;
+            padding: 2px 0;
+            border-bottom: 1px dashed #000;
+        }
+        .item-table td { padding: 2px 0; vertical-align: top; }
+        .item-table .col-name  { width: auto; }
+        .item-table .col-qty   { width: 24px;  text-align: center; white-space: nowrap; }
+        .item-table .col-price { width: 38px;  text-align: right;  white-space: nowrap; }
+        .item-table .col-amt   { width: 42px;  text-align: right;  white-space: nowrap; }
+
+        /* ── totals block ── */
+        .totals-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .totals-table td { padding: 2px 0; }
+        .totals-table .lbl  { }
+        .totals-table .amt  { text-align: right; width: 55px; white-space: nowrap; }
+        .grand-total td     { font-size: 14px; font-weight: bold; padding-top: 4px; }
+
+        /* ── screen preview container (removed in print) ── */
+        @@media screen {
+            body {
+                width: 320px;
+                max-width: 320px;
+                margin: 20px auto;
+                padding: 10px;
+                border: 1px solid #ccc;
+                box-shadow: 0 2px 10px rgba(0,0,0,.15);
+            }
+        }
+
+        @@media print {
+            body { margin: 0; padding: 0; border: none; box-shadow: none; }
+        }
     </style>
 </head>
 <body>
+
+    
+    @* ── SHOP HEADER ──  *@
     <div class="center">
-        <div style="font-size:18px; font-weight:700;">@settings.RestaurantName</div>
+        <div class="shop-name">@settings.RestaurantName</div>
         @if (!string.IsNullOrWhiteSpace(settings.StreetAddress)) { <div class="tiny">@settings.StreetAddress</div> }
-        @if (!string.IsNullOrWhiteSpace(settings.City)) { <div class="tiny">@settings.City @settings.State - @settings.Pincode</div> }
+        @if (!string.IsNullOrWhiteSpace(settings.City))          { <div class="tiny">@settings.City @settings.State &mdash; @settings.Pincode</div> }
         @if (!string.IsNullOrWhiteSpace(ViewBag.PrintBranchName as string)) { <div class="tiny">Branch: @ViewBag.PrintBranchName</div> }
-        @if (!string.IsNullOrWhiteSpace(settings.PhoneNumber)) { <div class="tiny">Phone: @settings.PhoneNumber</div> }
-        @if (!string.IsNullOrWhiteSpace(settings.GSTCode)) { <div class="tiny">GSTIN: @settings.GSTCode</div> }
+        @if (!string.IsNullOrWhiteSpace(settings.PhoneNumber))   { <div class="tiny">Phone: @settings.PhoneNumber</div> }
+        @if (!string.IsNullOrWhiteSpace(settings.GSTCode))       { <div class="tiny">GSTIN: @settings.GSTCode</div> }
     </div>
 
-    <div class="dashed"></div>
+    <hr class="dashed" />
 
-    <div class="tiny">
-        <div><strong>Name:</strong> ____________________________</div>
-        <div style="display:flex; justify-content:space-between; margin-top:6px;">
-            <div>Date: @DateTime.Now.ToString("dd/MM/yy")</div>
-            <div>
+    
+    @* ── BILL META ──  *@
+    <table class="meta-table">
+        <tr>
+            <td class="lbl">Name:</td>
+            <td colspan="2">
+                @if (!string.IsNullOrWhiteSpace(Model.CustomerName))
+                { @Model.CustomerName }
+                else
+                { <text>___________________________</text> }
+            </td>
+        </tr>
+        <tr>
+            <td class="lbl">Date:</td>
+            <td class="val">@DateTime.Now.ToString("dd/MM/yy")</td>
+            <td class="right-col">
                 @Model.OrderTypeDisplay:
-                @(
-                    Model.OrderType == 0
-                        ? Model.TableName
-                        : (Model.OrderType == 4
-                            ? (string.IsNullOrWhiteSpace(Model.RoomNo) ? (Model.RoomId.HasValue ? Model.RoomId.Value.ToString() : "N/A") : Model.RoomNo)
-                            : "N/A")
-                 )
-            </div>
-        </div>
-        <div style="display:flex; justify-content:space-between; margin-top:2px;">
-            <div>Time: @DateTime.Now.ToString("HH:mm")</div>
-            <div>Cashier: @(Model.Payments.FirstOrDefault()?.ProcessedByName ?? "biller")</div>
-        </div>
+                @(Model.OrderType == 0
+                    ? Model.TableName
+                    : (Model.OrderType == 4
+                        ? (string.IsNullOrWhiteSpace(Model.RoomNo) ? (Model.RoomId.HasValue ? Model.RoomId.Value.ToString() : "N/A") : Model.RoomNo)
+                        : "N/A"))
+            </td>
+        </tr>
+        <tr>
+            <td class="lbl">Time:</td>
+            <td class="val">@DateTime.Now.ToString("HH:mm")</td>
+            <td class="right-col">Cashier: @(Model.Payments.FirstOrDefault()?.ProcessedByName ?? "biller")</td>
+        </tr>
         @if (!string.IsNullOrWhiteSpace(counterDisplay))
         {
-            <div style="margin-top:2px;">Counter: @counterDisplay</div>
+            <tr>
+                <td class="lbl">Counter:</td>
+                <td colspan="2">@counterDisplay</td>
+            </tr>
         }
-        <div style="margin-top:2px;">Bill No: @Model.OrderNumber</div>
-    </div>
+        <tr>
+            <td class="lbl">Bill No:</td>
+            <td colspan="2">@Model.OrderNumber</td>
+        </tr>
+    </table>
 
-    <div class="dashed"></div>
+    <hr class="dashed" />
 
-    <div class="header-row" style="font-weight:700;">
-        <div>Item</div>
-        <div class="qty">Qty</div>
-        <div class="price">Price</div>
-        <div class="price">Amount</div>
-    </div>
+    
+    @* ── ITEM LINES ──  *@
+    <table class="item-table">
+        <thead>
+            <tr>
+                <th class="col-name">Item</th>
+                <th class="col-qty">Qty</th>
+                <th class="col-price">Price</th>
+                <th class="col-amt">Amt</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Model.OrderItems)
+            {
+                <tr>
+                    <td class="col-name">@item.MenuItemName</td>
+                    <td class="col-qty">@item.Quantity</td>
+                    <td class="col-price">&#8377;@item.UnitPrice.ToString("F0")</td>
+                    <td class="col-amt">&#8377;@item.Subtotal.ToString("F0")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
 
-    <div class="dashed"></div>
+    <hr class="dashed" />
 
-    <div>
-        @foreach (var item in Model.OrderItems)
-        {
-            <div class="item">
-                <div class="name">@item.MenuItemName</div>
-                <div class="qty">@item.Quantity</div>
-                <div class="price">₹@item.UnitPrice.ToString("F0")</div>
-                <div class="price">₹@item.Subtotal.ToString("F0")</div>
-            </div>
-        }
-    </div>
-
-    <div class="dashed"></div>
-
-    <div class="totals">
-        @{ 
-            var isBarOrder = ViewBag.IsBarOrder ?? false;
-            var subtotal = Model.Subtotal;
-            // Prefer explicit properties if present; fall back to TaxAmount and GSTPercentage
-            decimal taxTotal = 0M;
-            decimal gstPercent = 0M;
-            try { taxTotal = Model.TaxAmount; } catch { taxTotal = 0M; }
-            try { gstPercent = Model.GSTPercentage; } catch { gstPercent = 0M; }
-            var cgstAmt = Math.Round(taxTotal / 2, 2);
-            var sgstAmt = Math.Round(taxTotal - cgstAmt, 2);
-            var cgstPercent = Math.Round(gstPercent / 2, 2);
-            var sgstPercent = Math.Round(gstPercent - cgstPercent, 2);
-            var discount = (Model.DiscountAmount > 0) ? Model.DiscountAmount : 0M;
-            var total = Model.TotalAmount; // exact grand total before rounding
-            // Standard rule: round ON TOTAL, not on remaining, then Amount To Pay = RoundedTotal - Paid
-            var totalRounded = Math.Round(total, 0, MidpointRounding.AwayFromZero);
-            var roundOff = Math.Round(totalRounded - total, 2, MidpointRounding.AwayFromZero);
-            var paid = Model.PaidAmount;
-            var toProcessNow = Math.Max(0M, totalRounded - paid);
-            var toProcessRounded = Math.Round(toProcessNow, 0, MidpointRounding.AwayFromZero);
-        }
-        <div class="row"><div>Sub Total</div><div class="right">₹@subtotal.ToString("F2")</div></div>
+    
+    @* ── TOTALS ──  *@
+    @{
+        var isBarOrder = ViewBag.IsBarOrder ?? false;
+        var subtotal   = Model.Subtotal;
+        decimal taxTotal  = 0M;
+        decimal gstPercent = 0M;
+        try { taxTotal   = Model.TaxAmount;      } catch { taxTotal    = 0M; }
+        try { gstPercent = Model.GSTPercentage;  } catch { gstPercent  = 0M; }
+        var cgstAmt    = Math.Round(taxTotal / 2, 2);
+        var sgstAmt    = Math.Round(taxTotal - cgstAmt, 2);
+        var cgstPercent = Math.Round(gstPercent / 2, 2);
+        var sgstPercent = Math.Round(gstPercent - cgstPercent, 2);
+        var discount   = (Model.DiscountAmount > 0) ? Model.DiscountAmount : 0M;
+        var total      = Model.TotalAmount;
+        var totalRounded = Math.Round(total, 0, MidpointRounding.AwayFromZero);
+        var roundOff   = Math.Round(totalRounded - total, 2, MidpointRounding.AwayFromZero);
+        var paid       = Model.PaidAmount;
+        var toProcessNow    = Math.Max(0M, totalRounded - paid);
+        var toProcessRounded = Math.Round(toProcessNow, 0, MidpointRounding.AwayFromZero);
+    }
+    <table class="totals-table">
+        <tr>
+            <td class="lbl">Sub Total</td>
+            <td class="amt">&#8377;@subtotal.ToString("F2")</td>
+        </tr>
         @if (!isBarOrder)
         {
-            <div class="row"><div>CGST @cgstPercent% </div><div class="right">₹@cgstAmt.ToString("F2")</div></div>
-            <div class="row"><div>SGST @sgstPercent% </div><div class="right">₹@sgstAmt.ToString("F2")</div></div>
+            <tr>
+                <td class="lbl">CGST @cgstPercent%</td>
+                <td class="amt">&#8377;@cgstAmt.ToString("F2")</td>
+            </tr>
+            <tr>
+                <td class="lbl">SGST @sgstPercent%</td>
+                <td class="amt">&#8377;@sgstAmt.ToString("F2")</td>
+            </tr>
         }
         @if (discount > 0)
         {
-            <div class="row"><div>Discount</div><div class="right">-₹@discount.ToString("F2")</div></div>
+            <tr>
+                <td class="lbl">Discount</td>
+                <td class="amt">&minus;&#8377;@discount.ToString("F2")</td>
+            </tr>
         }
         @if (roundOff != 0)
         {
-            <div class="row"><div>Round off</div><div class="right">₹@roundOff.ToString("+0.00;-0.00;0.00")</div></div>
+            <tr>
+                <td class="lbl">Round off</td>
+                <td class="amt">@roundOff.ToString("+0.00;-0.00;0.00")</td>
+            </tr>
         }
-        <div class="row bold"><div style="font-size:15px;">Grand Total</div><div class="right" style="font-size:16px;">₹@totalRounded.ToString("F0")</div></div>
+    </table>
+
+    <hr class="solid" />
+
+    <table class="totals-table grand-total">
+        <tr>
+            <td class="lbl">Grand Total</td>
+            <td class="amt">&#8377;@totalRounded.ToString("F0")</td>
+        </tr>
+    </table>
+
+    <div class="tiny" style="margin:3px 0 5px 0; font-style:italic;">
+        <span class="bold">In Words:</span> @AmountToWords.Convert(totalRounded)
     </div>
 
-    @* Optional debug block: append ?debug=1 to the print URL to display raw numeric values for troubleshooting *@
+    <hr class="double" />
+
+    @* ── DEBUG block (append ?debug=1) ── *@
     @if (ViewContext.HttpContext.Request.Query["debug"] == "1")
     {
-        var preRemDbg = Model.RemainingAmount;
-        var roundedDbg = Math.Round(preRemDbg, 0, MidpointRounding.AwayFromZero);
+        var preRemDbg   = Model.RemainingAmount;
+        var roundedDbg  = Math.Round(preRemDbg, 0, MidpointRounding.AwayFromZero);
         var expectedDbg = Math.Round(roundedDbg - preRemDbg, 2);
-        var dbgCounterId = (ViewBag.PosCounterIdValue is int ci) ? ci : 0;
+        var dbgCounterId      = (ViewBag.PosCounterIdValue is int ci) ? ci : 0;
         var dbgCounterDisplay = (ViewBag.PosCounterDisplay as string) ?? string.Empty;
-        <div style="background:#fff7e6;border:1px solid #ffd59e;padding:8px;margin-top:8px;font-size:12px;">
+        <div style="background:#fff7e6;border:1px solid #ffd59e;padding:6px;margin-top:6px;font-size:10px;">
             <strong>DEBUG</strong>
             <div>RemainingAmount: @Model.RemainingAmount</div>
             <div>TotalAmount: @Model.TotalAmount</div>
             <div>PaidAmount: @Model.PaidAmount</div>
             <div>TotalRoundoff (stored): @Model.TotalRoundoff</div>
-            <div>ComputedRounded (AwayFromZero): @roundedDbg</div>
-            <div>ComputedExpectedRoundoff: @expectedDbg</div>
-            <div>CounterId (Orders): @dbgCounterId</div>
+            <div>ComputedRounded: @roundedDbg</div>
+            <div>ExpectedRoundoff: @expectedDbg</div>
+            <div>CounterId: @dbgCounterId</div>
             <div>CounterDisplay: @dbgCounterDisplay</div>
         </div>
     }
 
-    <div class="dashed"></div>
     
-    @* UPI QR Code Section - Show only if enabled and there's remaining balance.
-       Use rounded-total settlement so QR doesn't show when roundoff completes the order. *@
+    @* ── UPI QR CODE ──  *@
     @{
-        var qrTotal = Model.TotalAmount;
+        var qrTotal        = Model.TotalAmount;
         var qrTotalRounded = Math.Round(qrTotal, 0, MidpointRounding.AwayFromZero);
-        var qrPaid = Model.PaidAmount;
-        var qrOutstanding = Math.Max(0M, qrTotalRounded - qrPaid);
+        var qrPaid         = Model.PaidAmount;
+        var qrOutstanding  = Math.Max(0M, qrTotalRounded - qrPaid);
     }
     @if (Model.UPIEnabled && qrOutstanding > 0.001M && !string.IsNullOrEmpty(Model.UPIQRCodeDataUrl))
     {
-        <div class="center" style="margin-top:12px; margin-bottom:12px;">
-            <div style="font-weight:700; font-size:14px; margin-bottom:6px;">Scan to Pay</div>
-            <img src="@Model.UPIQRCodeDataUrl" alt="UPI QR Code" style="max-width: 160px; height: auto; display:block; margin:0 auto;" />
-            <div style="font-size:16px; font-weight:700; margin-top:6px;">₹@qrOutstanding.ToString("F2")</div>
-            <div class="tiny" style="margin-top:4px;">Google Pay | PhonePe | Paytm | BHIM</div>
+        <div class="center" style="margin: 8px 0;">
+            <div class="bold" style="font-size:12px; margin-bottom:4px;">Scan to Pay</div>
+            <img src="@Model.UPIQRCodeDataUrl" alt="UPI QR Code"
+                 style="width:120px; height:120px; display:block; margin:0 auto;" />
+            <div class="bold" style="font-size:14px; margin-top:4px;">&#8377;@qrOutstanding.ToString("F2")</div>
+            <div class="tiny">Google Pay | PhonePe | Paytm | BHIM</div>
             @if (!string.IsNullOrEmpty(Model.UPIPayeeName))
             {
-                <div class="tiny" style="margin-top:4px;">Payee: @Model.UPIPayeeName</div>
+                <div class="tiny">Payee: @Model.UPIPayeeName</div>
             }
         </div>
-        <div class="dashed"></div>
+        <hr class="dashed" />
     }
+
     
-    <div class="center tiny">
+    @* ── FOOTER ──  *@
+    <div class="center tiny" style="margin-top:6px;">
         @if (!string.IsNullOrWhiteSpace(settings.FssaiNo)) { <div>FSSAI Lic No: @settings.FssaiNo</div> }
-        <div style="margin-top:6px;">Thanks For Visit Again !!</div>
+        <div style="margin-top:4px; font-weight:bold;">Thanks For Visit Again !!</div>
     </div>
 
-    <script>
-        window.onload = function() { window.print(); };
-    </script>
+    <script>window.onload = function () { window.print(); };</script>
 </body>
 </html>
