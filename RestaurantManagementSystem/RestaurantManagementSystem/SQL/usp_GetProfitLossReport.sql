@@ -2,14 +2,26 @@
 -- Stored Procedure : dbo.usp_GetProfitLossReport
 -- Purpose          : Profit & Loss Analysis Report
 --                    Returns 5 result sets in one call:
---                      #1  Summary    (TotalQtySold, TotalSales, TotalCost)
+--                      #1  Summary    (TotalQtySold, TotalSales, TotalCost, TotalOrders)
 --                      #2  MenuItems  (per item – sorted by SalesValue DESC)
 --                      #3  Categories (grouped by category)
 --                      #4  Branches   (only when @IsMainBranchAdmin = 1)
 --                      #5  Periods    (trend – grouped by @GroupBy)
--- Cost Method      : Weighted Average via CurrentStock.AverageCost × BOM qty
---                    Fallback : Ingredients.StandardCost
---                    No BOM   : Cost = 0
+--
+-- Revenue Accuracy Rules:
+--   1. Excludes cancelled OrderItems (CancelledAt IS NOT NULL)
+--   2. Excludes fully-cancelled Orders (Status NOT IN 1,3)
+--   3. SalesValue = Net Revenue after discount, ex-GST:
+--        (oi.Subtotal - GST_Amount) × (1 – DiscountAmount / OrderSubtotal)
+--      This is the actual money the restaurant earns (not govt GST, not discount given)
+--   4. CostValue  = Ingredient cost regardless of discount (actual cost incurred)
+--   5. TotalOrders = only fully paid/completed orders (Status = 3)
+--
+-- Cost Method:
+--   BOMCost = SUM(BOM_Qty × AvgCost / PurchaseToRecipeFactor) per menu item
+--   AvgCost from CurrentStock.AverageCost (weighted avg); fallback: Ingredients.StandardCost
+--   No BOM → Cost = 0
+--
 -- Parameters:
 --   @StartDate          DATE          – Inclusive start of period
 --   @EndDate            DATE          – Inclusive end of period (End-of-day)
@@ -18,7 +30,7 @@
 --   @CategoryId         INT NULL      – NULL = all categories
 --   @IsMainBranchAdmin  BIT           – 1 = return branch breakdown result set
 -- Safe   : CREATE OR ALTER – idempotent.
--- Created: 2026-03-15
+-- Created: 2026-03-15  Updated: 2026-03-15 (v2 – accurate revenue/cost)
 -- ============================================================
 CREATE OR ALTER PROCEDURE dbo.usp_GetProfitLossReport
     @StartDate          DATE,
@@ -125,16 +137,24 @@ BEGIN
 WITH ' + @BomCte + N',
 Summary AS (
     SELECT
-        SUM(oi.Quantity)                              AS TotalQtySold,
-        SUM(oi.Quantity * oi.UnitPrice)               AS TotalSales,
-        SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0))  AS TotalCost,
-        COUNT(DISTINCT o.Id)                          AS TotalOrders
+        -- Qty: only non-cancelled items
+        SUM(oi.Quantity)  AS TotalQtySold,
+        -- Net Revenue: ex-GST, after proportional order-level discount
+        ROUND(SUM(
+            (oi.Subtotal - ISNULL(oi.GST_Amount, 0))
+            * (1.0 - ISNULL(o.DiscountAmount, 0) / NULLIF(o.Subtotal, 0))
+        ), 2) AS TotalSales,
+        -- Ingredient cost (actual cost incurred regardless of discount)
+        ROUND(SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0)), 2) AS TotalCost,
+        -- Only fully paid/completed orders
+        COUNT(DISTINCT CASE WHEN o.Status = 3 THEN o.Id END) AS TotalOrders
     FROM dbo.OrderItems  oi
     INNER JOIN dbo.Orders    o   ON o.Id  = oi.OrderId
     INNER JOIN dbo.MenuItems mi  ON mi.Id = oi.MenuItemId
     LEFT  JOIN BOMCost        bc  ON bc.MenuItemId = oi.MenuItemId
     WHERE o.CreatedAt >= @pStart AND o.CreatedAt < @pEnd
-      AND o.Status IN (1, 3)'
+      AND o.Status IN (1, 3)
+      AND oi.CancelledAt IS NULL'
     + @BranchFilter + @CatFilter + N'
 )
 SELECT TotalQtySold, TotalSales, TotalCost, TotalOrders FROM Summary;';
@@ -152,19 +172,23 @@ SELECT
     mi.Name                                                   AS ItemName,
     ISNULL(cat.Name, ''Uncategorized'')                       AS CategoryName,
     CAST(SUM(oi.Quantity) AS INT)                             AS QtySold,
-    SUM(oi.Quantity * oi.UnitPrice)                           AS SalesValue,
-    SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0))              AS CostValue,
-    ISNULL(MAX(bc.HasBOM), 0)                                 AS HasBOM
+    ROUND(SUM(
+        (oi.Subtotal - ISNULL(oi.GST_Amount, 0))
+        * (1.0 - ISNULL(o.DiscountAmount, 0) / NULLIF(o.Subtotal, 0))
+    ), 2)                                                         AS SalesValue,
+    ROUND(SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0)), 2)        AS CostValue,
+    ISNULL(MAX(bc.HasBOM), 0)                                     AS HasBOM
 FROM dbo.OrderItems  oi
 INNER JOIN dbo.Orders    o   ON o.Id  = oi.OrderId
 INNER JOIN dbo.MenuItems mi  ON mi.Id = oi.MenuItemId
 LEFT  JOIN dbo.Categories cat ON cat.Id = mi.CategoryId
 LEFT  JOIN BOMCost        bc  ON bc.MenuItemId = oi.MenuItemId
 WHERE o.CreatedAt >= @pStart AND o.CreatedAt < @pEnd
-  AND o.Status IN (1, 3)'
+  AND o.Status IN (1, 3)
+  AND oi.CancelledAt IS NULL'
     + @BranchFilter + @CatFilter + N'
 GROUP BY oi.MenuItemId, mi.Name, ISNULL(cat.Name,''Uncategorized'')
-ORDER BY SUM(oi.Quantity * oi.UnitPrice) DESC;';
+ORDER BY SalesValue DESC;';
 
     EXEC sp_executesql @SqlItems, @ParamDef,
         @pStart = @StartDate, @pEnd = @ExclusiveEnd, @pCategoryId = @CategoryId;
@@ -177,18 +201,22 @@ WITH ' + @BomCte + N'
 SELECT
     ISNULL(cat.Name, ''Uncategorized'')                       AS CategoryName,
     CAST(SUM(oi.Quantity) AS INT)                             AS QtySold,
-    SUM(oi.Quantity * oi.UnitPrice)                           AS SalesValue,
-    SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0))              AS CostValue
+    ROUND(SUM(
+        (oi.Subtotal - ISNULL(oi.GST_Amount, 0))
+        * (1.0 - ISNULL(o.DiscountAmount, 0) / NULLIF(o.Subtotal, 0))
+    ), 2)                                                         AS SalesValue,
+    ROUND(SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0)), 2)        AS CostValue
 FROM dbo.OrderItems  oi
 INNER JOIN dbo.Orders    o   ON o.Id  = oi.OrderId
 INNER JOIN dbo.MenuItems mi  ON mi.Id = oi.MenuItemId
 LEFT  JOIN dbo.Categories cat ON cat.Id = mi.CategoryId
 LEFT  JOIN BOMCost        bc  ON bc.MenuItemId = oi.MenuItemId
 WHERE o.CreatedAt >= @pStart AND o.CreatedAt < @pEnd
-  AND o.Status IN (1, 3)'
+  AND o.Status IN (1, 3)
+  AND oi.CancelledAt IS NULL'
     + @BranchFilter + @CatFilter + N'
 GROUP BY ISNULL(cat.Name,''Uncategorized'')
-ORDER BY SUM(oi.Quantity * oi.UnitPrice) DESC;';
+ORDER BY SalesValue DESC;';
 
     EXEC sp_executesql @SqlCat, @ParamDef,
         @pStart = @StartDate, @pEnd = @ExclusiveEnd, @pCategoryId = @CategoryId;
@@ -203,18 +231,22 @@ WITH ' + @BomCte + N'
 SELECT
     b.BranchId,
     ISNULL(b.BranchName, ''Unknown'')                         AS BranchName,
-    SUM(oi.Quantity * oi.UnitPrice)                           AS SalesValue,
-    SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0))              AS CostValue
+    ROUND(SUM(
+        (oi.Subtotal - ISNULL(oi.GST_Amount, 0))
+        * (1.0 - ISNULL(o.DiscountAmount, 0) / NULLIF(o.Subtotal, 0))
+    ), 2)                                                         AS SalesValue,
+    ROUND(SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0)), 2)        AS CostValue
 FROM dbo.OrderItems  oi
 INNER JOIN dbo.Orders    o   ON o.Id  = oi.OrderId
 INNER JOIN dbo.MenuItems mi  ON mi.Id = oi.MenuItemId
 INNER JOIN dbo.Branches  b   ON b.BranchId = o.BranchId
 LEFT  JOIN BOMCost        bc  ON bc.MenuItemId = oi.MenuItemId
 WHERE o.CreatedAt >= @pStart AND o.CreatedAt < @pEnd
-  AND o.Status IN (1, 3)'
+  AND o.Status IN (1, 3)
+  AND oi.CancelledAt IS NULL'
         + @BranchFilter + @CatFilter + N'
 GROUP BY b.BranchId, b.BranchName
-ORDER BY SUM(oi.Quantity * oi.UnitPrice) DESC;';
+ORDER BY SalesValue DESC;';
 
         EXEC sp_executesql @SqlBranch, @ParamDef,
             @pStart = @StartDate, @pEnd = @ExclusiveEnd, @pCategoryId = @CategoryId;
@@ -239,14 +271,18 @@ SELECT
     ' + @PeriodExpr + N'                                      AS PeriodLabel,
     ' + @PeriodSort + N'                                      AS SortKey,
     CAST(SUM(oi.Quantity) AS INT)                             AS QtySold,
-    SUM(oi.Quantity * oi.UnitPrice)                           AS SalesValue,
-    SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0))              AS CostValue
+    ROUND(SUM(
+        (oi.Subtotal - ISNULL(oi.GST_Amount, 0))
+        * (1.0 - ISNULL(o.DiscountAmount, 0) / NULLIF(o.Subtotal, 0))
+    ), 2)                                                         AS SalesValue,
+    ROUND(SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0)), 2)        AS CostValue
 FROM dbo.OrderItems  oi
 INNER JOIN dbo.Orders    o   ON o.Id  = oi.OrderId
 INNER JOIN dbo.MenuItems mi  ON mi.Id = oi.MenuItemId
 LEFT  JOIN BOMCost        bc  ON bc.MenuItemId = oi.MenuItemId
 WHERE o.CreatedAt >= @pStart AND o.CreatedAt < @pEnd
-  AND o.Status IN (1, 3)'
+  AND o.Status IN (1, 3)
+  AND oi.CancelledAt IS NULL'
     + @BranchFilter + @CatFilter + N'
 GROUP BY ' + @PeriodExpr + N', ' + @PeriodSort + N'
 ORDER BY ' + @PeriodSort + N';';
