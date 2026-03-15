@@ -7,12 +7,13 @@
 -- CLEARS   : Purchase Orders, GRN, Stock Transfers, Damage Entries,
 --             Opening Stock, Stock Ledger, Current Stock,
 --             BOM Lines (MenuItemIngredients), BOM Headers (Recipes),
---             PO Number Sequence counter
+--             Parties (supplier list), PO Number Sequence counter
 --
--- KEEPS     : UomMaster, StockItemCategories, Godowns, Parties (supplier master),
+-- KEEPS     : UomMaster, StockItemCategories, Godowns,
 --             InventoryParameters, MenuItems, Categories, all other master tables
 --
 -- NOTE      : Ingredients IS cleaned — it is per-deployment setup data.
+--             Parties IS cleaned — supplier list is set up fresh per deployment.
 --             UomMaster and Godowns are kept as they are true master config.
 --
 -- ⚠️  RUN ON PRODUCTION WITH CAUTION  ⚠️
@@ -199,11 +200,24 @@ BEGIN TRY
     DBCC CHECKIDENT ('dbo.Ingredients', RESEED, 0);
 
     -- =========================================================
-    -- STEP 16: Reset PO Number Sequence counter
+    -- STEP 16: Parties  (supplier / vendor master — cleared per deployment)
+    --          All PO and GRN rows referencing PartyId are already gone above.
+    --          Safe to delete now and rebuild fresh for the new site.
+    -- =========================================================
+    PRINT 'Step 16: Deleting Parties (supplier master) ...';
+    DELETE FROM dbo.Parties;
+    PRINT '  Rows deleted: ' + CAST(@@ROWCOUNT AS VARCHAR);
+
+    IF EXISTS (SELECT 1 FROM sys.identity_columns
+               WHERE OBJECT_NAME(object_id) = 'Parties')
+        DBCC CHECKIDENT ('dbo.Parties', RESEED, 0);
+
+    -- =========================================================
+    -- STEP 17: Reset PO Number Sequence counter
     --          PONumberSequence stores (FYCode, LastSeq)
     --          Reset LastSeq to 0 so numbering restarts from PO-001
     -- =========================================================
-    PRINT 'Step 16: Resetting PONumberSequence counter ...';
+    PRINT 'Step 17: Resetting PONumberSequence counter ...';
     UPDATE dbo.PONumberSequence SET LastSeq = 0;
     -- If you want to remove old financial year rows entirely:
     -- DELETE FROM dbo.PONumberSequence;
@@ -229,7 +243,8 @@ BEGIN TRY
     SELECT 'MenuItemIngredients',               COUNT(*)              FROM dbo.MenuItemIngredients  UNION ALL
     SELECT 'RecipeSteps',                       COUNT(*)              FROM dbo.RecipeSteps          UNION ALL
     SELECT 'Recipes',                           COUNT(*)              FROM dbo.Recipes             UNION ALL
-    SELECT 'Ingredients',                       COUNT(*)              FROM dbo.Ingredients;
+    SELECT 'Ingredients',                       COUNT(*)              FROM dbo.Ingredients         UNION ALL
+    SELECT 'Parties',                           COUNT(*)              FROM dbo.Parties;
 
     PRINT '';
     PRINT '--- Verification: master tables should be UNCHANGED ---';
@@ -237,7 +252,6 @@ BEGIN TRY
     SELECT 'UomMaster'           AS TableName, COUNT(*) AS Remaining FROM dbo.UomMaster           UNION ALL
     SELECT 'StockItemCategories',               COUNT(*)              FROM dbo.StockItemCategories  UNION ALL
     SELECT 'Godowns',                           COUNT(*)              FROM dbo.Godowns              UNION ALL
-    SELECT 'Parties',                           COUNT(*)              FROM dbo.Parties              UNION ALL
     SELECT 'InventoryParameters',               COUNT(*)              FROM dbo.InventoryParameters  UNION ALL
     SELECT 'MenuItems',                         COUNT(*)              FROM dbo.MenuItems;
 
