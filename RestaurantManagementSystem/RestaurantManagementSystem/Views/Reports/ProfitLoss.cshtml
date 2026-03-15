@@ -1,0 +1,590 @@
+@model RestaurantManagementSystem.Models.ProfitLossReportViewModel
+@using RestaurantManagementSystem.Models.Authorization
+@{
+    ViewData["Title"] = "Profit & Loss Analysis";
+    var perm = ViewBag.ReportPermissions as PermissionSet ?? new PermissionSet();
+    var f    = Model.Filter;
+    var s    = Model.Summary;
+    string Cur(decimal v) => $"₹{v:N2}";
+    string Pct(decimal v) => $"{v:N2}%";
+}
+
+<style>
+    .pl-header { background: linear-gradient(135deg,#1a3a5c 0%,#25568a 50%,#2f7ac0 100%); padding:1.5rem; border-radius:.5rem .5rem 0 0; color:#fff; }
+    .pl-header h4 { font-weight:700; margin:0; }
+    .pl-header .sub  { opacity:.85; font-size:.88rem; margin-top:.25rem; }
+    .kpi-tile { border-radius:.65rem; padding:1.1rem 1.25rem; box-shadow:0 2px 8px rgba(0,0,0,.1); height:110px; display:flex; flex-direction:column; justify-content:center; }
+    .kpi-tile .lbl  { font-size:.78rem; font-weight:600; opacity:.9; }
+    .kpi-tile .val  { font-size:1.55rem; font-weight:800; line-height:1.15; margin-top:.2rem; }
+    .kpi-tile .sub2 { font-size:.78rem; opacity:.85; margin-top:.1rem; }
+    .tile-blue   { background:linear-gradient(135deg,#1e6fb5,#4d9de6); color:#fff; }
+    .tile-red    { background:linear-gradient(135deg,#c0392b,#e74c3c); color:#fff; }
+    .tile-green  { background:linear-gradient(135deg,#1a7835,#27ae60); color:#fff; }
+    .tile-orange { background:linear-gradient(135deg,#c76c00,#f39c12); color:#fff; }
+    .tile-teal   { background:linear-gradient(135deg,#0d7377,#14a085); color:#fff; }
+    .tile-purple { background:linear-gradient(135deg,#6c3483,#8e44ad); color:#fff; }
+    .pl-table th { background:#1a3a5c; color:#fff; font-size:.8rem; white-space:nowrap; }
+    .pl-table td { font-size:.82rem; vertical-align:middle; }
+    .profit-bar { height:8px; border-radius:4px; background:#e9ecef; overflow:hidden; }
+    .profit-bar-fill { height:100%; border-radius:4px; background:linear-gradient(90deg,#27ae60,#2ecc71); }
+    .cost-bar-fill   { height:100%; border-radius:4px; background:linear-gradient(90deg,#e74c3c,#ff6b6b); }
+    .badge-bom  { background:#d1e7dd; color:#0a5c36; font-size:.7rem; padding:.2rem .45rem; border-radius:.3rem; }
+    .badge-nobom{ background:#fff3cd; color:#664d03; font-size:.7rem; padding:.2rem .45rem; border-radius:.3rem; }
+    .nav-tabs .nav-link.active { font-weight:700; border-bottom:3px solid #1a3a5c; }
+    .chart-bar { display:inline-block; height:14px; border-radius:3px; min-width:4px; }
+    @@media (max-width:768px) { .kpi-tile { height:90px; } .kpi-tile .val { font-size:1.2rem; } }
+    @@media print { .no-print { display:none !important; } }
+</style>
+
+<div class="card shadow-sm mb-4">
+    <div class="pl-header">
+        <div class="d-flex align-items-center justify-content-between">
+            <div>
+                <h4><i class="fas fa-chart-line me-2"></i>Profit &amp; Loss Analysis Report</h4>
+                <div class="sub">Sales revenue vs. ingredient cost (BOM) — Weighted Average Costing</div>
+            </div>
+            <i class="fas fa-balance-scale fa-3x opacity-40"></i>
+        </div>
+    </div>
+
+    <div class="card-body">
+
+        @if (ViewBag.PnLError != null)
+        {
+            <div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>@ViewBag.PnLError</div>
+        }
+
+        <!-- -->
+        <form asp-action="ProfitLoss" method="post" class="no-print mb-4">
+            @Html.AntiForgeryToken()
+            <div class="row g-2 align-items-end">
+
+                <div class="col-lg-2 col-md-3 col-sm-6">
+                    <label asp-for="Filter.StartDate" class="form-label fw-semibold small">From Date</label>
+                    <input asp-for="Filter.StartDate" class="form-control form-control-sm" type="date" />
+                </div>
+                <div class="col-lg-2 col-md-3 col-sm-6">
+                    <label asp-for="Filter.EndDate" class="form-label fw-semibold small">To Date</label>
+                    <input asp-for="Filter.EndDate" class="form-control form-control-sm" type="date" />
+                </div>
+
+                <div class="col-lg-2 col-md-3 col-sm-6">
+                    <label asp-for="Filter.GroupBy" class="form-label fw-semibold small">Period</label>
+                    <select asp-for="Filter.GroupBy" class="form-select form-select-sm">
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly" selected="@(f.GroupBy=="monthly")">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="yearly">Yearly</option>
+                    </select>
+                </div>
+
+                <div class="col-lg-2 col-md-3 col-sm-6">
+                    <label asp-for="Filter.CategoryId" class="form-label fw-semibold small">Category</label>
+                    <select asp-for="Filter.CategoryId" asp-items="Model.Categories" class="form-select form-select-sm"></select>
+                </div>
+
+                @if (Model.IsMainBranchAdmin && Model.Branches.Count > 0)
+                {
+                    <div class="col-lg-3 col-md-4">
+                        <label class="form-label fw-semibold small">Branches</label>
+                        <select name="Filter.SelectedBranchIds" multiple class="form-select form-select-sm" style="height:65px">
+                            @foreach (var b in Model.Branches)
+                            {
+                                var isSel = Model.Filter.SelectedBranchIds.Contains(int.Parse(b.Value));
+                                if (isSel) { <option value="@b.Value" selected="selected">@b.Text</option> }
+                                else { <option value="@b.Value">@b.Text</option> }
+                            }
+                        </select>
+                        <div class="text-muted" style="font-size:.72rem">Hold Ctrl/Cmd to pick multiple</div>
+                    </div>
+                }
+
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="fas fa-sync-alt me-1"></i>Generate
+                    </button>
+                    <a asp-action="ProfitLoss" class="btn btn-outline-secondary btn-sm ms-1">Reset</a>
+                </div>
+            </div>
+        </form>
+
+        <!-- -->
+        <div class="row g-3 mb-4">
+            <div class="col-xl-2 col-md-4 col-sm-6">
+                <div class="kpi-tile tile-blue">
+                    <div class="lbl"><i class="fas fa-cash-register me-1"></i>Total Sales</div>
+                    <div class="val">@Cur(s.TotalSales)</div>
+                    <div class="sub2">@s.TotalOrders orders</div>
+                </div>
+            </div>
+            <div class="col-xl-2 col-md-4 col-sm-6">
+                <div class="kpi-tile tile-red">
+                    <div class="lbl"><i class="fas fa-boxes me-1"></i>Ingredient Cost</div>
+                    <div class="val">@Cur(s.TotalCost)</div>
+                    <div class="sub2">Food Cost%: @Pct(s.FoodCostPct)</div>
+                </div>
+            </div>
+            <div class="col-xl-2 col-md-4 col-sm-6">
+                <div class="kpi-tile tile-green">
+                    <div class="lbl"><i class="fas fa-chart-bar me-1"></i>Gross Profit</div>
+                    <div class="val">@Cur(s.GrossProfit)</div>
+                    <div class="sub2">Margin: @Pct(s.GrossProfitPct)</div>
+                </div>
+            </div>
+            <div class="col-xl-2 col-md-4 col-sm-6">
+                <div class="kpi-tile tile-orange">
+                    <div class="lbl"><i class="fas fa-percent me-1"></i>Food Cost %</div>
+                    <div class="val">@Pct(s.FoodCostPct)</div>
+                    <div class="sub2">Target: &lt; 35%</div>
+                </div>
+            </div>
+            <div class="col-xl-2 col-md-4 col-sm-6">
+                <div class="kpi-tile tile-teal">
+                    <div class="lbl"><i class="fas fa-shopping-bag me-1"></i>Qty Sold</div>
+                    <div class="val">@s.TotalQtySold.ToString("N0")</div>
+                    <div class="sub2">units across all items</div>
+                </div>
+            </div>
+            <div class="col-xl-2 col-md-4 col-sm-6">
+                <div class="kpi-tile tile-purple">
+                    <div class="lbl"><i class="fas fa-trophy me-1"></i>Profit Margin</div>
+                    <div class="val">@Pct(s.GrossProfitPct)</div>
+                    <div class="sub2">Gross profit on sales</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- -->
+        @{
+            var foodCostWidth = (double)Math.Min(s.FoodCostPct, 100);
+            var profitWidth   = (double)Math.Min(s.GrossProfitPct, 100);
+            var costColor = s.FoodCostPct <= 30 ? "#27ae60" : s.FoodCostPct <= 40 ? "#f39c12" : "#e74c3c";
+        }
+        <div class="card border-0 bg-light mb-4 p-3">
+            <div class="d-flex justify-content-between mb-1">
+                <span class="fw-semibold small">Revenue Distribution</span>
+                <span class="small text-muted">Sales: @Cur(s.TotalSales)</span>
+            </div>
+            <div style="height:22px; border-radius:6px; background:#e9ecef; overflow:hidden; display:flex;">
+                <div style="width:@foodCostWidth%; background:@costColor; display:flex; align-items:center; justify-content:center; color:#fff; font-size:.72rem; font-weight:600; min-width:30px;">
+                    @if (foodCostWidth > 8) { <text>Cost @Pct(s.FoodCostPct)</text> }
+                </div>
+                <div style="width:@profitWidth%; background:#2196F3; display:flex; align-items:center; justify-content:center; color:#fff; font-size:.72rem; font-weight:600; min-width:30px;">
+                    @if (profitWidth > 8) { <text>Profit @Pct(s.GrossProfitPct)</text> }
+                </div>
+            </div>
+            <div class="d-flex gap-3 mt-1">
+                <span class="small"><span style="display:inline-block;width:12px;height:12px;background:@costColor;border-radius:2px;margin-right:4px;"></span>Ingredient Cost (@Pct(s.FoodCostPct))</span>
+                <span class="small"><span style="display:inline-block;width:12px;height:12px;background:#2196F3;border-radius:2px;margin-right:4px;"></span>Gross Profit (@Pct(s.GrossProfitPct))</span>
+            </div>
+        </div>
+
+        <!-- -->
+        <ul class="nav nav-tabs mb-3 no-print" id="plTabs" role="tablist">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-items">
+                <i class="fas fa-utensils me-1"></i>Menu Items (@Model.MenuItems.Count)
+            </button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-category">
+                <i class="fas fa-layer-group me-1"></i>Category (@Model.CategoryData.Count)
+            </button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-period">
+                <i class="fas fa-calendar-alt me-1"></i>Period Trend
+            </button></li>
+            @if (Model.IsMainBranchAdmin && Model.BranchData.Count > 0)
+            {
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-branch">
+                    <i class="fas fa-code-branch me-1"></i>Branch
+                </button></li>
+            }
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-top">
+                <i class="fas fa-medal me-1"></i>Top/Least Profitable
+            </button></li>
+        </ul>
+
+        <div class="tab-content" id="plTabContent">
+
+            <!-- -->
+            <div class="tab-pane fade show active" id="tab-items">
+                @if (!Model.MenuItems.Any())
+                {
+                    <div class="alert alert-info">No sales data found for the selected period.</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover pl-table mb-0" id="tblItems">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Menu Item</th>
+                                    <th>Category</th>
+                                    <th class="text-center">Cost Type</th>
+                                    <th class="text-end">Qty Sold</th>
+                                    <th class="text-end">Sales Value</th>
+                                    <th class="text-end">Ingredient Cost</th>
+                                    <th class="text-end">Gross Profit</th>
+                                    <th class="text-end">Profit %</th>
+                                    <th class="text-end">Food Cost %</th>
+                                    <th style="width:100px">Profit Bar</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{ int sr = 1; }
+                                @foreach (var row in Model.MenuItems)
+                                {
+                                    var profitPct = (double)row.ProfitPct;
+                                    var costPct   = (double)row.FoodCostPct;
+                                    var barColor  = row.ProfitPct >= 60 ? "#27ae60" : row.ProfitPct >= 30 ? "#f39c12" : "#e74c3c";
+                                    <tr>
+                                        <td class="text-muted small">@sr</td>
+                                        <td class="fw-semibold">@row.ItemName</td>
+                                        <td><span class="badge bg-light text-dark border">@row.CategoryName</span></td>
+                                        <td class="text-center">
+                                            @if (row.HasBOM)
+                                            {
+                                                <span class="badge-bom">BOM</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge-nobom">No BOM</span>
+                                            }
+                                        </td>
+                                        <td class="text-end">@row.QtySold.ToString("N0")</td>
+                                        <td class="text-end fw-semibold">@Cur(row.SalesValue)</td>
+                                        <td class="text-end text-danger">@Cur(row.CostValue)</td>
+                                        <td class="text-end fw-bold text-success">@Cur(row.GrossProfit)</td>
+                                        <td class="text-end fw-semibold" style="color:@barColor">@Pct(row.ProfitPct)</td>
+                                        <td class="text-end">@Pct(row.FoodCostPct)</td>
+                                        <td>
+                                            <div class="profit-bar">
+                                                <div class="profit-bar-fill" style="width:@Math.Min(profitPct,100)%; background:@barColor;"></div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    sr++;
+                                }
+                            </tbody>
+                            <tfoot class="table-dark fw-bold">
+                                <tr>
+                                    <td colspan="4">TOTAL</td>
+                                    <td class="text-end">@s.TotalQtySold.ToString("N0")</td>
+                                    <td class="text-end">@Cur(s.TotalSales)</td>
+                                    <td class="text-end">@Cur(s.TotalCost)</td>
+                                    <td class="text-end text-success">@Cur(s.GrossProfit)</td>
+                                    <td class="text-end">@Pct(s.GrossProfitPct)</td>
+                                    <td class="text-end">@Pct(s.FoodCostPct)</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            <!-- -->
+            <div class="tab-pane fade" id="tab-category">
+                @if (!Model.CategoryData.Any())
+                {
+                    <div class="alert alert-info">No category data found.</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover pl-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Category</th>
+                                    <th class="text-end">Qty Sold</th>
+                                    <th class="text-end">Sales Value</th>
+                                    <th class="text-end">Ingredient Cost</th>
+                                    <th class="text-end">Gross Profit</th>
+                                    <th class="text-end">Profit %</th>
+                                    <th class="text-end">Food Cost %</th>
+                                    <th style="width:120px">Contribution</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{ int sn = 1; }
+                                @foreach (var row in Model.CategoryData)
+                                {
+                                    var contribPct = s.TotalSales > 0 ? (double)(row.SalesValue * 100m / s.TotalSales) : 0;
+                                    var barC = row.ProfitPct >= 60 ? "#27ae60" : row.ProfitPct >= 30 ? "#f39c12" : "#e74c3c";
+                                    <tr>
+                                        <td class="text-muted small">@sn</td>
+                                        <td class="fw-semibold">@row.CategoryName</td>
+                                        <td class="text-end">@row.QtySold.ToString("N0")</td>
+                                        <td class="text-end fw-semibold">@Cur(row.SalesValue)</td>
+                                        <td class="text-end text-danger">@Cur(row.CostValue)</td>
+                                        <td class="text-end fw-bold text-success">@Cur(row.GrossProfit)</td>
+                                        <td class="text-end fw-semibold" style="color:@barC">@Pct(row.ProfitPct)</td>
+                                        <td class="text-end">@Pct(row.FoodCostPct)</td>
+                                        <td>
+                                            <div class="profit-bar"><div style="width:@Math.Min(contribPct,100)%;height:100%;border-radius:4px;background:#1a6db5;"></div></div>
+                                            <div style="font-size:.7rem;text-align:right;color:#666;">@($"{contribPct:N1}")%</div>
+                                        </td>
+                                    </tr>
+                                    sn++;
+                                }
+                            </tbody>
+                            <tfoot class="table-dark fw-bold">
+                                <tr>
+                                    <td colspan="2">TOTAL</td>
+                                    <td class="text-end">@s.TotalQtySold.ToString("N0")</td>
+                                    <td class="text-end">@Cur(s.TotalSales)</td>
+                                    <td class="text-end">@Cur(s.TotalCost)</td>
+                                    <td class="text-end text-success">@Cur(s.GrossProfit)</td>
+                                    <td class="text-end">@Pct(s.GrossProfitPct)</td>
+                                    <td class="text-end">@Pct(s.FoodCostPct)</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            <!-- -->
+            <div class="tab-pane fade" id="tab-period">
+                @if (!Model.PeriodData.Any())
+                {
+                    <div class="alert alert-info">No period data found.</div>
+                }
+                else
+                {
+                    @* Simple inline bar chart *@
+                    var maxSales = Model.PeriodData.Any() ? (double)Model.PeriodData.Max(r => r.SalesValue) : 1;
+                    <div class="mb-4 p-3 bg-light rounded">
+                        <div class="fw-semibold mb-2 small">Sales vs Cost — Period Trend (@f.GroupBy)</div>
+                        <div style="overflow-x:auto;">
+                            <div style="display:flex; gap:8px; align-items:flex-end; min-height:100px; padding-bottom:6px;">
+                                @foreach (var pr in Model.PeriodData)
+                                {
+                                    var barH    = maxSales > 0 ? Math.Max((double)pr.SalesValue / maxSales * 80, 6) : 6;
+                                    var costH   = maxSales > 0 ? Math.Max((double)pr.CostValue  / maxSales * 80, 2) : 2;
+                                    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:40px;">
+                                        <div style="font-size:.62rem;color:#27ae60;font-weight:700;">@Cur(pr.GrossProfit)</div>
+                                        <div style="display:flex;gap:2px;align-items:flex-end;">
+                                            <div class="chart-bar" style="height:@($"{barH:F0}")px;background:#1a6db5;width:14px;" title="Sales: @Cur(pr.SalesValue)"></div>
+                                            <div class="chart-bar" style="height:@($"{costH:F0}")px;background:#e74c3c;width:14px;" title="Cost: @Cur(pr.CostValue)"></div>
+                                        </div>
+                                        <div style="font-size:.62rem;color:#555;text-align:center;transform:rotate(-35deg);width:40px;margin-top:4px;">@pr.PeriodLabel</div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                        <div class="d-flex gap-3 mt-2">
+                            <span class="small"><span style="display:inline-block;width:12px;height:12px;background:#1a6db5;border-radius:2px;margin-right:3px;"></span>Sales</span>
+                            <span class="small"><span style="display:inline-block;width:12px;height:12px;background:#e74c3c;border-radius:2px;margin-right:3px;"></span>Cost</span>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover pl-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Period</th>
+                                    <th class="text-end">Qty Sold</th>
+                                    <th class="text-end">Sales Value</th>
+                                    <th class="text-end">Ingredient Cost</th>
+                                    <th class="text-end">Gross Profit</th>
+                                    <th class="text-end">Profit %</th>
+                                    <th class="text-end">Food Cost %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var pr in Model.PeriodData)
+                                {
+                                    var barC = pr.ProfitPct >= 60 ? "#27ae60" : pr.ProfitPct >= 30 ? "#f39c12" : "#e74c3c";
+                                    <tr>
+                                        <td class="fw-semibold">@pr.PeriodLabel</td>
+                                        <td class="text-end">@pr.QtySold.ToString("N0")</td>
+                                        <td class="text-end fw-semibold">@Cur(pr.SalesValue)</td>
+                                        <td class="text-end text-danger">@Cur(pr.CostValue)</td>
+                                        <td class="text-end fw-bold text-success">@Cur(pr.GrossProfit)</td>
+                                        <td class="text-end fw-semibold" style="color:@barC">@Pct(pr.ProfitPct)</td>
+                                        <td class="text-end">@Pct(pr.FoodCostPct)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot class="table-dark fw-bold">
+                                <tr>
+                                    <td>TOTAL</td>
+                                    <td class="text-end">@s.TotalQtySold.ToString("N0")</td>
+                                    <td class="text-end">@Cur(s.TotalSales)</td>
+                                    <td class="text-end">@Cur(s.TotalCost)</td>
+                                    <td class="text-end text-success">@Cur(s.GrossProfit)</td>
+                                    <td class="text-end">@Pct(s.GrossProfitPct)</td>
+                                    <td class="text-end">@Pct(s.FoodCostPct)</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            <!-- -->
+            @if (Model.IsMainBranchAdmin && Model.BranchData.Count > 0)
+            {
+                <div class="tab-pane fade" id="tab-branch">
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover pl-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Branch</th>
+                                    <th class="text-end">Sales Value</th>
+                                    <th class="text-end">Ingredient Cost</th>
+                                    <th class="text-end">Gross Profit</th>
+                                    <th class="text-end">Profit %</th>
+                                    <th class="text-end">Food Cost %</th>
+                                    <th style="width:120px">Sales Share</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{ int bn = 1; }
+                                @foreach (var br in Model.BranchData)
+                                {
+                                    var share = s.TotalSales > 0 ? (double)(br.SalesValue * 100m / s.TotalSales) : 0;
+                                    var barC  = br.ProfitPct >= 60 ? "#27ae60" : br.ProfitPct >= 30 ? "#f39c12" : "#e74c3c";
+                                    <tr>
+                                        <td class="text-muted small">@bn</td>
+                                        <td class="fw-semibold">@br.BranchName</td>
+                                        <td class="text-end fw-semibold">@Cur(br.SalesValue)</td>
+                                        <td class="text-end text-danger">@Cur(br.CostValue)</td>
+                                        <td class="text-end fw-bold text-success">@Cur(br.GrossProfit)</td>
+                                        <td class="text-end fw-semibold" style="color:@barC">@Pct(br.ProfitPct)</td>
+                                        <td class="text-end">@Pct(br.FoodCostPct)</td>
+                                        <td>
+                                            <div class="profit-bar"><div style="width:@Math.Min(share,100)%;height:100%;border-radius:4px;background:#1a6db5;"></div></div>
+                                            <div style="font-size:.7rem;text-align:right;color:#666;">@($"{share:N1}")%</div>
+                                        </td>
+                                    </tr>
+                                    bn++;
+                                }
+                            </tbody>
+                            <tfoot class="table-dark fw-bold">
+                                <tr>
+                                    <td colspan="2">TOTAL</td>
+                                    <td class="text-end">@Cur(s.TotalSales)</td>
+                                    <td class="text-end">@Cur(s.TotalCost)</td>
+                                    <td class="text-end text-success">@Cur(s.GrossProfit)</td>
+                                    <td class="text-end">@Pct(s.GrossProfitPct)</td>
+                                    <td class="text-end">@Pct(s.FoodCostPct)</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            }
+
+            <!-- -->
+            <div class="tab-pane fade" id="tab-top">
+                <div class="row g-4">
+                    <div class="col-lg-6">
+                        <h6 class="fw-bold text-success mb-2"><i class="fas fa-trophy me-2"></i>Top 10 Most Profitable Items</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered pl-table mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Rank</th>
+                                        <th>Item</th>
+                                        <th class="text-end">Sales</th>
+                                        <th class="text-end">Profit</th>
+                                        <th class="text-end">Margin</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @{ int rank = 1; }
+                                    @foreach (var row in Model.TopProfitable)
+                                    {
+                                        var medal = rank == 1 ? "🥇" : rank == 2 ? "🥈" : rank == 3 ? "🥉" : $"#{rank}";
+                                        <tr>
+                                            <td class="text-center fw-bold" style="font-size:.85rem">@medal</td>
+                                            <td>@row.ItemName<br/><small class="text-muted">@row.CategoryName</small></td>
+                                            <td class="text-end">@Cur(row.SalesValue)</td>
+                                            <td class="text-end fw-bold text-success">@Cur(row.GrossProfit)</td>
+                                            <td class="text-end fw-semibold text-success">@Pct(row.ProfitPct)</td>
+                                        </tr>
+                                        rank++;
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <h6 class="fw-bold text-danger mb-2"><i class="fas fa-arrow-down me-2"></i>Least Profitable Items (by margin)</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered pl-table mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Rank</th>
+                                        <th>Item</th>
+                                        <th class="text-end">Sales</th>
+                                        <th class="text-end">Profit</th>
+                                        <th class="text-end">Margin</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @{ int lrank = 1; }
+                                    @foreach (var row in Model.LeastProfitable)
+                                    {
+                                        var barC = row.ProfitPct < 20 ? "#e74c3c" : "#f39c12";
+                                        <tr>
+                                            <td class="text-center text-muted small">@lrank</td>
+                                            <td>@row.ItemName<br/><small class="text-muted">@row.CategoryName</small></td>
+                                            <td class="text-end">@Cur(row.SalesValue)</td>
+                                            <td class="text-end fw-bold" style="color:@barC">@Cur(row.GrossProfit)</td>
+                                            <td class="text-end fw-semibold" style="color:@barC">@Pct(row.ProfitPct)</td>
+                                        </tr>
+                                        lrank++;
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="alert alert-warning mt-2 py-2 small">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Items with <strong>Food Cost % &gt; 50%</strong> may need recipe review or price adjustment.
+                            Items with <strong>No BOM</strong> show ₹0 cost — add BOM for accurate costing.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- -->
+
+        <!-- -->
+        <div class="card border-0 bg-light mt-4 p-3 no-print">
+            <div class="fw-semibold small mb-1"><i class="fas fa-info-circle me-1 text-info"></i>Calculation Method</div>
+            <div class="row g-2 small text-muted">
+                <div class="col-md-4"><strong>Cost (BOM items):</strong> Σ (Ingredient Qty in BOM × Weighted Avg Cost)</div>
+                <div class="col-md-4"><strong>Cost (No BOM):</strong> ₹0 — add BOM in Recipe Master for accurate costing</div>
+                <div class="col-md-4"><strong>Weighted Avg:</strong> Based on CurrentStock.AverageCost (updated on each GRN)</div>
+                <div class="col-md-4"><strong>Food Cost %:</strong> (Ingredient Cost ÷ Sales Value) × 100</div>
+                <div class="col-md-4"><strong>Gross Profit:</strong> Sales Value − Ingredient Cost</div>
+                <div class="col-md-4"><strong>Profit Margin %:</strong> (Gross Profit ÷ Sales Value) × 100</div>
+            </div>
+        </div>
+
+    </div><!-- -->
+</div><!-- -->
+
+@section Scripts {
+    <script>
+        // Persist active tab across form submissions
+        (function () {
+            var stored = sessionStorage.getItem('plActiveTab');
+            if (stored) {
+                var btn = document.querySelector('[data-bs-target="' + stored + '"]');
+                if (btn) new bootstrap.Tab(btn).show();
+            }
+            document.querySelectorAll('#plTabs .nav-link').forEach(function (btn) {
+                btn.addEventListener('shown.bs.tab', function (e) {
+                    sessionStorage.setItem('plActiveTab', e.target.getAttribute('data-bs-target'));
+                });
+            });
+        })();
+    </script>
+}
