@@ -72,10 +72,10 @@ BEGIN
         INNER JOIN dbo.Ingredients ing ON ing.Id = mii.IngredientId
         LEFT  JOIN IngredientAvgCost iac ON iac.ItemId = mii.IngredientId
         GROUP BY mii.MenuItemId
-    ),';
+    )';
     ELSE
         SET @BomCte = N'
-    BOMCost AS (SELECT NULL AS MenuItemId, 0.0 AS CostPerUnit, 0 AS HasBOM WHERE 1=0),';
+    BOMCost AS (SELECT NULL AS MenuItemId, 0.0 AS CostPerUnit, 0 AS HasBOM WHERE 1=0)';
 
     -- Branch filter
     DECLARE @BranchFilter NVARCHAR(200) = N'';
@@ -115,7 +115,7 @@ BEGIN
     -- RESULT SET 1 : Summary
     -- ============================================================
     DECLARE @SqlSummary NVARCHAR(MAX) = N'
-WITH ' + @BomCte + N'
+WITH ' + @BomCte + N',
 Summary AS (
     SELECT
         SUM(oi.Quantity)                              AS TotalQtySold,
