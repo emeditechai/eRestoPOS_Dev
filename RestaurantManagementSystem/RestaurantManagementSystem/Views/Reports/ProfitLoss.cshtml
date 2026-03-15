@@ -168,11 +168,21 @@
                     </div>
                 }
 
-                <div class="col-auto">
+                <div class="col-auto d-flex flex-wrap gap-1 align-items-end">
                     <button type="submit" class="btn btn-primary btn-sm">
                         <i class="fas fa-sync-alt me-1"></i>Generate
                     </button>
-                    <a asp-action="ProfitLoss" class="btn btn-outline-secondary btn-sm ms-1">Reset</a>
+                    <a asp-action="ProfitLoss" class="btn btn-outline-secondary btn-sm">Reset</a>
+                    @if (perm.CanExport)
+                    {
+                        <div class="vr mx-1 d-none d-sm-block"></div>
+                        <button type="button" id="plExcelBtn" class="btn btn-outline-success btn-sm" title="Export to Excel">
+                            <i class="fas fa-file-excel me-1"></i>Excel
+                        </button>
+                        <button type="button" id="plPdfBtn" class="btn btn-outline-danger btn-sm" title="Export to PDF">
+                            <i class="fas fa-file-pdf me-1"></i>PDF
+                        </button>
+                    }
                 </div>
             </div>
         </form>
@@ -837,5 +847,37 @@
                 });
             });
         })();
+
+        // ── Server-side Excel / PDF export ──────────────────────────
+        function plBuildExportParams() {
+            var p = new URLSearchParams();
+            var from = document.querySelector('[name="Filter.StartDate"]')?.value || '';
+            var to   = document.querySelector('[name="Filter.EndDate"]')?.value   || '';
+            var gb   = document.querySelector('[name="Filter.GroupBy"]')?.value   || '';
+            var cat  = document.querySelector('[name="Filter.CategoryId"]')?.value || '';
+            if (from) p.set('startDate',  from);
+            if (to)   p.set('endDate',    to);
+            if (gb)   p.set('groupBy',    gb);
+            if (cat && cat !== '')  p.set('categoryId', cat);
+            // branch ids – read from visible checkboxes (admin) or hidden input (non-admin)
+            var branchChks = Array.from(document.querySelectorAll('.branch-chk:checked')).map(cb => cb.value);
+            if (branchChks.length > 0) {
+                p.set('branchIds', branchChks.join(','));
+            } else {
+                var hiddenBranch = document.querySelector('[name="Filter.SelectedBranchIds"]');
+                if (hiddenBranch && hiddenBranch.value) p.set('branchIds', hiddenBranch.value);
+            }
+            return p.toString();
+        }
+
+        document.getElementById('plExcelBtn')?.addEventListener('click', function () {
+            var qs = plBuildExportParams();
+            window.open('@Url.Action("ProfitLossExcel", "Reports")' + (qs ? '?' + qs : ''), '_blank');
+        });
+
+        document.getElementById('plPdfBtn')?.addEventListener('click', function () {
+            var qs = plBuildExportParams();
+            window.open('@Url.Action("ProfitLossPdf", "Reports")' + (qs ? '?' + qs : ''), '_blank');
+        });
     </script>
 }

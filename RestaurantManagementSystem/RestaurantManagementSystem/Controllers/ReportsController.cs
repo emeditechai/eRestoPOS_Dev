@@ -2867,6 +2867,513 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
             return View(model);
         }
 
+        // ─────────────────────────────────────────────────────────────────────
+        // P&L EXPORT – EXCEL (SpreadsheetML)
+        // ─────────────────────────────────────────────────────────────────────
+        [HttpGet]
+        [RequirePermission(MenuCodes.ProfitLoss, PermissionAction.Export)]
+        public async Task<IActionResult> ProfitLossExcel(
+            DateTime? startDate, DateTime? endDate,
+            string? groupBy = "monthly", int? categoryId = null,
+            string? branchIds = null)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
+            var selIds = string.IsNullOrWhiteSpace(branchIds)
+                ? new List<int>()
+                : branchIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => int.TryParse(s.Trim(), out var v) ? v : 0).Where(v => v > 0).ToList();
+
+            var model = new ProfitLossReportViewModel
+            {
+                Filter = new ProfitLossFilter
+                {
+                    StartDate        = startDate?.Date ?? DateTime.Today.AddDays(-30),
+                    EndDate          = endDate?.Date   ?? DateTime.Today,
+                    GroupBy          = groupBy ?? "monthly",
+                    CategoryId       = categoryId,
+                    SelectedBranchIds = selIds
+                }
+            };
+            model.ActiveBranchId    = activeBranchId.Value;
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin) model.Branches = await LoadAllBranchesAsync();
+            else model.ActiveBranchName = await GetBranchNameAsync(activeBranchId.Value);
+            await LoadProfitLossCategoriesAsync(model);
+            await LoadProfitLossDataAsync(model, activeBranchId.Value);
+
+            var from = (model.Filter.StartDate ?? DateTime.Today.AddDays(-30)).ToString("yyyy-MM-dd");
+            var to   = (model.Filter.EndDate   ?? DateTime.Today).ToString("yyyy-MM-dd");
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            sb.AppendLine("<?mso-application progid=\"Excel.Sheet\"?>");
+            sb.AppendLine("<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\"");
+            sb.AppendLine(" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\"");
+            sb.AppendLine(" xmlns:x=\"urn:schemas-microsoft-com:office:excel\">");
+            sb.AppendLine("<Styles>");
+            sb.AppendLine("<Style ss:ID=\"H\"><Interior ss:Color=\"#1a3a5c\" ss:Pattern=\"Solid\"/><Font ss:Color=\"#FFFFFF\" ss:Bold=\"1\" ss:Size=\"10\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"H2\"><Interior ss:Color=\"#25568a\" ss:Pattern=\"Solid\"/><Font ss:Color=\"#FFFFFF\" ss:Bold=\"1\" ss:Size=\"10\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"T\"><Interior ss:Color=\"#e9f0fb\" ss:Pattern=\"Solid\"/><Font ss:Bold=\"1\"/><NumberFormat ss:Format=\"#,##0.00\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"TI\"><Interior ss:Color=\"#e9f0fb\" ss:Pattern=\"Solid\"/><Font ss:Bold=\"1\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"B\"><Font ss:Bold=\"1\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"N\"><NumberFormat ss:Format=\"#,##0.00\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"P\"><NumberFormat ss:Format=\"0.00\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"BN\"><Font ss:Bold=\"1\"/><NumberFormat ss:Format=\"#,##0.00\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"G\"><Interior ss:Color=\"#d4edda\" ss:Pattern=\"Solid\"/><NumberFormat ss:Format=\"#,##0.00\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"R\"><Interior ss:Color=\"#f8d7da\" ss:Pattern=\"Solid\"/><NumberFormat ss:Format=\"#,##0.00\"/></Style>");
+            sb.AppendLine("</Styles>");
+
+            string XmlEnc(string? s) => System.Security.SecurityElement.Escape(s ?? "") ?? "";
+            void AppendTitleRow(System.Text.StringBuilder s2, string title, int cols)
+                => s2.AppendLine($"<Row><Cell ss:MergeAcross=\"{cols-1}\" ss:StyleID=\"B\"><Data ss:Type=\"String\">{XmlEnc(title)}</Data></Cell></Row>");
+            void AppendStrCell(System.Text.StringBuilder s2, string? v, string style = "")
+                => s2.Append(string.IsNullOrEmpty(style)
+                    ? $"<Cell><Data ss:Type=\"String\">{XmlEnc(v)}</Data></Cell>"
+                    : $"<Cell ss:StyleID=\"{style}\"><Data ss:Type=\"String\">{XmlEnc(v)}</Data></Cell>");
+            void AppendNumCell(System.Text.StringBuilder s2, decimal v, string style = "N")
+                => s2.Append($"<Cell ss:StyleID=\"{style}\"><Data ss:Type=\"Number\">{v}</Data></Cell>");
+            void AppendIntCell(System.Text.StringBuilder s2, long v, string style = "")
+                => s2.Append(string.IsNullOrEmpty(style)
+                    ? $"<Cell><Data ss:Type=\"Number\">{v}</Data></Cell>"
+                    : $"<Cell ss:StyleID=\"{style}\"><Data ss:Type=\"Number\">{v}</Data></Cell>");
+
+            // ── Sheet 1: Menu Items ──────────────────────────────────────────
+            sb.AppendLine("<Worksheet ss:Name=\"Menu Items\">");
+            sb.AppendLine("<Table>");
+            AppendTitleRow(sb, $"P&L – Menu Items | {from} to {to}", 9);
+            sb.Append("<Row ss:StyleID=\"H\">");
+            foreach (var h in new[]{"#","Menu Item","Category","Cost Type","Qty Sold","Sales Value","Ingredient Cost","Gross Profit","Profit %"})
+                AppendStrCell(sb, h);
+            sb.AppendLine("</Row>");
+            int seq = 0;
+            foreach (var r in model.MenuItems)
+            {
+                seq++;
+                var profStyle = r.GrossProfit >= 0 ? "G" : "R";
+                sb.Append("<Row>");
+                AppendIntCell(sb, seq);
+                AppendStrCell(sb, r.ItemName);
+                AppendStrCell(sb, r.CategoryName);
+                AppendStrCell(sb, r.HasBOM ? "BOM Costed" : "No BOM");
+                AppendIntCell(sb, r.QtySold);
+                AppendNumCell(sb, r.SalesValue);
+                AppendNumCell(sb, r.CostValue);
+                AppendNumCell(sb, r.GrossProfit, profStyle);
+                AppendNumCell(sb, r.ProfitPct, "P");
+                sb.AppendLine("</Row>");
+            }
+            // Totals
+            sb.Append("<Row ss:StyleID=\"T\">");
+            AppendStrCell(sb, "", "TI"); AppendStrCell(sb, "TOTAL", "TI"); AppendStrCell(sb, "", "TI"); AppendStrCell(sb, "", "TI");
+            AppendIntCell(sb, model.MenuItems.Sum(x => x.QtySold), "TI");
+            AppendNumCell(sb, model.MenuItems.Sum(x => x.SalesValue), "T");
+            AppendNumCell(sb, model.MenuItems.Sum(x => x.CostValue), "T");
+            AppendNumCell(sb, model.MenuItems.Sum(x => x.GrossProfit), "T");
+            sb.Append("<Cell ss:StyleID=\"T\"></Cell>");
+            sb.AppendLine("</Row>");
+            sb.AppendLine("</Table></Worksheet>");
+
+            // ── Sheet 2: By Category ─────────────────────────────────────────
+            sb.AppendLine("<Worksheet ss:Name=\"By Category\">");
+            sb.AppendLine("<Table>");
+            AppendTitleRow(sb, $"P&L – By Category | {from} to {to}", 7);
+            sb.Append("<Row ss:StyleID=\"H2\">");
+            foreach (var h in new[]{"#","Category","Qty Sold","Sales Value","Ingredient Cost","Gross Profit","Profit %"})
+                AppendStrCell(sb, h);
+            sb.AppendLine("</Row>");
+            seq = 0;
+            foreach (var r in model.CategoryData)
+            {
+                seq++;
+                sb.Append("<Row>");
+                AppendIntCell(sb, seq);
+                AppendStrCell(sb, r.CategoryName);
+                AppendIntCell(sb, r.QtySold);
+                AppendNumCell(sb, r.SalesValue);
+                AppendNumCell(sb, r.CostValue);
+                AppendNumCell(sb, r.GrossProfit, r.GrossProfit >= 0 ? "G" : "R");
+                AppendNumCell(sb, r.ProfitPct, "P");
+                sb.AppendLine("</Row>");
+            }
+            sb.Append("<Row ss:StyleID=\"T\">");
+            AppendStrCell(sb, "", "TI"); AppendStrCell(sb, "TOTAL", "TI");
+            AppendIntCell(sb, model.CategoryData.Sum(x => x.QtySold), "TI");
+            AppendNumCell(sb, model.CategoryData.Sum(x => x.SalesValue), "T");
+            AppendNumCell(sb, model.CategoryData.Sum(x => x.CostValue), "T");
+            AppendNumCell(sb, model.CategoryData.Sum(x => x.GrossProfit), "T");
+            sb.Append("<Cell ss:StyleID=\"T\"></Cell>");
+            sb.AppendLine("</Row>");
+            sb.AppendLine("</Table></Worksheet>");
+
+            // ── Sheet 3: By Branch ───────────────────────────────────────────
+            if (model.IsMainBranchAdmin && model.BranchData.Count > 0)
+            {
+                sb.AppendLine("<Worksheet ss:Name=\"By Branch\">");
+                sb.AppendLine("<Table>");
+                AppendTitleRow(sb, $"P&L – By Branch | {from} to {to}", 6);
+                sb.Append("<Row ss:StyleID=\"H\">");
+                foreach (var h in new[]{"#","Branch","Sales Value","Ingredient Cost","Gross Profit","Profit %"})
+                    AppendStrCell(sb, h);
+                sb.AppendLine("</Row>");
+                seq = 0;
+                foreach (var r in model.BranchData)
+                {
+                    seq++;
+                    sb.Append("<Row>");
+                    AppendIntCell(sb, seq);
+                    AppendStrCell(sb, r.BranchName);
+                    AppendNumCell(sb, r.SalesValue);
+                    AppendNumCell(sb, r.CostValue);
+                    AppendNumCell(sb, r.GrossProfit, r.GrossProfit >= 0 ? "G" : "R");
+                    AppendNumCell(sb, r.ProfitPct, "P");
+                    sb.AppendLine("</Row>");
+                }
+                sb.Append("<Row ss:StyleID=\"T\">");
+                AppendStrCell(sb, "", "TI"); AppendStrCell(sb, "TOTAL", "TI");
+                AppendNumCell(sb, model.BranchData.Sum(x => x.SalesValue), "T");
+                AppendNumCell(sb, model.BranchData.Sum(x => x.CostValue), "T");
+                AppendNumCell(sb, model.BranchData.Sum(x => x.GrossProfit), "T");
+                sb.Append("<Cell ss:StyleID=\"T\"></Cell>");
+                sb.AppendLine("</Row>");
+                sb.AppendLine("</Table></Worksheet>");
+            }
+
+            // ── Sheet 4: Period Trend ────────────────────────────────────────
+            sb.AppendLine("<Worksheet ss:Name=\"Period Trend\">");
+            sb.AppendLine("<Table>");
+            AppendTitleRow(sb, $"P&L – Period Trend ({model.Filter.GroupBy ?? "monthly"}) | {from} to {to}", 7);
+            sb.Append("<Row ss:StyleID=\"H2\">");
+            foreach (var h in new[]{"#","Period","Qty Sold","Sales Value","Ingredient Cost","Gross Profit","Profit %"})
+                AppendStrCell(sb, h);
+            sb.AppendLine("</Row>");
+            seq = 0;
+            foreach (var r in model.PeriodData)
+            {
+                seq++;
+                sb.Append("<Row>");
+                AppendIntCell(sb, seq);
+                AppendStrCell(sb, r.PeriodLabel);
+                AppendIntCell(sb, r.QtySold);
+                AppendNumCell(sb, r.SalesValue);
+                AppendNumCell(sb, r.CostValue);
+                AppendNumCell(sb, r.GrossProfit, r.GrossProfit >= 0 ? "G" : "R");
+                AppendNumCell(sb, r.ProfitPct, "P");
+                sb.AppendLine("</Row>");
+            }
+            sb.Append("<Row ss:StyleID=\"T\">");
+            AppendStrCell(sb, "", "TI"); AppendStrCell(sb, "TOTAL", "TI");
+            AppendIntCell(sb, model.PeriodData.Sum(x => x.QtySold), "TI");
+            AppendNumCell(sb, model.PeriodData.Sum(x => x.SalesValue), "T");
+            AppendNumCell(sb, model.PeriodData.Sum(x => x.CostValue), "T");
+            AppendNumCell(sb, model.PeriodData.Sum(x => x.GrossProfit), "T");
+            sb.Append("<Cell ss:StyleID=\"T\"></Cell>");
+            sb.AppendLine("</Row>");
+            sb.AppendLine("</Table></Worksheet>");
+
+            sb.AppendLine("</Workbook>");
+            var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+            return File(bytes, "application/vnd.ms-excel", $"ProfitLoss_{from}_to_{to}.xlsx");
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // P&L EXPORT – PDF (SkiaSharp)
+        // ─────────────────────────────────────────────────────────────────────
+        [HttpGet]
+        [RequirePermission(MenuCodes.ProfitLoss, PermissionAction.Export)]
+        public async Task<IActionResult> ProfitLossPdf(
+            DateTime? startDate, DateTime? endDate,
+            string? groupBy = "monthly", int? categoryId = null,
+            string? branchIds = null)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
+            var selIds = string.IsNullOrWhiteSpace(branchIds)
+                ? new List<int>()
+                : branchIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => int.TryParse(s.Trim(), out var v) ? v : 0).Where(v => v > 0).ToList();
+
+            var model = new ProfitLossReportViewModel
+            {
+                Filter = new ProfitLossFilter
+                {
+                    StartDate         = startDate?.Date ?? DateTime.Today.AddDays(-30),
+                    EndDate           = endDate?.Date   ?? DateTime.Today,
+                    GroupBy           = groupBy ?? "monthly",
+                    CategoryId        = categoryId,
+                    SelectedBranchIds = selIds
+                }
+            };
+            model.ActiveBranchId    = activeBranchId.Value;
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin) model.Branches = await LoadAllBranchesAsync();
+            else model.ActiveBranchName = await GetBranchNameAsync(activeBranchId.Value);
+            await LoadProfitLossCategoriesAsync(model);
+            await LoadProfitLossDataAsync(model, activeBranchId.Value);
+
+            var from = (model.Filter.StartDate ?? DateTime.Today.AddDays(-30)).ToString("yyyy-MM-dd");
+            var to   = (model.Filter.EndDate   ?? DateTime.Today).ToString("yyyy-MM-dd");
+
+            var pdfBytes = BuildProfitLossPdf(model);
+            return File(pdfBytes, "application/pdf", $"ProfitLoss_{from}_to_{to}.pdf");
+        }
+
+        private static byte[] BuildProfitLossPdf(ProfitLossReportViewModel model)
+        {
+            using var stream = new MemoryStream();
+            using var document = SKDocument.CreatePdf(stream);
+
+            const float pageWidth  = 842f;   // A4 landscape
+            const float pageHeight = 595f;
+            const float margin     = 28f;
+
+            var regularTypeface = SKTypeface.Default;
+            var boldTypeface    = SKTypeface.FromFamilyName(regularTypeface?.FamilyName, SKFontStyle.Bold) ?? regularTypeface;
+
+            using var headerFont = new SKFont(boldTypeface, 15);
+            using var subFont    = new SKFont(regularTypeface, 9);
+            using var labelFont  = new SKFont(boldTypeface, 8);
+            using var textFont   = new SKFont(regularTypeface, 8);
+            using var boldText   = new SKFont(boldTypeface, 8);
+
+            var blackPaint  = new SKPaint { Color = SKColors.Black,    IsAntialias = true };
+            var whitePaint  = new SKPaint { Color = SKColors.White,    IsAntialias = true };
+            var mutedPaint  = new SKPaint { Color = SKColors.DimGray,  IsAntialias = true };
+            var greenPaint  = new SKPaint { Color = new SKColor(27, 94, 32),  IsAntialias = true };
+            var redPaint    = new SKPaint { Color = new SKColor(183, 28, 28), IsAntialias = true };
+            var linePaint   = new SKPaint { Color = SKColors.LightGray, StrokeWidth = 0.5f };
+            var thdBgPaint  = new SKPaint { Color = new SKColor(26, 58, 92)  };
+            var thdBgPaint2 = new SKPaint { Color = new SKColor(37, 86, 138) };
+            var totBgPaint  = new SKPaint { Color = new SKColor(233, 240, 251) };
+            var altBgPaint  = new SKPaint { Color = new SKColor(248, 249, 250) };
+
+            var from = (model.Filter.StartDate ?? DateTime.Today.AddDays(-30)).ToString("dd-MMM-yyyy");
+            var to   = (model.Filter.EndDate   ?? DateTime.Today).ToString("dd-MMM-yyyy");
+            float rowH          = 14f;
+            float contentWidth  = pageWidth - 2 * margin;
+
+            // ── local helper: draw one section (table with rows) ─────────────
+            void DrawSection(
+                SKCanvas canvas, ref float y,
+                string sectionTitle, SKPaint headerBgPaint,
+                string[] headers, float[] colWidths,
+                IEnumerable<(string[] cells, bool isTotals, bool isProfit)> rows)
+            {
+                // section header bar
+                canvas.DrawRect(SKRect.Create(margin, y, contentWidth, rowH + 4), headerBgPaint);
+                canvas.DrawText(sectionTitle, margin + 4, y + rowH, SKTextAlign.Left, labelFont, whitePaint);
+                y += rowH + 4;
+
+                // column headers
+                float x = margin;
+                canvas.DrawRect(SKRect.Create(margin, y, contentWidth, rowH + 2), headerBgPaint);
+                for (int c = 0; c < headers.Length; c++)
+                {
+                    SKTextAlign align = c >= 2 ? SKTextAlign.Right : SKTextAlign.Left;
+                    float cellX = c >= 2 ? x + colWidths[c] - 3 : x + 2;
+                    canvas.DrawText(headers[c], cellX, y + rowH - 2, align, labelFont, whitePaint);
+                    x += colWidths[c];
+                }
+                y += rowH + 2;
+
+                bool alt = false;
+                foreach (var (cells, isTotals, isProfit) in rows)
+                {
+                    if (isTotals)
+                        canvas.DrawRect(SKRect.Create(margin, y, contentWidth, rowH), totBgPaint);
+                    else if (alt)
+                        canvas.DrawRect(SKRect.Create(margin, y, contentWidth, rowH), altBgPaint);
+
+                    x = margin;
+                    for (int c = 0; c < cells.Length && c < colWidths.Length; c++)
+                    {
+                        var val     = cells[c];
+                        var maxW    = colWidths[c] - 4;
+                        var font    = isTotals ? boldText : textFont;
+                        var paint   = isTotals ? blackPaint
+                                    : c >= 2 && isProfit && val.StartsWith("-") ? redPaint
+                                    : c >= 2 && isProfit ? greenPaint
+                                    : blackPaint;
+                        SKTextAlign align = c >= 2 ? SKTextAlign.Right : SKTextAlign.Left;
+                        float cellX = c >= 2 ? x + colWidths[c] - 3 : x + 2;
+
+                        if (textFont.MeasureText(val) > maxW)
+                        {
+                            while (val.Length > 1 && textFont.MeasureText(val + "…") > maxW) val = val[..^1];
+                            val += "…";
+                        }
+                        canvas.DrawText(val, cellX, y + rowH - 2, align, font, paint);
+                        x += colWidths[c];
+                    }
+                    y += rowH;
+                    canvas.DrawLine(margin, y, margin + contentWidth, y, linePaint);
+                    alt = !alt;
+                }
+                y += 10f; // gap after section
+            }
+
+            // ── Helper: render rows, paging automatically ────────────────────
+            void RenderTable(
+                string reportTitle,
+                string sectionTitle, SKPaint headerBgPaint,
+                string[] headers, float[] colWidths,
+                List<(string[] cells, bool isTotals, bool isProfit)> allRows,
+                string periodLabel = "")
+            {
+                int rowIdx = 0; int pageNum = 0;
+                int totalRowsForSection = allRows.Count;
+                while (rowIdx < totalRowsForSection || (rowIdx == 0 && totalRowsForSection == 0))
+                {
+                    pageNum++;
+                    using var canvas = document.BeginPage(pageWidth, pageHeight);
+                    float y = margin;
+
+                    // Page title
+                    canvas.DrawText(reportTitle, margin, y + 14, SKTextAlign.Left, headerFont, blackPaint);
+                    var subtitle = $"Period: {from} to {to}" +
+                        (string.IsNullOrEmpty(periodLabel) ? "" : $"  |  {periodLabel}") +
+                        $"  |  Total Sales: ₹{model.Summary.TotalSales:N2}" +
+                        $"  |  Gross Profit: ₹{model.Summary.GrossProfit:N2}" +
+                        $"  |  Margin: {model.Summary.GrossProfitPct:N2}%";
+                    canvas.DrawText(subtitle, margin, y + 27, SKTextAlign.Left, subFont, mutedPaint);
+                    canvas.DrawText($"Generated: {DateTime.Now:dd-MMM-yyyy HH:mm}  |  Page {pageNum}", pageWidth - margin, y + 27, SKTextAlign.Right, subFont, mutedPaint);
+                    y += 38f;
+
+                    // section header + column headers height
+                    float headerH = (rowH + 4) + (rowH + 2);
+                    float footerH = 16f;
+                    float availH  = pageHeight - y - margin - footerH;
+
+                    int rowsPerPage = (int)((availH - headerH) / rowH);
+                    if (rowsPerPage < 1) rowsPerPage = 1;
+
+                    int end = Math.Min(totalRowsForSection, rowIdx + rowsPerPage);
+                    var pageRows = allRows.GetRange(rowIdx, end - rowIdx);
+
+                    DrawSection(canvas, ref y, sectionTitle, headerBgPaint, headers, colWidths, pageRows);
+                    rowIdx = end;
+
+                    document.EndPage();
+                    if (rowIdx >= totalRowsForSection) break;
+                }
+            }
+
+            // ── Normalise col widths helper ───────────────────────────────────
+            float[] FitWidths(float[] widths)
+            {
+                var total = widths.Sum();
+                if (total <= contentWidth) return widths;
+                var sc = contentWidth / total;
+                return widths.Select(w => w * sc).ToArray();
+            }
+
+            // ══════════════════════════════════════════════════════════════════
+            // PAGE GROUP 1 – Menu Items
+            // ══════════════════════════════════════════════════════════════════
+            {
+                var cw = FitWidths(new float[] { 30, 160, 80, 60, 50, 75, 75, 80, 60 });
+                var rows = new List<(string[], bool, bool)>();
+                foreach (var r in model.MenuItems)
+                    rows.Add((new[]{ model.MenuItems.IndexOf(r)+1+"", r.ItemName, r.CategoryName,
+                        r.HasBOM ? "BOM" : "No BOM", r.QtySold.ToString("N0"),
+                        "₹"+r.SalesValue.ToString("N2"), "₹"+r.CostValue.ToString("N2"),
+                        "₹"+r.GrossProfit.ToString("N2"), r.ProfitPct.ToString("N2")+"%" }, false, true));
+                // totals row
+                rows.Add((new[]{
+                    "", "TOTAL", "", "",
+                    model.MenuItems.Sum(x=>x.QtySold).ToString("N0"),
+                    "₹"+model.MenuItems.Sum(x=>x.SalesValue).ToString("N2"),
+                    "₹"+model.MenuItems.Sum(x=>x.CostValue).ToString("N2"),
+                    "₹"+model.MenuItems.Sum(x=>x.GrossProfit).ToString("N2"),
+                    "" }, true, false));
+
+                RenderTable("Profit & Loss Analysis",
+                    $"Menu Items ({model.MenuItems.Count})", thdBgPaint,
+                    new[]{"#","Menu Item","Category","Cost Type","Qty Sold","Sales ₹","Cost ₹","Gross Profit","Profit %"},
+                    cw, rows);
+            }
+
+            // ══════════════════════════════════════════════════════════════════
+            // PAGE GROUP 2 – By Category
+            // ══════════════════════════════════════════════════════════════════
+            {
+                var cw = FitWidths(new float[] { 30, 200, 70, 100, 100, 110, 80 });
+                var rows = new List<(string[], bool, bool)>();
+                foreach (var r in model.CategoryData)
+                    rows.Add((new[]{ model.CategoryData.IndexOf(r)+1+"", r.CategoryName,
+                        r.QtySold.ToString("N0"), "₹"+r.SalesValue.ToString("N2"),
+                        "₹"+r.CostValue.ToString("N2"), "₹"+r.GrossProfit.ToString("N2"),
+                        r.ProfitPct.ToString("N2")+"%" }, false, true));
+                rows.Add((new[]{
+                    "","TOTAL",
+                    model.CategoryData.Sum(x=>x.QtySold).ToString("N0"),
+                    "₹"+model.CategoryData.Sum(x=>x.SalesValue).ToString("N2"),
+                    "₹"+model.CategoryData.Sum(x=>x.CostValue).ToString("N2"),
+                    "₹"+model.CategoryData.Sum(x=>x.GrossProfit).ToString("N2"),
+                    "" }, true, false));
+
+                RenderTable("Profit & Loss Analysis",
+                    $"By Category ({model.CategoryData.Count})", thdBgPaint2,
+                    new[]{"#","Category","Qty Sold","Sales ₹","Cost ₹","Gross Profit","Profit %"},
+                    cw, rows);
+            }
+
+            // ══════════════════════════════════════════════════════════════════
+            // PAGE GROUP 3 – By Branch (only for main branch admin)
+            // ══════════════════════════════════════════════════════════════════
+            if (model.IsMainBranchAdmin && model.BranchData.Count > 0)
+            {
+                var cw = FitWidths(new float[] { 30, 220, 120, 120, 130, 90 });
+                var rows = new List<(string[], bool, bool)>();
+                foreach (var r in model.BranchData)
+                    rows.Add((new[]{ model.BranchData.IndexOf(r)+1+"", r.BranchName,
+                        "₹"+r.SalesValue.ToString("N2"), "₹"+r.CostValue.ToString("N2"),
+                        "₹"+r.GrossProfit.ToString("N2"), r.ProfitPct.ToString("N2")+"%" }, false, true));
+                rows.Add((new[]{
+                    "","TOTAL",
+                    "₹"+model.BranchData.Sum(x=>x.SalesValue).ToString("N2"),
+                    "₹"+model.BranchData.Sum(x=>x.CostValue).ToString("N2"),
+                    "₹"+model.BranchData.Sum(x=>x.GrossProfit).ToString("N2"),
+                    "" }, true, false));
+
+                RenderTable("Profit & Loss Analysis",
+                    $"By Branch ({model.BranchData.Count})", thdBgPaint,
+                    new[]{"#","Branch","Sales ₹","Cost ₹","Gross Profit","Profit %"},
+                    cw, rows);
+            }
+
+            // ══════════════════════════════════════════════════════════════════
+            // PAGE GROUP 4 – Period Trend
+            // ══════════════════════════════════════════════════════════════════
+            {
+                var periodLabel = $"Grouped by: {model.Filter.GroupBy ?? "monthly"}";
+                var cw = FitWidths(new float[] { 30, 200, 70, 110, 110, 120, 80 });
+                var rows = new List<(string[], bool, bool)>();
+                foreach (var r in model.PeriodData)
+                    rows.Add((new[]{ model.PeriodData.IndexOf(r)+1+"", r.PeriodLabel,
+                        r.QtySold.ToString("N0"), "₹"+r.SalesValue.ToString("N2"),
+                        "₹"+r.CostValue.ToString("N2"), "₹"+r.GrossProfit.ToString("N2"),
+                        r.ProfitPct.ToString("N2")+"%" }, false, true));
+                rows.Add((new[]{
+                    "","TOTAL",
+                    model.PeriodData.Sum(x=>x.QtySold).ToString("N0"),
+                    "₹"+model.PeriodData.Sum(x=>x.SalesValue).ToString("N2"),
+                    "₹"+model.PeriodData.Sum(x=>x.CostValue).ToString("N2"),
+                    "₹"+model.PeriodData.Sum(x=>x.GrossProfit).ToString("N2"),
+                    "" }, true, false));
+
+                RenderTable("Profit & Loss Analysis",
+                    $"Period Trend ({model.PeriodData.Count})", thdBgPaint2,
+                    new[]{"#","Period","Qty Sold","Sales ₹","Cost ₹","Gross Profit","Profit %"},
+                    cw, rows, periodLabel);
+            }
+
+            document.Close();
+            return stream.ToArray();
+        }
+
         private async Task LoadProfitLossCategoriesAsync(ProfitLossReportViewModel model)
         {
             try
