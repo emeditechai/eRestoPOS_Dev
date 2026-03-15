@@ -65,8 +65,15 @@ BEGIN
         GROUP BY ItemId
     ),
     BOMCost AS (
+        -- AverageCost / StandardCost is stored per PURCHASE unit (e.g. per kg).
+        -- BOM Quantity is in RECIPE units (e.g. grams).
+        -- PurchaseToRecipeFactor converts: cost per recipe unit = cost / factor.
         SELECT mii.MenuItemId,
-               SUM(mii.Quantity * COALESCE(iac.AvgCost, ing.StandardCost, 0)) AS CostPerUnit,
+               SUM(
+                   mii.Quantity
+                   * COALESCE(iac.AvgCost, ing.StandardCost, 0)
+                   / NULLIF(ing.PurchaseToRecipeFactor, 0)
+               ) AS CostPerUnit,
                1 AS HasBOM
         FROM dbo.MenuItemIngredients mii
         INNER JOIN dbo.Ingredients ing ON ing.Id = mii.IngredientId
