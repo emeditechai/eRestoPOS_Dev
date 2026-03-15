@@ -71,9 +71,15 @@ namespace RestaurantManagementSystem.Controllers
                     using var branchCon = new SqlConnection(_connectionString);
                     await branchCon.OpenAsync();
                     using var branchCmd = new SqlCommand(@"
-                        SELECT TOP 1 BranchName, ISNULL(Is_MainBranch, 0) AS IsMain
-                        FROM dbo.Branches
-                        WHERE BranchId = @BranchId AND ISNULL(IsActive, 1) = 1", branchCon);
+                        SELECT TOP 1
+                            CASE WHEN bl.LocationName IS NOT NULL AND bl.LocationName <> ''
+                                 THEN b.BranchName + ' - ' + bl.LocationName
+                                 ELSE b.BranchName
+                            END AS DisplayName,
+                            ISNULL(b.Is_MainBranch, 0) AS IsMain
+                        FROM dbo.Branches b
+                        LEFT JOIN dbo.BranchLocations bl ON bl.LocationId = b.BranchLocationId
+                        WHERE b.BranchId = @BranchId AND ISNULL(b.IsActive, 1) = 1", branchCon);
                     branchCmd.Parameters.AddWithValue("@BranchId", activeBranchIdFromClaim);
 
                     using var branchReader = await branchCmd.ExecuteReaderAsync();

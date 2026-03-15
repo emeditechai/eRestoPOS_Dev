@@ -1384,20 +1384,25 @@ WHERE BranchId = @BranchId
             {
                 connection.Open();
                 using (var cmd = new SqlCommand(@"
-SELECT BranchId, BranchCode, BranchName
-FROM dbo.Branches
-WHERE ISNULL(IsActive, 1) = 1
-ORDER BY ISNULL(Is_MainBranch, 0) DESC, BranchCode, BranchName", connection))
+SELECT b.BranchId, b.BranchCode, b.BranchName, ISNULL(bl.LocationName, '') AS LocationName
+FROM dbo.Branches b
+LEFT JOIN dbo.BranchLocations bl ON bl.LocationId = b.BranchLocationId
+WHERE ISNULL(b.IsActive, 1) = 1
+ORDER BY ISNULL(b.Is_MainBranch, 0) DESC, b.BranchCode, b.BranchName", connection))
                 using (var reader = cmd.ExecuteReader())
                 {
                     while (reader.Read())
                     {
-                        var branchId = reader.GetInt32(0);
-                        var branchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
-                        var branchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
-                        var text = string.IsNullOrWhiteSpace(branchCode)
+                        var branchId       = reader.GetInt32(0);
+                        var branchCode     = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+                        var branchName     = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+                        var locationName   = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
+                        var displayName    = string.IsNullOrWhiteSpace(locationName)
                             ? branchName
-                            : $"{branchCode} - {branchName}";
+                            : $"{branchName} - {locationName}";
+                        var text = string.IsNullOrWhiteSpace(branchCode)
+                            ? displayName
+                            : $"{branchCode} - {displayName}";
 
                         items.Add(new SelectListItem
                         {
@@ -1583,6 +1588,7 @@ WHERE BranchId = @BranchId
                 }
 
                 ViewBag.IsView = isView;
+                ViewBag.BranchLocations = GetBranchLocationSelectList();
                 return View(model);
             }
             catch (Exception ex)
@@ -1638,9 +1644,15 @@ WHERE BranchId = @BranchId
                     ModelState.AddModelError(nameof(BranchMaster.Is_MainBranch), "Another main branch already exists.");
                 }
 
+                if (model.BranchLocationId <= 0)
+                {
+                    ModelState.AddModelError(nameof(BranchMaster.BranchLocationId), "Branch Location is required.");
+                }
+
                 if (!ModelState.IsValid)
                 {
                     ViewBag.IsView = isView;
+                    ViewBag.BranchLocations = GetBranchLocationSelectList();
                     return View(model);
                 }
 
@@ -1696,20 +1708,40 @@ WHERE BranchId = @BranchId
             {
                 connection.Open();
                 using (var cmd = new SqlCommand(@"
+-- 1. BranchLocations master table
+IF OBJECT_ID(N'dbo.BranchLocations', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.BranchLocations
+    (
+        LocationId   INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_BranchLocations PRIMARY KEY,
+        LocationName NVARCHAR(100) NOT NULL,
+        IsActive     BIT NOT NULL CONSTRAINT DF_BranchLocations_IsActive DEFAULT (1),
+        CONSTRAINT UQ_BranchLocations_Name UNIQUE (LocationName)
+    );
+    -- Seed with common locations
+    INSERT INTO dbo.BranchLocations (LocationName) VALUES ('Kolkata'),('Kalyani'),('Howrah');
+END
+
+-- 2. Branches table
 IF OBJECT_ID(N'dbo.Branches', N'U') IS NULL
 BEGIN
     CREATE TABLE dbo.Branches
     (
-        BranchId INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Branches PRIMARY KEY,
-        BranchCode NVARCHAR(20) NOT NULL,
-        BranchName NVARCHAR(150) NOT NULL,
-        Is_MainBranch BIT NULL,
-        IsActive BIT NOT NULL CONSTRAINT DF_Branches_IsActive DEFAULT (1),
-        CreatedAt DATETIME NOT NULL CONSTRAINT DF_Branches_CreatedAt DEFAULT (GETDATE()),
-        UpdatedAt DATETIME NULL,
+        BranchId         INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Branches PRIMARY KEY,
+        BranchCode       NVARCHAR(20) NOT NULL,
+        BranchName       NVARCHAR(150) NOT NULL,
+        BranchLocationId INT NULL,
+        Is_MainBranch    BIT NULL,
+        IsActive         BIT NOT NULL CONSTRAINT DF_Branches_IsActive DEFAULT (1),
+        CreatedAt        DATETIME NOT NULL CONSTRAINT DF_Branches_CreatedAt DEFAULT (GETDATE()),
+        UpdatedAt        DATETIME NULL,
         CONSTRAINT UQ_Branches_BranchCode UNIQUE (BranchCode)
     );
 END
+
+-- 3. Migrate: add BranchLocationId column if Branches existed before
+IF COL_LENGTH(N'dbo.Branches', N'BranchLocationId') IS NULL
+    ALTER TABLE dbo.Branches ADD BranchLocationId INT NULL;
 ", connection))
                 {
                     cmd.ExecuteNonQuery();
@@ -1724,9 +1756,12 @@ END
             {
                 connection.Open();
                 using (var cmd = new SqlCommand(@"
-SELECT BranchId, BranchCode, BranchName, Is_MainBranch, IsActive, CreatedAt, UpdatedAt
-FROM dbo.Branches
-ORDER BY BranchCode", connection))
+SELECT b.BranchId, b.BranchCode, b.BranchName, b.Is_MainBranch, b.IsActive, b.CreatedAt, b.UpdatedAt,
+       ISNULL(b.BranchLocationId, 0) AS BranchLocationId,
+       ISNULL(bl.LocationName, '') AS LocationName
+FROM dbo.Branches b
+LEFT JOIN dbo.BranchLocations bl ON bl.LocationId = b.BranchLocationId
+ORDER BY b.BranchCode", connection))
                 using (var reader = cmd.ExecuteReader())
                 {
                     while (reader.Read())
@@ -1739,7 +1774,9 @@ ORDER BY BranchCode", connection))
                             Is_MainBranch = !reader.IsDBNull(3) && reader.GetBoolean(3),
                             IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4),
                             CreatedAt = reader.IsDBNull(5) ? DateTime.Now : reader.GetDateTime(5),
-                            UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6)
+                            UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+                            BranchLocationId = reader.IsDBNull(7) ? 0 : reader.GetInt32(7),
+                            BranchLocationName = reader.IsDBNull(8) ? string.Empty : reader.GetString(8)
                         });
                     }
                 }
@@ -1754,9 +1791,12 @@ ORDER BY BranchCode", connection))
             {
                 connection.Open();
                 using (var cmd = new SqlCommand(@"
-SELECT TOP 1 BranchId, BranchCode, BranchName, Is_MainBranch, IsActive, CreatedAt, UpdatedAt
-FROM dbo.Branches
-WHERE BranchId = @BranchId", connection))
+SELECT TOP 1 b.BranchId, b.BranchCode, b.BranchName, b.Is_MainBranch, b.IsActive, b.CreatedAt, b.UpdatedAt,
+       ISNULL(b.BranchLocationId, 0) AS BranchLocationId,
+       ISNULL(bl.LocationName, '') AS LocationName
+FROM dbo.Branches b
+LEFT JOIN dbo.BranchLocations bl ON bl.LocationId = b.BranchLocationId
+WHERE b.BranchId = @BranchId", connection))
                 {
                     cmd.Parameters.AddWithValue("@BranchId", branchId);
                     using (var reader = cmd.ExecuteReader())
@@ -1770,7 +1810,9 @@ WHERE BranchId = @BranchId", connection))
                             Is_MainBranch = !reader.IsDBNull(3) && reader.GetBoolean(3),
                             IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4),
                             CreatedAt = reader.IsDBNull(5) ? DateTime.Now : reader.GetDateTime(5),
-                            UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6)
+                            UpdatedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+                            BranchLocationId = reader.IsDBNull(7) ? 0 : reader.GetInt32(7),
+                            BranchLocationName = reader.IsDBNull(8) ? string.Empty : reader.GetString(8)
                         };
                     }
                 }
@@ -1818,12 +1860,13 @@ WHERE ISNULL(Is_MainBranch, 0) = 1
             {
                 connection.Open();
                 using (var cmd = new SqlCommand(@"
-INSERT INTO dbo.Branches (BranchCode, BranchName, Is_MainBranch, IsActive, CreatedAt, UpdatedAt)
-VALUES (@BranchCode, @BranchName, @IsMainBranch, @IsActive, GETDATE(), NULL)
+INSERT INTO dbo.Branches (BranchCode, BranchName, BranchLocationId, Is_MainBranch, IsActive, CreatedAt, UpdatedAt)
+VALUES (@BranchCode, @BranchName, @BranchLocationId, @IsMainBranch, @IsActive, GETDATE(), NULL)
 ", connection))
                 {
                     cmd.Parameters.AddWithValue("@BranchCode", NormalizeBranchCode(model.BranchCode));
                     cmd.Parameters.AddWithValue("@BranchName", model.BranchName);
+                    cmd.Parameters.AddWithValue("@BranchLocationId", model.BranchLocationId);
                     cmd.Parameters.AddWithValue("@IsMainBranch", model.Is_MainBranch);
                     cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
                     return cmd.ExecuteNonQuery() > 0;
@@ -1840,6 +1883,7 @@ VALUES (@BranchCode, @BranchName, @IsMainBranch, @IsActive, GETDATE(), NULL)
 UPDATE dbo.Branches
 SET BranchCode = @BranchCode,
     BranchName = @BranchName,
+    BranchLocationId = @BranchLocationId,
     Is_MainBranch = @IsMainBranch,
     IsActive = @IsActive,
     UpdatedAt = GETDATE()
@@ -1849,6 +1893,7 @@ WHERE BranchId = @BranchId
                     cmd.Parameters.AddWithValue("@BranchId", model.BranchId);
                     cmd.Parameters.AddWithValue("@BranchCode", NormalizeBranchCode(model.BranchCode));
                     cmd.Parameters.AddWithValue("@BranchName", model.BranchName);
+                    cmd.Parameters.AddWithValue("@BranchLocationId", model.BranchLocationId);
                     cmd.Parameters.AddWithValue("@IsMainBranch", model.Is_MainBranch);
                     cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
                     return cmd.ExecuteNonQuery() > 0;
@@ -1883,6 +1928,178 @@ WHERE BranchId = @BranchId
                     return cmd.ExecuteNonQuery() > 0;
                 }
             }
+        }
+
+        // ─────────────────────────────────────────────
+        // Branch Location Master CRUD
+        // ─────────────────────────────────────────────
+
+        public IActionResult BranchLocationList()
+        {
+            try
+            {
+                if (!IsMainBranchActiveSession()) return MainBranchAccessDenied();
+                EnsureBranchesTableExists();
+                var list = ReadBranchLocations();
+                return View(list);
+            }
+            catch (Exception ex)
+            {
+                TempData["ResultMessage"] = $"Failed to load locations: {ex.Message}";
+                return View(new List<BranchLocation>());
+            }
+        }
+
+        public IActionResult BranchLocationForm(int? locationId, bool isView = false)
+        {
+            try
+            {
+                if (!IsMainBranchActiveSession()) return MainBranchAccessDenied();
+                EnsureBranchesTableExists();
+                var model = new BranchLocation { IsActive = true };
+                if (locationId.HasValue && locationId.Value > 0)
+                    model = ReadBranchLocationById(locationId.Value) ?? model;
+                ViewBag.IsView = isView;
+                return View(model);
+            }
+            catch (Exception ex)
+            {
+                TempData["ResultMessage"] = $"Failed to load location: {ex.Message}";
+                return RedirectToAction(nameof(BranchLocationList));
+            }
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult BranchLocationForm(BranchLocation model, bool isView = false)
+        {
+            try
+            {
+                if (!IsMainBranchActiveSession()) return MainBranchAccessDenied();
+                EnsureBranchesTableExists();
+
+                model.LocationName = (model.LocationName ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(model.LocationName))
+                    ModelState.AddModelError(nameof(BranchLocation.LocationName), "Location Name is required.");
+
+                if (!ModelState.IsValid)
+                {
+                    ViewBag.IsView = isView;
+                    return View(model);
+                }
+
+                bool ok = model.LocationId > 0
+                    ? UpdateBranchLocation(model)
+                    : InsertBranchLocation(model);
+
+                TempData["ResultMessage"] = ok
+                    ? (model.LocationId > 0 ? "Location updated successfully." : "Location added successfully.")
+                    : (model.LocationId > 0 ? "Location update failed." : "Location add failed.");
+
+                return RedirectToAction(nameof(BranchLocationList));
+            }
+            catch (Exception ex)
+            {
+                TempData["ResultMessage"] = $"Failed to save location: {ex.Message}";
+                ViewBag.IsView = isView;
+                return View(model);
+            }
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult SetBranchLocationStatus(int locationId, bool isActive)
+        {
+            try
+            {
+                if (!IsMainBranchActiveSession()) return MainBranchAccessDenied();
+                EnsureBranchesTableExists();
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand(
+                    "UPDATE dbo.BranchLocations SET IsActive=@A WHERE LocationId=@Id", con);
+                cmd.Parameters.AddWithValue("@A", isActive);
+                cmd.Parameters.AddWithValue("@Id", locationId);
+                cmd.ExecuteNonQuery();
+                TempData["ResultMessage"] = isActive ? "Location activated." : "Location deactivated.";
+            }
+            catch (Exception ex) { TempData["ResultMessage"] = $"Failed: {ex.Message}"; }
+            return RedirectToAction(nameof(BranchLocationList));
+        }
+
+        private List<BranchLocation> ReadBranchLocations()
+        {
+            var list = new List<BranchLocation>();
+            using var con = new SqlConnection(_connectionString);
+            con.Open();
+            using var cmd = new SqlCommand(
+                "SELECT LocationId, LocationName, IsActive FROM dbo.BranchLocations ORDER BY LocationName", con);
+            using var rdr = cmd.ExecuteReader();
+            while (rdr.Read())
+                list.Add(new BranchLocation
+                {
+                    LocationId   = rdr.GetInt32(0),
+                    LocationName = rdr.IsDBNull(1) ? string.Empty : rdr.GetString(1),
+                    IsActive     = !rdr.IsDBNull(2) && rdr.GetBoolean(2)
+                });
+            return list;
+        }
+
+        private BranchLocation? ReadBranchLocationById(int locationId)
+        {
+            using var con = new SqlConnection(_connectionString);
+            con.Open();
+            using var cmd = new SqlCommand(
+                "SELECT TOP 1 LocationId, LocationName, IsActive FROM dbo.BranchLocations WHERE LocationId=@Id", con);
+            cmd.Parameters.AddWithValue("@Id", locationId);
+            using var rdr = cmd.ExecuteReader();
+            if (!rdr.Read()) return null;
+            return new BranchLocation
+            {
+                LocationId   = rdr.GetInt32(0),
+                LocationName = rdr.IsDBNull(1) ? string.Empty : rdr.GetString(1),
+                IsActive     = !rdr.IsDBNull(2) && rdr.GetBoolean(2)
+            };
+        }
+
+        private bool InsertBranchLocation(BranchLocation model)
+        {
+            using var con = new SqlConnection(_connectionString);
+            con.Open();
+            using var cmd = new SqlCommand(
+                "INSERT INTO dbo.BranchLocations (LocationName, IsActive) VALUES (@N, @A)", con);
+            cmd.Parameters.AddWithValue("@N", model.LocationName);
+            cmd.Parameters.AddWithValue("@A", model.IsActive);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+
+        private bool UpdateBranchLocation(BranchLocation model)
+        {
+            using var con = new SqlConnection(_connectionString);
+            con.Open();
+            using var cmd = new SqlCommand(
+                "UPDATE dbo.BranchLocations SET LocationName=@N, IsActive=@A WHERE LocationId=@Id", con);
+            cmd.Parameters.AddWithValue("@N", model.LocationName);
+            cmd.Parameters.AddWithValue("@A", model.IsActive);
+            cmd.Parameters.AddWithValue("@Id", model.LocationId);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+
+        private List<SelectListItem> GetBranchLocationSelectList()
+        {
+            var items = new List<SelectListItem>();
+            using var con = new SqlConnection(_connectionString);
+            con.Open();
+            using var cmd = new SqlCommand(
+                "SELECT LocationId, LocationName FROM dbo.BranchLocations WHERE ISNULL(IsActive,1)=1 ORDER BY LocationName", con);
+            using var rdr = cmd.ExecuteReader();
+            while (rdr.Read())
+                items.Add(new SelectListItem
+                {
+                    Value = rdr.GetInt32(0).ToString(),
+                    Text  = rdr.IsDBNull(1) ? string.Empty : rdr.GetString(1)
+                });
+            return items;
         }
 }
 }

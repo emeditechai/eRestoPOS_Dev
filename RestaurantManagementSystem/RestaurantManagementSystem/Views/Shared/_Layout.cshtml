@@ -554,9 +554,11 @@
                     const branchId = resolveBranchField(branch, 'branchId', 'BranchId');
                     const branchCode = resolveBranchField(branch, 'branchCode', 'BranchCode') || '';
                     const branchName = resolveBranchField(branch, 'branchName', 'BranchName') || 'Branch';
+                    const locationName = resolveBranchField(branch, 'locationName', 'LocationName') || '';
                     const isMainBranch = Boolean(resolveBranchField(branch, 'isMainBranch', 'IsMainBranch'));
                     const isActive = Boolean(resolveBranchField(branch, 'isActive', 'IsActive'));
-                    const displayName = branchCode ? `${branchCode} - ${branchName}` : branchName;
+                    const fullName = locationName ? `${locationName} - ${branchName}` : branchName;
+                    const displayName = branchCode ? `${branchCode} - ${fullName}` : fullName;
 
                     const item = document.createElement('button');
                     item.type = 'button';

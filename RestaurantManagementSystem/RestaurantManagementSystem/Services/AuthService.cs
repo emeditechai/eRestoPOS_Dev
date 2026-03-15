@@ -92,7 +92,8 @@ namespace RestaurantManagementSystem.Services
             {
                 claims.Add(new Claim("ActiveBranchId", activeBranch.BranchId.ToString()));
                 claims.Add(new Claim("ActiveBranchCode", activeBranch.BranchCode ?? string.Empty));
-                claims.Add(new Claim("ActiveBranchName", activeBranch.BranchName ?? string.Empty));
+                // Use DisplayName (BranchName - LocationName) so navbar/selectors show location everywhere
+                claims.Add(new Claim("ActiveBranchName", activeBranch.DisplayName));
                 claims.Add(new Claim("ActiveBranchIsMain", activeBranch.Is_MainBranch ? "true" : "false"));
             }
 
@@ -748,7 +749,9 @@ namespace RestaurantManagementSystem.Services
             bool HasBranchUpdatedAt,
             bool HasUbIsDefault,
             bool HasUbIsActive,
-            bool HasUbrIsActive);
+            bool HasUbrIsActive,
+            bool HasBranchLocationId,
+            bool HasBranchLocationsTable);
 
         private async Task<BranchSchemaInfo> GetCachedBranchSchemaAsync(string connectionString)
         {
@@ -789,6 +792,8 @@ namespace RestaurantManagementSystem.Services
             var hasUbIsDefault     = hasUserBranchesTable && await ColExists("dbo.UserBranches", "IsDefault");
             var hasUbIsActive      = hasUserBranchesTable && await ColExists("dbo.UserBranches", "IsActive");
             var hasUbrIsActive     = hasUserBranchRolesTable && await ColExists("dbo.UserBranchRoles", "IsActive");
+            var hasBranchLocationsTable = await TblExists("dbo.BranchLocations");
+            var hasBranchLocationId     = hasBranchesTable && await ColExists("dbo.Branches", "BranchLocationId");
 
             var schema = new BranchSchemaInfo(
                 HasBranchesTable:        hasBranchesTable,
@@ -802,7 +807,9 @@ namespace RestaurantManagementSystem.Services
                 HasBranchUpdatedAt:      hasBranchUpdatedAt,
                 HasUbIsDefault:          hasUbIsDefault,
                 HasUbIsActive:           hasUbIsActive,
-                HasUbrIsActive:          hasUbrIsActive);
+                HasUbrIsActive:          hasUbrIsActive,
+                HasBranchLocationId:     hasBranchLocationId,
+                HasBranchLocationsTable: hasBranchLocationsTable);
 
             _cache?.Set(cacheKey, schema,
                 new MemoryCacheEntryOptions
@@ -887,19 +894,29 @@ END
                 var hasUbIsDefault          = schema.HasUbIsDefault;
                 var hasUbIsActive           = schema.HasUbIsActive;
                 var hasUbrIsActive          = schema.HasUbrIsActive;
+                var hasBranchLocationId     = schema.HasBranchLocationId;
+                var hasBranchLocationsTable = schema.HasBranchLocationsTable;
 
                 if (!hasBranchesTable)
                 {
                     return branches;
                 }
 
-                var branchCodeExpr = hasBranchCode ? "b.BranchCode" : "CAST('' AS NVARCHAR(20))";
-                var branchNameExpr = hasBranchName ? "b.BranchName" : "CAST('' AS NVARCHAR(150))";
-                var branchIsMainExpr = hasBranchIsMain ? "ISNULL(b.Is_MainBranch, 0)" : "CAST(0 AS BIT)";
+                var branchCodeExpr     = hasBranchCode ? "b.BranchCode" : "CAST('' AS NVARCHAR(20))";
+                var branchNameExpr     = hasBranchName ? "b.BranchName" : "CAST('' AS NVARCHAR(150))";
+                var branchIsMainExpr   = hasBranchIsMain ? "ISNULL(b.Is_MainBranch, 0)" : "CAST(0 AS BIT)";
                 var branchIsActiveExpr = hasBranchIsActive ? "ISNULL(b.IsActive, 1)" : "CAST(1 AS BIT)";
                 var branchCreatedAtExpr = hasBranchCreatedAt ? "b.CreatedAt" : "SYSUTCDATETIME()";
                 var branchUpdatedAtExpr = hasBranchUpdatedAt ? "b.UpdatedAt" : "CAST(NULL AS DATETIME2(3))";
-                var branchActiveFilter = hasBranchIsActive ? " AND ISNULL(b.IsActive, 1) = 1" : string.Empty;
+                var branchActiveFilter  = hasBranchIsActive ? " AND ISNULL(b.IsActive, 1) = 1" : string.Empty;
+
+                // Location join — only if both tables + column exist
+                var locationJoin = (hasBranchLocationsTable && hasBranchLocationId)
+                    ? "LEFT JOIN dbo.BranchLocations bl ON bl.LocationId = b.BranchLocationId"
+                    : string.Empty;
+                var locationExpr = (hasBranchLocationsTable && hasBranchLocationId)
+                    ? "ISNULL(bl.LocationName, '')"
+                    : "CAST('' AS NVARCHAR(100))";
 
                 var isAdminUser = await IsAdminUsernameAsync(connection, userId);
 
@@ -912,8 +929,10 @@ SELECT b.BranchId,
        CAST({branchIsMainExpr} AS bit) AS IsMain,
        CAST({branchIsActiveExpr} AS bit) AS IsActive,
        {branchCreatedAtExpr} AS CreatedAt,
-       {branchUpdatedAtExpr} AS UpdatedAt
+       {branchUpdatedAtExpr} AS UpdatedAt,
+       {locationExpr} AS LocationName
 FROM dbo.Branches b
+{locationJoin}
 WHERE 1 = 1{branchActiveFilter}
 ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExpr}, {branchNameExpr};";
 
@@ -921,15 +940,17 @@ ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExpr}, {
                     await using var adminReader = await adminCommand.ExecuteReaderAsync();
                     while (await adminReader.ReadAsync())
                     {
+                        var locName = adminReader.IsDBNull(7) ? string.Empty : adminReader.GetString(7);
                         branches.Add(new BranchMaster
                         {
-                            BranchId = adminReader.GetInt32(0),
-                            BranchCode = adminReader.IsDBNull(1) ? string.Empty : adminReader.GetString(1),
-                            BranchName = adminReader.IsDBNull(2) ? string.Empty : adminReader.GetString(2),
-                            Is_MainBranch = !adminReader.IsDBNull(3) && adminReader.GetBoolean(3),
-                            IsActive = !adminReader.IsDBNull(4) && adminReader.GetBoolean(4),
-                            CreatedAt = adminReader.IsDBNull(5) ? DateTime.Now : adminReader.GetDateTime(5),
-                            UpdatedAt = adminReader.IsDBNull(6) ? null : adminReader.GetDateTime(6)
+                            BranchId             = adminReader.GetInt32(0),
+                            BranchCode           = adminReader.IsDBNull(1) ? string.Empty : adminReader.GetString(1),
+                            BranchName           = adminReader.IsDBNull(2) ? string.Empty : adminReader.GetString(2),
+                            Is_MainBranch        = !adminReader.IsDBNull(3) && adminReader.GetBoolean(3),
+                            IsActive             = !adminReader.IsDBNull(4) && adminReader.GetBoolean(4),
+                            CreatedAt            = adminReader.IsDBNull(5) ? DateTime.Now : adminReader.GetDateTime(5),
+                            UpdatedAt            = adminReader.IsDBNull(6) ? null : adminReader.GetDateTime(6),
+                            BranchLocationName   = locName
                         });
                     }
 
@@ -948,8 +969,10 @@ SELECT b.BranchId,
        CAST({branchIsMainExpr} AS bit) AS IsMain,
        CAST({branchIsActiveExpr} AS bit) AS IsActive,
        {branchCreatedAtExpr} AS CreatedAt,
-       {branchUpdatedAtExpr} AS UpdatedAt
+       {branchUpdatedAtExpr} AS UpdatedAt,
+       {locationExpr} AS LocationName
 FROM dbo.Branches b
+{locationJoin}
 INNER JOIN dbo.UserBranches ub ON ub.BranchId = b.BranchId
 WHERE ub.UserId = @UserId{userBranchActiveFilter}{branchActiveFilter}
 ORDER BY CASE WHEN {userBranchDefaultExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExpr}, {branchNameExpr};";
@@ -959,15 +982,17 @@ ORDER BY CASE WHEN {userBranchDefaultExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExp
                     await using var userBranchReader = await userBranchCommand.ExecuteReaderAsync();
                     while (await userBranchReader.ReadAsync())
                     {
+                        var locName = userBranchReader.IsDBNull(7) ? string.Empty : userBranchReader.GetString(7);
                         branches.Add(new BranchMaster
                         {
-                            BranchId = userBranchReader.GetInt32(0),
-                            BranchCode = userBranchReader.IsDBNull(1) ? string.Empty : userBranchReader.GetString(1),
-                            BranchName = userBranchReader.IsDBNull(2) ? string.Empty : userBranchReader.GetString(2),
-                            Is_MainBranch = !userBranchReader.IsDBNull(3) && userBranchReader.GetBoolean(3),
-                            IsActive = !userBranchReader.IsDBNull(4) && userBranchReader.GetBoolean(4),
-                            CreatedAt = userBranchReader.IsDBNull(5) ? DateTime.Now : userBranchReader.GetDateTime(5),
-                            UpdatedAt = userBranchReader.IsDBNull(6) ? null : userBranchReader.GetDateTime(6)
+                            BranchId           = userBranchReader.GetInt32(0),
+                            BranchCode         = userBranchReader.IsDBNull(1) ? string.Empty : userBranchReader.GetString(1),
+                            BranchName         = userBranchReader.IsDBNull(2) ? string.Empty : userBranchReader.GetString(2),
+                            Is_MainBranch      = !userBranchReader.IsDBNull(3) && userBranchReader.GetBoolean(3),
+                            IsActive           = !userBranchReader.IsDBNull(4) && userBranchReader.GetBoolean(4),
+                            CreatedAt          = userBranchReader.IsDBNull(5) ? DateTime.Now : userBranchReader.GetDateTime(5),
+                            UpdatedAt          = userBranchReader.IsDBNull(6) ? null : userBranchReader.GetDateTime(6),
+                            BranchLocationName = locName
                         });
                     }
                 }
@@ -979,11 +1004,13 @@ ORDER BY CASE WHEN {userBranchDefaultExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExp
 SELECT DISTINCT b.BranchId,
        {branchCodeExpr} AS BranchCode,
        {branchNameExpr} AS BranchName,
-                CAST({branchIsMainExpr} AS bit) AS IsMain,
+       CAST({branchIsMainExpr} AS bit) AS IsMain,
        CAST({branchIsActiveExpr} AS bit) AS IsActive,
        {branchCreatedAtExpr} AS CreatedAt,
-       {branchUpdatedAtExpr} AS UpdatedAt
+       {branchUpdatedAtExpr} AS UpdatedAt,
+       {locationExpr} AS LocationName
 FROM dbo.Branches b
+{locationJoin}
 INNER JOIN dbo.UserBranchRoles ubr ON ubr.BranchId = b.BranchId
 WHERE ubr.UserId = @UserId{userBranchRoleActiveFilter}{branchActiveFilter}
 ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExpr}, {branchNameExpr};";
@@ -993,15 +1020,17 @@ ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExpr}, {
                     await using var userBranchRoleReader = await userBranchRoleCommand.ExecuteReaderAsync();
                     while (await userBranchRoleReader.ReadAsync())
                     {
+                        var locName = userBranchRoleReader.IsDBNull(7) ? string.Empty : userBranchRoleReader.GetString(7);
                         branches.Add(new BranchMaster
                         {
-                            BranchId = userBranchRoleReader.GetInt32(0),
-                            BranchCode = userBranchRoleReader.IsDBNull(1) ? string.Empty : userBranchRoleReader.GetString(1),
-                            BranchName = userBranchRoleReader.IsDBNull(2) ? string.Empty : userBranchRoleReader.GetString(2),
-                            Is_MainBranch = !userBranchRoleReader.IsDBNull(3) && userBranchRoleReader.GetBoolean(3),
-                            IsActive = !userBranchRoleReader.IsDBNull(4) && userBranchRoleReader.GetBoolean(4),
-                            CreatedAt = userBranchRoleReader.IsDBNull(5) ? DateTime.Now : userBranchRoleReader.GetDateTime(5),
-                            UpdatedAt = userBranchRoleReader.IsDBNull(6) ? null : userBranchRoleReader.GetDateTime(6)
+                            BranchId           = userBranchRoleReader.GetInt32(0),
+                            BranchCode         = userBranchRoleReader.IsDBNull(1) ? string.Empty : userBranchRoleReader.GetString(1),
+                            BranchName         = userBranchRoleReader.IsDBNull(2) ? string.Empty : userBranchRoleReader.GetString(2),
+                            Is_MainBranch      = !userBranchRoleReader.IsDBNull(3) && userBranchRoleReader.GetBoolean(3),
+                            IsActive           = !userBranchRoleReader.IsDBNull(4) && userBranchRoleReader.GetBoolean(4),
+                            CreatedAt          = userBranchRoleReader.IsDBNull(5) ? DateTime.Now : userBranchRoleReader.GetDateTime(5),
+                            UpdatedAt          = userBranchRoleReader.IsDBNull(6) ? null : userBranchRoleReader.GetDateTime(6),
+                            BranchLocationName = locName
                         });
                     }
                 }
@@ -1013,11 +1042,13 @@ ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, {branchCodeExpr}, {
 SELECT TOP 1 b.BranchId,
        {branchCodeExpr} AS BranchCode,
        {branchNameExpr} AS BranchName,
-                CAST({branchIsMainExpr} AS bit) AS IsMain,
+       CAST({branchIsMainExpr} AS bit) AS IsMain,
        CAST({branchIsActiveExpr} AS bit) AS IsActive,
        {branchCreatedAtExpr} AS CreatedAt,
-       {branchUpdatedAtExpr} AS UpdatedAt
+       {branchUpdatedAtExpr} AS UpdatedAt,
+       {locationExpr} AS LocationName
 FROM dbo.Branches b
+{locationJoin}
 WHERE 1 = 1{branchActiveFilter}{mainBranchFilter}
 ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, b.BranchId;";
 
@@ -1025,15 +1056,17 @@ ORDER BY CASE WHEN {branchIsMainExpr} = 1 THEN 0 ELSE 1 END, b.BranchId;";
                     await using var fallbackReader = await fallbackCommand.ExecuteReaderAsync();
                     while (await fallbackReader.ReadAsync())
                     {
+                        var locName = fallbackReader.IsDBNull(7) ? string.Empty : fallbackReader.GetString(7);
                         branches.Add(new BranchMaster
                         {
-                            BranchId = fallbackReader.GetInt32(0),
-                            BranchCode = fallbackReader.IsDBNull(1) ? string.Empty : fallbackReader.GetString(1),
-                            BranchName = fallbackReader.IsDBNull(2) ? string.Empty : fallbackReader.GetString(2),
-                            Is_MainBranch = !fallbackReader.IsDBNull(3) && fallbackReader.GetBoolean(3),
-                            IsActive = !fallbackReader.IsDBNull(4) && fallbackReader.GetBoolean(4),
-                            CreatedAt = fallbackReader.IsDBNull(5) ? DateTime.Now : fallbackReader.GetDateTime(5),
-                            UpdatedAt = fallbackReader.IsDBNull(6) ? null : fallbackReader.GetDateTime(6)
+                            BranchId           = fallbackReader.GetInt32(0),
+                            BranchCode         = fallbackReader.IsDBNull(1) ? string.Empty : fallbackReader.GetString(1),
+                            BranchName         = fallbackReader.IsDBNull(2) ? string.Empty : fallbackReader.GetString(2),
+                            Is_MainBranch      = !fallbackReader.IsDBNull(3) && fallbackReader.GetBoolean(3),
+                            IsActive           = !fallbackReader.IsDBNull(4) && fallbackReader.GetBoolean(4),
+                            CreatedAt          = fallbackReader.IsDBNull(5) ? DateTime.Now : fallbackReader.GetDateTime(5),
+                            UpdatedAt          = fallbackReader.IsDBNull(6) ? null : fallbackReader.GetDateTime(6),
+                            BranchLocationName = locName
                         });
                     }
                 }

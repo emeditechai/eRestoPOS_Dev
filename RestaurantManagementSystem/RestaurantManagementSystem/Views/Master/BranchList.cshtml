@@ -19,6 +19,7 @@
         <tr>
             <th>Branch Code</th>
             <th>Branch Name</th>
+            <th>Location</th>
             <th>Main Branch</th>
             <th>Status</th>
             <th style="width: 280px;">Actions</th>
@@ -30,6 +31,7 @@
             <tr>
                 <td>@item.BranchCode</td>
                 <td>@item.BranchName</td>
+                <td>@(string.IsNullOrWhiteSpace(item.BranchLocationName) ? "-" : item.BranchLocationName)</td>
                 <td>
                     @if (item.Is_MainBranch)
                     {

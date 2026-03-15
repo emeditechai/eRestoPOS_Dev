@@ -84,6 +84,19 @@ namespace RestaurantManagementSystem.Services
                 {
                     envLogger.LogWarning(ex, "Stocks navigation seed failed or timed out");
                 }
+
+                // Seed Branch Location nav entry – safe to re-run
+                try
+                {
+                    var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+                    var connStr = config.GetConnectionString("DefaultConnection");
+                    if (!string.IsNullOrEmpty(connStr))
+                        await SeedBranchLocationNavigationAsync(connStr, envLogger, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    envLogger.LogWarning(ex, "Branch Location navigation seed failed or timed out");
+                }
             }
             catch (Exception ex)
             {
@@ -231,6 +244,55 @@ END
             cmd.CommandTimeout = 10;
             await cmd.ExecuteNonQueryAsync(cancellationToken);
             logger.LogInformation("Stocks navigation seed completed.");
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // Branch Location navigation seed (idempotent)
+        // ──────────────────────────────────────────────────────────────────────
+        private static async Task SeedBranchLocationNavigationAsync(
+            string connectionString,
+            ILogger logger,
+            CancellationToken cancellationToken)
+        {
+            const string sql = @"
+IF OBJECT_ID(N'dbo.NavigationMenus', N'U') IS NULL RETURN;
+
+-- Insert NAV_SETTINGS_BRANCH_LOCATION child under Settings
+IF NOT EXISTS (SELECT 1 FROM dbo.NavigationMenus WHERE Code = 'NAV_SETTINGS_BRANCH_LOCATION')
+BEGIN
+    INSERT INTO dbo.NavigationMenus
+           (Code, ParentCode, DisplayName, Description, Area,
+            ControllerName, ActionName, RouteValues, CustomUrl, IconCss,
+            DisplayOrder, IsActive, IsVisible, ThemeColor, ShortcutHint, OpenInNewTab)
+    VALUES ('NAV_SETTINGS_BRANCH_LOCATION', 'NAV_SETTINGS', 'Branch Location',
+            'Manage branch location master', NULL,
+            'Master', 'BranchLocationList', NULL, NULL,
+            'fas fa-map-marker-alt compact-icon text-success',
+            3, 1, 1, NULL, NULL, 0);
+END
+
+-- Grant full permissions to Administrator role
+DECLARE @AdminRoleId INT = (SELECT TOP 1 Id FROM dbo.Roles WHERE Name = 'Administrator');
+IF @AdminRoleId IS NOT NULL
+BEGIN
+    INSERT INTO dbo.RoleMenuPermissions
+           (RoleId, MenuId, CanView, CanAdd, CanEdit, CanDelete,
+            CanApprove, CanPrint, CanExport, CreatedAt, CreatedBy, UpdatedAt, UpdatedBy)
+    SELECT @AdminRoleId, nm.Id, 1, 1, 1, 1, 1, 1, 1,
+           SYSUTCDATETIME(), 0, SYSUTCDATETIME(), 0
+    FROM dbo.NavigationMenus nm
+    WHERE nm.Code = 'NAV_SETTINGS_BRANCH_LOCATION'
+      AND NOT EXISTS (
+          SELECT 1 FROM dbo.RoleMenuPermissions rmp
+           WHERE rmp.RoleId = @AdminRoleId AND rmp.MenuId = nm.Id);
+END
+";
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using var cmd = new SqlCommand(sql, connection);
+            cmd.CommandTimeout = 10;
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+            logger.LogInformation("Branch Location navigation seed completed.");
         }
     }
 }

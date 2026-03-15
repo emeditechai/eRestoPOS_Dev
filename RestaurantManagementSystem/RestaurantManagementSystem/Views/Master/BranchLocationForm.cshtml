@@ -1,0 +1,45 @@
+@model RestaurantManagementSystem.Models.BranchLocation
+@{
+    var isView = ViewBag.IsView as bool? ?? false;
+    ViewData["Title"] = Model.LocationId == 0 ? "Add Branch Location"
+                      : (isView ? "View Branch Location" : "Edit Branch Location");
+}
+
+<h2 class="mb-4">@ViewData["Title"]</h2>
+
+<form asp-action="BranchLocationForm" asp-controller="Master" method="post">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="LocationId" />
+
+    <div class="mb-3">
+        <label asp-for="LocationName" class="form-label fw-semibold"></label>
+        <input asp-for="LocationName" class="form-control" autocomplete="off" maxlength="100" />
+        <span asp-validation-for="LocationName" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3 form-check">
+        <input asp-for="IsActive" class="form-check-input" id="IsActive" />
+        <label asp-for="IsActive" class="form-check-label"></label>
+    </div>
+
+    <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+
+    @if (!isView)
+    {
+        <button type="submit" class="btn btn-primary">Save</button>
+    }
+    <a href="@Url.Action("BranchLocationList", "Master")" class="btn btn-secondary">Back</a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        $(document).ready(function () {
+            var isView = '@isView'.toLowerCase() === 'true';
+            if (isView) {
+                $('input, select, textarea').not('[type=hidden]').prop('disabled', true);
+                $('button[type=submit]').prop('disabled', true).addClass('disabled');
+            }
+        });
+    </script>
+}

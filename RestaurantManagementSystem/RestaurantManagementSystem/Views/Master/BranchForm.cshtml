@@ -1,6 +1,9 @@
 @model RestaurantManagementSystem.Models.BranchMaster
 @{
-    ViewData["Title"] = Model.BranchId == 0 ? "Add Branch" : "Edit Branch";
+    ViewData["Title"] = Model.BranchId == 0 ? "Add Branch" : (ViewBag.IsView == true ? "View Branch" : "Edit Branch");
+    var isView = ViewBag.IsView as bool? ?? false;
+    var locations = ViewBag.BranchLocations as IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>
+                    ?? Enumerable.Empty<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>();
 }
 
 <h2 class="mb-4">@ViewData["Title"]</h2>
@@ -21,6 +24,22 @@
         <span asp-validation-for="BranchName" class="text-danger"></span>
     </div>
 
+    <div class="mb-3">
+        <label asp-for="BranchLocationId" class="form-label"></label>
+        @if (isView)
+        {
+            <input class="form-control" value="@Model.BranchLocationName" disabled />
+        }
+        else
+        {
+            <select asp-for="BranchLocationId" class="form-select"
+                    asp-items="@(new Microsoft.AspNetCore.Mvc.Rendering.SelectList(locations, "Value", "Text", Model.BranchLocationId.ToString()))">
+                <option value="">-- Select Location --</option>
+            </select>
+        }
+        <span asp-validation-for="BranchLocationId" class="text-danger"></span>
+    </div>
+
     <div class="mb-3 form-check">
         <input asp-for="Is_MainBranch" class="form-check-input" />
         <label asp-for="Is_MainBranch" class="form-check-label"></label>
@@ -34,7 +53,10 @@
 
     <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
 
-    <button type="submit" class="btn btn-primary">Save</button>
+    @if (!isView)
+    {
+        <button type="submit" class="btn btn-primary">Save</button>
+    }
     <a href="@Url.Action("BranchList", "Master")" class="btn btn-secondary">Back</a>
 </form>
 
@@ -42,7 +64,7 @@
     <partial name="_ValidationScriptsPartial" />
     <script>
         $(document).ready(function () {
-            var isView = '@ViewBag.IsView' === 'True';
+            var isView = '@isView'.toLowerCase() === 'true';
             if (isView) {
                 $('#BranchCode').prop('disabled', true);
                 $('#BranchName').prop('disabled', true);

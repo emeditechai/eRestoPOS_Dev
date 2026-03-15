@@ -18,6 +18,20 @@ namespace RestaurantManagementSystem.Models
         [Display(Name = "Branch Name")]
         public string BranchName { get; set; } = string.Empty;
 
+        [Required]
+        [Display(Name = "Branch Location")]
+        [Range(1, int.MaxValue, ErrorMessage = "Branch Location is required.")]
+        public int BranchLocationId { get; set; }
+
+        // Populated by JOIN with BranchLocations table – not stored in Branches
+        public string BranchLocationName { get; set; } = string.Empty;
+
+        /// <summary>Concatenated display name shown everywhere in UI: "BranchName - LocationName".</summary>
+        public string DisplayName =>
+            string.IsNullOrWhiteSpace(BranchLocationName)
+                ? BranchName
+                : $"{BranchName} - {BranchLocationName}";
+
         [Display(Name = "Main Branch")]
         public bool Is_MainBranch { get; set; }
 
