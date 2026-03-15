@@ -2880,10 +2880,10 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
             try
             {
                 var startDate = (model.Filter.StartDate ?? DateTime.Today.AddDays(-30)).Date;
-                var endDate   = (model.Filter.EndDate ?? DateTime.Today).Date.AddDays(1); // exclusive end
+                var endDate   = (model.Filter.EndDate ?? DateTime.Today).Date;
                 var groupBy   = model.Filter.GroupBy ?? "monthly";
 
-                // Determine branch filter: admin can pick multiple; otherwise single active branch
+                // Determine branch list: admin can pick multiple; otherwise single active branch
                 var selectedBranchIds = model.IsMainBranchAdmin && model.Filter.SelectedBranchIds?.Count > 0
                     ? model.Filter.SelectedBranchIds
                     : new List<int> { activeBranchId };
@@ -2893,153 +2893,48 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
                 using var con = new SqlConnection(_connectionString);
                 await con.OpenAsync();
 
-                // Check schema presence
-                bool hasBranchCol  = await HasColumnAsync(con, "Orders", "BranchId");
-                bool hasMIITable   = await HasColumnAsync(con, "MenuItemIngredients", "MenuItemId");
-                bool hasCurrentStock = await HasColumnAsync(con, "CurrentStock", "AverageCost");
-
-                // ── BOM cost CTE fragment ──────────────────────────────────────
-                // Cost per 1 unit sold = SUM(BOM qty × weighted avg ingredient cost)
-                // Falls back to Ingredients.StandardCost when no stock record exists.
-                var bomCteFragment = hasMIITable && hasCurrentStock ? @"
-    IngredientAvgCost AS (
-        SELECT ItemId, AVG(AverageCost) AS AvgCost
-        FROM dbo.CurrentStock
-        GROUP BY ItemId
-    ),
-    BOMCost AS (
-        SELECT mii.MenuItemId,
-               SUM(mii.Quantity * COALESCE(iac.AvgCost, ing.StandardCost, 0)) AS CostPerUnit,
-               1 AS HasBOM
-        FROM dbo.MenuItemIngredients mii
-        INNER JOIN dbo.Ingredients ing ON ing.Id = mii.IngredientId
-        LEFT JOIN  IngredientAvgCost iac ON iac.ItemId = mii.IngredientId
-        GROUP BY mii.MenuItemId
-    )," : @"
-    BOMCost AS (SELECT -1 AS MenuItemId, 0.0 AS CostPerUnit, 0 AS HasBOM WHERE 1=0),";
-
-                var branchJoin = hasBranchCol
-                    ? $"AND o.BranchId IN ({branchInList})"
-                    : "";
-
-                var categoryFilter = model.Filter.CategoryId.HasValue
-                    ? "AND mi.CategoryId = @CategoryId"
-                    : "";
-
-                // Period label expression
-                var periodExpr = groupBy switch
+                // ── Call stored procedure usp_GetProfitLossReport ─────────────
+                // Returns 5 result sets: Summary | Items | Categories | Branches | Periods
+                using var cmd = new SqlCommand("dbo.usp_GetProfitLossReport", con)
                 {
-                    "daily"     => "CONVERT(VARCHAR(10), o.CreatedAt, 23)",
-                    "weekly"    => "CONCAT('W', DATEPART(iso_week, o.CreatedAt), '-', YEAR(o.CreatedAt))",
-                    "monthly"   => "CONCAT(YEAR(o.CreatedAt), '-', RIGHT('0'+CAST(MONTH(o.CreatedAt) AS VARCHAR(2)),2))",
-                    "quarterly" => "CONCAT('Q', DATEPART(QUARTER, o.CreatedAt), ' ', YEAR(o.CreatedAt))",
-                    "yearly"    => "CAST(YEAR(o.CreatedAt) AS VARCHAR(4))",
-                    _           => "CONCAT(YEAR(o.CreatedAt), '-', RIGHT('0'+CAST(MONTH(o.CreatedAt) AS VARCHAR(2)),2))"
+                    CommandType    = System.Data.CommandType.StoredProcedure,
+                    CommandTimeout = 90
                 };
+                cmd.Parameters.AddWithValue("@StartDate",         startDate);
+                cmd.Parameters.AddWithValue("@EndDate",           endDate);
+                cmd.Parameters.AddWithValue("@GroupBy",           groupBy);
+                cmd.Parameters.AddWithValue("@BranchIds",         branchInList);
+                cmd.Parameters.AddWithValue("@CategoryId",        (object?)model.Filter.CategoryId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@IsMainBranchAdmin", model.IsMainBranchAdmin ? 1 : 0);
 
-                var periodSort = groupBy switch
+                using var rdr = await cmd.ExecuteReaderAsync();
+
+                // ── Result Set 1 : Summary ────────────────────────────────────
+                if (await rdr.ReadAsync())
                 {
-                    "daily"     => "CAST(CONVERT(VARCHAR(10), o.CreatedAt, 23) AS VARCHAR(10))",
-                    "weekly"    => "CAST(YEAR(o.CreatedAt)*100 + DATEPART(iso_week, o.CreatedAt) AS VARCHAR(20))",
-                    "monthly"   => "CAST(YEAR(o.CreatedAt)*100 + MONTH(o.CreatedAt) AS VARCHAR(20))",
-                    "quarterly" => "CAST(YEAR(o.CreatedAt)*10  + DATEPART(QUARTER, o.CreatedAt) AS VARCHAR(20))",
-                    "yearly"    => "CAST(YEAR(o.CreatedAt) AS VARCHAR(4))",
-                    _           => "CAST(YEAR(o.CreatedAt)*100 + MONTH(o.CreatedAt) AS VARCHAR(20))"
-                };
-
-                // ── QUERY 1: Summary + Menu Item list ─────────────────────────
-                var itemSql = $@"
-WITH {bomCteFragment}
-OrderLines AS (
-    SELECT
-        oi.MenuItemId,
-        mi.Name                                                   AS ItemName,
-        ISNULL(cat.Name, 'Uncategorized')                         AS CategoryName,
-        CAST(SUM(oi.Quantity) AS BIGINT)                          AS QtySold,
-        SUM(oi.Quantity * oi.UnitPrice)                           AS SalesValue,
-        SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0)) AS CostValue,
-        ISNULL(MAX(bc.HasBOM), 0)                                 AS HasBOM
-    FROM dbo.OrderItems  oi
-    INNER JOIN dbo.Orders    o   ON o.Id   = oi.OrderId
-    INNER JOIN dbo.MenuItems mi  ON mi.Id  = oi.MenuItemId
-    LEFT  JOIN dbo.Categories cat ON cat.Id = mi.CategoryId
-    LEFT  JOIN BOMCost        bc  ON bc.MenuItemId = oi.MenuItemId
-    WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
-      AND o.Status IN (1, 3)
-      {branchJoin}
-      {categoryFilter}
-    GROUP BY oi.MenuItemId, mi.Name, ISNULL(cat.Name,'Uncategorized')
-)
--- Result 1: Summary
-SELECT
-    SUM(QtySold)    AS TotalQtySold,
-    SUM(SalesValue) AS TotalSales,
-    SUM(CostValue)  AS TotalCost
-FROM OrderLines;";
-
-                using var cmd1 = new SqlCommand(itemSql, con) { CommandTimeout = 60 };
-                cmd1.Parameters.AddWithValue("@Start", startDate);
-                cmd1.Parameters.AddWithValue("@End",   endDate);
-                if (model.Filter.CategoryId.HasValue)
-                    cmd1.Parameters.AddWithValue("@CategoryId", model.Filter.CategoryId.Value);
-
-                using (var rdr = await cmd1.ExecuteReaderAsync())
-                {
-                    if (await rdr.ReadAsync())
-                    {
-                        model.Summary.TotalQtySold = rdr.IsDBNull(0) ? 0 : rdr.GetInt64(0);
-                        model.Summary.TotalSales   = rdr.IsDBNull(1) ? 0 : rdr.GetDecimal(1);
-                        model.Summary.TotalCost    = rdr.IsDBNull(2) ? 0 : rdr.GetDecimal(2);
-                    }
+                    model.Summary.TotalQtySold = rdr.IsDBNull(0) ? 0 : Convert.ToInt64(rdr.GetValue(0));
+                    model.Summary.TotalSales   = rdr.IsDBNull(1) ? 0 : rdr.GetDecimal(1);
+                    model.Summary.TotalCost    = rdr.IsDBNull(2) ? 0 : rdr.GetDecimal(2);
+                    model.Summary.TotalOrders  = rdr.IsDBNull(3) ? 0 : Convert.ToInt32(rdr.GetValue(3));
                 }
 
-                // ── QUERY 2: Menu Item Rows ────────────────────────────────────
-                var itemDetailSql = $@"
-WITH {bomCteFragment}
-SELECT
-    oi.MenuItemId,
-    mi.Name                                                   AS ItemName,
-    ISNULL(cat.Name, 'Uncategorized')                         AS CategoryName,
-    CAST(SUM(oi.Quantity) AS INT)                             AS QtySold,
-    SUM(oi.Quantity * oi.UnitPrice)                           AS SalesValue,
-    SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0)) AS CostValue,
-    ISNULL(MAX(bc.HasBOM), 0)                                 AS HasBOM
-FROM dbo.OrderItems  oi
-INNER JOIN dbo.Orders    o   ON o.Id   = oi.OrderId
-INNER JOIN dbo.MenuItems mi  ON mi.Id  = oi.MenuItemId
-LEFT  JOIN dbo.Categories cat ON cat.Id = mi.CategoryId
-LEFT  JOIN BOMCost        bc  ON bc.MenuItemId = oi.MenuItemId
-WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
-  AND o.Status IN (1, 3)
-  {branchJoin}
-  {categoryFilter}
-GROUP BY oi.MenuItemId, mi.Name, ISNULL(cat.Name,'Uncategorized')
-ORDER BY SUM(oi.Quantity * oi.UnitPrice) DESC;";
-
-                using var cmd2 = new SqlCommand(itemDetailSql, con) { CommandTimeout = 60 };
-                cmd2.Parameters.AddWithValue("@Start", startDate);
-                cmd2.Parameters.AddWithValue("@End",   endDate);
-                if (model.Filter.CategoryId.HasValue)
-                    cmd2.Parameters.AddWithValue("@CategoryId", model.Filter.CategoryId.Value);
-
-                using (var rdr = await cmd2.ExecuteReaderAsync())
+                // ── Result Set 2 : Menu Item rows ─────────────────────────────
+                await rdr.NextResultAsync();
+                while (await rdr.ReadAsync())
                 {
-                    while (await rdr.ReadAsync())
+                    model.MenuItems.Add(new ProfitLossMenuItemRow
                     {
-                        model.MenuItems.Add(new ProfitLossMenuItemRow
-                        {
-                            MenuItemId   = rdr.GetInt32(0),
-                            ItemName     = rdr.IsDBNull(1) ? "" : rdr.GetString(1),
-                            CategoryName = rdr.IsDBNull(2) ? "" : rdr.GetString(2),
-                            QtySold      = rdr.IsDBNull(3) ? 0  : rdr.GetInt32(3),
-                            SalesValue   = rdr.IsDBNull(4) ? 0  : rdr.GetDecimal(4),
-                            CostValue    = rdr.IsDBNull(5) ? 0  : rdr.GetDecimal(5),
-                            HasBOM       = !rdr.IsDBNull(6) && rdr.GetInt32(6) == 1
-                        });
-                    }
+                        MenuItemId   = rdr.IsDBNull(0) ? 0  : rdr.GetInt32(0),
+                        ItemName     = rdr.IsDBNull(1) ? "" : rdr.GetString(1),
+                        CategoryName = rdr.IsDBNull(2) ? "" : rdr.GetString(2),
+                        QtySold      = rdr.IsDBNull(3) ? 0  : rdr.GetInt32(3),
+                        SalesValue   = rdr.IsDBNull(4) ? 0  : rdr.GetDecimal(4),
+                        CostValue    = rdr.IsDBNull(5) ? 0  : rdr.GetDecimal(5),
+                        HasBOM       = !rdr.IsDBNull(6) && rdr.GetInt32(6) == 1
+                    });
                 }
 
-                // Top/Least profitable from MenuItems list
+                // Top/Least profitable derived in memory
                 model.TopProfitable   = model.MenuItems
                     .Where(r => r.SalesValue > 0)
                     .OrderByDescending(r => r.GrossProfit)
@@ -3049,126 +2944,44 @@ ORDER BY SUM(oi.Quantity * oi.UnitPrice) DESC;";
                     .OrderBy(r => r.ProfitPct)
                     .Take(10).ToList();
 
-                // ── QUERY 3: Category Rows ─────────────────────────────────────
-                var catSql = $@"
-WITH {bomCteFragment}
-SELECT
-    ISNULL(cat.Name, 'Uncategorized')                         AS CategoryName,
-    CAST(SUM(oi.Quantity) AS INT)                             AS QtySold,
-    SUM(oi.Quantity * oi.UnitPrice)                           AS SalesValue,
-    SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0)) AS CostValue
-FROM dbo.OrderItems  oi
-INNER JOIN dbo.Orders    o   ON o.Id   = oi.OrderId
-INNER JOIN dbo.MenuItems mi  ON mi.Id  = oi.MenuItemId
-LEFT  JOIN dbo.Categories cat ON cat.Id = mi.CategoryId
-LEFT  JOIN BOMCost        bc  ON bc.MenuItemId = oi.MenuItemId
-WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
-  AND o.Status IN (1, 3)
-  {branchJoin}
-  {categoryFilter}
-GROUP BY ISNULL(cat.Name,'Uncategorized')
-ORDER BY SUM(oi.Quantity * oi.UnitPrice) DESC;";
-
-                using var cmd3 = new SqlCommand(catSql, con) { CommandTimeout = 60 };
-                cmd3.Parameters.AddWithValue("@Start", startDate);
-                cmd3.Parameters.AddWithValue("@End",   endDate);
-                if (model.Filter.CategoryId.HasValue)
-                    cmd3.Parameters.AddWithValue("@CategoryId", model.Filter.CategoryId.Value);
-
-                using (var rdr = await cmd3.ExecuteReaderAsync())
+                // ── Result Set 3 : Category rows ──────────────────────────────
+                await rdr.NextResultAsync();
+                while (await rdr.ReadAsync())
                 {
-                    while (await rdr.ReadAsync())
+                    model.CategoryData.Add(new ProfitLossCategoryRow
                     {
-                        model.CategoryData.Add(new ProfitLossCategoryRow
-                        {
-                            CategoryName = rdr.IsDBNull(0) ? "Uncategorized" : rdr.GetString(0),
-                            QtySold      = rdr.IsDBNull(1) ? 0  : rdr.GetInt32(1),
-                            SalesValue   = rdr.IsDBNull(2) ? 0  : rdr.GetDecimal(2),
-                            CostValue    = rdr.IsDBNull(3) ? 0  : rdr.GetDecimal(3)
-                        });
-                    }
+                        CategoryName = rdr.IsDBNull(0) ? "Uncategorized" : rdr.GetString(0),
+                        QtySold      = rdr.IsDBNull(1) ? 0 : rdr.GetInt32(1),
+                        SalesValue   = rdr.IsDBNull(2) ? 0 : rdr.GetDecimal(2),
+                        CostValue    = rdr.IsDBNull(3) ? 0 : rdr.GetDecimal(3)
+                    });
                 }
 
-                // ── QUERY 4: Branch Rows (only when multi-branch admin) ────────
-                if (model.IsMainBranchAdmin && hasBranchCol)
+                // ── Result Set 4 : Branch rows ────────────────────────────────
+                await rdr.NextResultAsync();
+                while (await rdr.ReadAsync())
                 {
-                    var branchSql = $@"
-WITH {bomCteFragment}
-SELECT
-    b.BranchId,
-    ISNULL(b.BranchName, 'Unknown')                           AS BranchName,
-    SUM(oi.Quantity * oi.UnitPrice)                           AS SalesValue,
-    SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0)) AS CostValue
-FROM dbo.OrderItems  oi
-INNER JOIN dbo.Orders    o   ON o.Id   = oi.OrderId
-INNER JOIN dbo.MenuItems mi  ON mi.Id  = oi.MenuItemId
-INNER JOIN dbo.Branches  b   ON b.BranchId = o.BranchId
-LEFT  JOIN BOMCost        bc  ON bc.MenuItemId = oi.MenuItemId
-WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
-  AND o.Status IN (1, 3)
-  AND o.BranchId IN ({branchInList})
-  {categoryFilter}
-GROUP BY b.BranchId, b.BranchName
-ORDER BY SUM(oi.Quantity * oi.UnitPrice) DESC;";
-
-                    using var cmdB = new SqlCommand(branchSql, con) { CommandTimeout = 60 };
-                    cmdB.Parameters.AddWithValue("@Start", startDate);
-                    cmdB.Parameters.AddWithValue("@End",   endDate);
-                    if (model.Filter.CategoryId.HasValue)
-                        cmdB.Parameters.AddWithValue("@CategoryId", model.Filter.CategoryId.Value);
-
-                    using var rdrB = await cmdB.ExecuteReaderAsync();
-                    while (await rdrB.ReadAsync())
+                    model.BranchData.Add(new ProfitLossBranchRow
                     {
-                        model.BranchData.Add(new ProfitLossBranchRow
-                        {
-                            BranchId   = rdrB.IsDBNull(0) ? 0  : rdrB.GetInt32(0),
-                            BranchName = rdrB.IsDBNull(1) ? "" : rdrB.GetString(1),
-                            SalesValue = rdrB.IsDBNull(2) ? 0  : rdrB.GetDecimal(2),
-                            CostValue  = rdrB.IsDBNull(3) ? 0  : rdrB.GetDecimal(3)
-                        });
-                    }
+                        BranchId   = rdr.IsDBNull(0) ? 0  : rdr.GetInt32(0),
+                        BranchName = rdr.IsDBNull(1) ? "" : rdr.GetString(1),
+                        SalesValue = rdr.IsDBNull(2) ? 0  : rdr.GetDecimal(2),
+                        CostValue  = rdr.IsDBNull(3) ? 0  : rdr.GetDecimal(3)
+                    });
                 }
 
-                // ── QUERY 5: Period Rows ───────────────────────────────────────
-                var periodSql = $@"
-WITH {bomCteFragment}
-SELECT
-    {periodExpr}      AS PeriodLabel,
-    {periodSort}      AS SortKey,
-    CAST(SUM(oi.Quantity) AS INT)                             AS QtySold,
-    SUM(oi.Quantity * oi.UnitPrice)                           AS SalesValue,
-    SUM(oi.Quantity * ISNULL(bc.CostPerUnit, 0)) AS CostValue
-FROM dbo.OrderItems  oi
-INNER JOIN dbo.Orders    o   ON o.Id   = oi.OrderId
-INNER JOIN dbo.MenuItems mi  ON mi.Id  = oi.MenuItemId
-LEFT  JOIN BOMCost        bc  ON bc.MenuItemId = oi.MenuItemId
-WHERE o.CreatedAt >= @Start AND o.CreatedAt < @End
-  AND o.Status IN (1, 3)
-  {branchJoin}
-  {categoryFilter}
-GROUP BY {periodExpr}, {periodSort}
-ORDER BY {periodSort};";
-
-                using var cmd5 = new SqlCommand(periodSql, con) { CommandTimeout = 60 };
-                cmd5.Parameters.AddWithValue("@Start", startDate);
-                cmd5.Parameters.AddWithValue("@End",   endDate);
-                if (model.Filter.CategoryId.HasValue)
-                    cmd5.Parameters.AddWithValue("@CategoryId", model.Filter.CategoryId.Value);
-
-                using (var rdr = await cmd5.ExecuteReaderAsync())
+                // ── Result Set 5 : Period trend rows ──────────────────────────
+                await rdr.NextResultAsync();
+                while (await rdr.ReadAsync())
                 {
-                    while (await rdr.ReadAsync())
+                    model.PeriodData.Add(new ProfitLossPeriodRow
                     {
-                        model.PeriodData.Add(new ProfitLossPeriodRow
-                        {
-                            PeriodLabel = rdr.IsDBNull(0) ? "" : rdr.GetString(0),
-                            SortKey     = rdr.IsDBNull(1) ? 0  : (int.TryParse(rdr.GetString(1), out var sk) ? sk : 0),
-                            QtySold     = rdr.IsDBNull(2) ? 0  : rdr.GetInt32(2),
-                            SalesValue  = rdr.IsDBNull(3) ? 0  : rdr.GetDecimal(3),
-                            CostValue   = rdr.IsDBNull(4) ? 0  : rdr.GetDecimal(4)
-                        });
-                    }
+                        PeriodLabel = rdr.IsDBNull(0) ? "" : rdr.GetString(0),
+                        SortKey     = rdr.IsDBNull(1) ? 0  : (int.TryParse(rdr.GetString(1), out var sk) ? sk : 0),
+                        QtySold     = rdr.IsDBNull(2) ? 0  : rdr.GetInt32(2),
+                        SalesValue  = rdr.IsDBNull(3) ? 0  : rdr.GetDecimal(3),
+                        CostValue   = rdr.IsDBNull(4) ? 0  : rdr.GetDecimal(4)
+                    });
                 }
             }
             catch (Exception ex)
