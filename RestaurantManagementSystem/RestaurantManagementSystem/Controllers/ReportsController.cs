@@ -2834,8 +2834,12 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
 
             ViewData["Title"] = "Profit & Loss Analysis";
             var model = new ProfitLossReportViewModel();
+            model.ActiveBranchId   = activeBranchId.Value;
             model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
-            if (model.IsMainBranchAdmin) model.Branches = await LoadAllBranchesAsync();
+            if (model.IsMainBranchAdmin)
+                model.Branches = await LoadAllBranchesAsync();
+            else
+                model.ActiveBranchName = await GetBranchNameAsync(activeBranchId.Value);
             await LoadProfitLossCategoriesAsync(model);
             await LoadProfitLossDataAsync(model, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.ProfitLoss);
@@ -2851,8 +2855,12 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
 
             ViewData["Title"] = "Profit & Loss Analysis";
             var model = new ProfitLossReportViewModel { Filter = filter };
+            model.ActiveBranchId   = activeBranchId.Value;
             model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
-            if (model.IsMainBranchAdmin) model.Branches = await LoadAllBranchesAsync();
+            if (model.IsMainBranchAdmin)
+                model.Branches = await LoadAllBranchesAsync();
+            else
+                model.ActiveBranchName = await GetBranchNameAsync(activeBranchId.Value);
             await LoadProfitLossCategoriesAsync(model);
             await LoadProfitLossDataAsync(model, activeBranchId.Value);
             await SetViewPermissionsAsync(MenuCodes.ProfitLoss);
@@ -2883,12 +2891,22 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
                 var endDate   = (model.Filter.EndDate ?? DateTime.Today).Date;
                 var groupBy   = model.Filter.GroupBy ?? "monthly";
 
-                // Determine branch list: admin can pick multiple; otherwise single active branch
-                var selectedBranchIds = model.IsMainBranchAdmin && model.Filter.SelectedBranchIds?.Count > 0
-                    ? model.Filter.SelectedBranchIds
-                    : new List<int> { activeBranchId };
-
-                var branchInList = string.Join(",", selectedBranchIds.Select(id => id.ToString()));
+                // ── Branch scope ──────────────────────────────────────────────
+                // Non-admin users are ALWAYS locked to their own branch.
+                // Main-branch admins: use explicit selection if provided;
+                //   empty selection = all branches (@BranchIds = '' means no filter in SP).
+                string branchInList;
+                if (model.IsMainBranchAdmin)
+                {
+                    branchInList = model.Filter.SelectedBranchIds?.Count > 0
+                        ? string.Join(",", model.Filter.SelectedBranchIds)
+                        : ""; // empty → SP applies no branch filter = all branches
+                }
+                else
+                {
+                    // Hard-lock to login branch – ignore any posted SelectedBranchIds
+                    branchInList = activeBranchId.ToString();
+                }
 
                 using var con = new SqlConnection(_connectionString);
                 await con.OpenAsync();
@@ -3060,6 +3078,21 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
             }
             catch { /* ignore — branch list is optional */ }
             return list;
+        }
+
+        private async Task<string> GetBranchNameAsync(int branchId)
+        {
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                await con.OpenAsync();
+                using var cmd = new SqlCommand(
+                    "SELECT BranchName FROM dbo.Branches WHERE BranchId = @Id", con);
+                cmd.Parameters.AddWithValue("@Id", branchId);
+                var result = await cmd.ExecuteScalarAsync();
+                return result?.ToString() ?? "";
+            }
+            catch { return ""; }
         }
 
         [HttpPost]

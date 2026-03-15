@@ -41,7 +41,30 @@
         <div class="d-flex align-items-center justify-content-between">
             <div>
                 <h4><i class="fas fa-chart-line me-2"></i>Profit &amp; Loss Analysis Report</h4>
-                <div class="sub">Sales revenue vs. ingredient cost (BOM) — Weighted Average Costing</div>
+                <div class="sub">
+                    Sales revenue vs. ingredient cost (BOM) — Weighted Average Costing
+                    @if (!Model.IsMainBranchAdmin && !string.IsNullOrEmpty(Model.ActiveBranchName))
+                    {
+                        <span class="ms-2 badge bg-white bg-opacity-25 text-white" style="font-size:.78rem;font-weight:600">
+                            <i class="fas fa-map-marker-alt me-1"></i>@Model.ActiveBranchName
+                        </span>
+                    }
+                    else if (Model.IsMainBranchAdmin)
+                    {
+                        @if (Model.Filter.SelectedBranchIds?.Count > 0 && Model.Filter.SelectedBranchIds.Count < Model.Branches.Count)
+                        {
+                            <span class="ms-2 badge bg-white bg-opacity-25 text-white" style="font-size:.78rem;font-weight:600">
+                                <i class="fas fa-filter me-1"></i>@Model.Filter.SelectedBranchIds.Count branch(es) selected
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="ms-2 badge bg-white bg-opacity-25 text-white" style="font-size:.78rem;font-weight:600">
+                                <i class="fas fa-globe me-1"></i>All Branches
+                            </span>
+                        }
+                    }
+                </div>
             </div>
             <i class="fas fa-balance-scale fa-3x opacity-40"></i>
         </div>
@@ -86,17 +109,62 @@
 
                 @if (Model.IsMainBranchAdmin && Model.Branches.Count > 0)
                 {
+                    <!-- Hidden native select – submitted with form -->
+                    <select id="branchSelectHidden" name="Filter.SelectedBranchIds" multiple style="display:none">
+                        @foreach (var b in Model.Branches)
+                        {
+                            var noneSelected = Model.Filter.SelectedBranchIds == null || Model.Filter.SelectedBranchIds.Count == 0;
+                            var isSel = noneSelected || Model.Filter.SelectedBranchIds.Contains(int.Parse(b.Value));
+                            if (isSel) { <option value="@b.Value" selected="selected">@b.Text</option> }
+                            else { <option value="@b.Value">@b.Text</option> }
+                        }
+                    </select>
+
                     <div class="col-lg-3 col-md-4">
                         <label class="form-label fw-semibold small">Branches</label>
-                        <select name="Filter.SelectedBranchIds" multiple class="form-select form-select-sm" style="height:65px">
-                            @foreach (var b in Model.Branches)
-                            {
-                                var isSel = Model.Filter.SelectedBranchIds.Contains(int.Parse(b.Value));
-                                if (isSel) { <option value="@b.Value" selected="selected">@b.Text</option> }
-                                else { <option value="@b.Value">@b.Text</option> }
-                            }
-                        </select>
-                        <div class="text-muted" style="font-size:.72rem">Hold Ctrl/Cmd to pick multiple</div>
+                        <!-- Custom checkbox dropdown -->
+                        <div class="branch-dd-wrapper" id="branchDdWrapper">
+                            <div class="branch-dd-trigger form-select form-select-sm" id="branchDdTrigger">
+                                <span id="branchDdLabel">All Branches</span>
+                                <i class="fas fa-chevron-down branch-dd-arrow" id="branchDdArrow"></i>
+                            </div>
+                            <div class="branch-dd-panel" id="branchDdPanel">
+                                <div class="branch-dd-search">
+                                    <input type="text" id="branchDdSearch" class="branch-dd-search-input" placeholder="Search..." autocomplete="off">
+                                </div>
+                                <ul class="branch-dd-list" id="branchDdList">
+                                    <li class="branch-dd-item" data-value="__all__">
+                                        <label>
+                                            <input type="checkbox" id="branchChkAll" checked> All
+                                        </label>
+                                    </li>
+                                    <li class="branch-dd-separator"></li>
+                                    @foreach (var b in Model.Branches)
+                                    {
+                                        var noneSelected2 = Model.Filter.SelectedBranchIds == null || Model.Filter.SelectedBranchIds.Count == 0;
+                                        var isSel2 = noneSelected2 || Model.Filter.SelectedBranchIds.Contains(int.Parse(b.Value));
+                                        <li class="branch-dd-item" data-value="@b.Value">
+                                            <label>
+                                                <input type="checkbox" class="branch-chk" value="@b.Value" @(isSel2 ? "checked" : "")>
+                                                @b.Text
+                                            </label>
+                                        </li>
+                                    }
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else if (!Model.IsMainBranchAdmin && !string.IsNullOrEmpty(Model.ActiveBranchName))
+                {
+                    <!-- Non-admin: show locked branch badge, hidden input to send branchId -->
+                    <input type="hidden" name="Filter.SelectedBranchIds" value="@Model.ActiveBranchId" />
+                    <div class="col-auto d-flex flex-column justify-content-end">
+                        <label class="form-label fw-semibold small">Branch</label>
+                        <div class="branch-locked-badge">
+                            <i class="fas fa-map-marker-alt me-1"></i>@Model.ActiveBranchName
+                            <span class="branch-locked-icon" title="Data is restricted to your branch"><i class="fas fa-lock"></i></span>
+                        </div>
                     </div>
                 }
 
@@ -571,9 +639,192 @@
     </div><!-- -->
 </div><!-- -->
 
+@section Styles {
+    <style>
+        /* ── Branch checkbox dropdown ──────────────────────────── */
+        .branch-dd-wrapper { position: relative; }
+
+        .branch-dd-trigger {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+            background: #fff;
+            padding: .25rem .5rem;
+            font-size: .875rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .branch-dd-trigger #branchDdLabel {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .branch-dd-arrow {
+            font-size: .65rem;
+            color: #888;
+            margin-left: 6px;
+            transition: transform .2s;
+            flex-shrink: 0;
+        }
+        .branch-dd-wrapper.open .branch-dd-arrow { transform: rotate(180deg); }
+
+        .branch-dd-panel {
+            display: none;
+            position: absolute;
+            top: calc(100% + 3px);
+            left: 0;
+            min-width: 100%;
+            width: max-content;
+            max-width: 320px;
+            background: #fff;
+            border: 1px solid #ced4da;
+            border-radius: .375rem;
+            box-shadow: 0 4px 16px rgba(0,0,0,.12);
+            z-index: 1060;
+            overflow: hidden;
+        }
+        .branch-dd-wrapper.open .branch-dd-panel { display: block; }
+
+        .branch-dd-search { padding: 8px 10px; border-bottom: 1px solid #e9ecef; }
+        .branch-dd-search-input {
+            width: 100%;
+            border: 1px solid #ced4da;
+            border-radius: .25rem;
+            padding: 4px 8px;
+            font-size: .875rem;
+            outline: none;
+        }
+        .branch-dd-search-input:focus { border-color: #86b7fe; box-shadow: 0 0 0 2px rgba(13,110,253,.15); }
+
+        .branch-dd-list {
+            list-style: none;
+            margin: 0;
+            padding: 4px 0;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        .branch-dd-separator { height: 1px; background: #e9ecef; margin: 2px 0; }
+
+        .branch-dd-item { padding: 0; }
+        .branch-dd-item label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 14px;
+            cursor: pointer;
+            font-size: .875rem;
+            color: #212529;
+            margin: 0;
+            transition: background .1s;
+        }
+        .branch-dd-item label:hover { background: #f0f4ff; }
+        .branch-dd-item.active label { background: #e8effe; }
+
+        .branch-dd-item input[type=checkbox] {
+            width: 16px;
+            height: 16px;
+            accent-color: #0d6efd;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .branch-dd-item[style*="none"] { display: none !important; }
+
+        /* ── Locked branch badge (non-admin users) ──────────────────── */
+        .branch-locked-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #eef2ff;
+            border: 1px solid #c7d2fe;
+            color: #3730a3;
+            border-radius: .375rem;
+            padding: 5px 12px;
+            font-size: .875rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .branch-locked-icon {
+            margin-left: 4px;
+            color: #6366f1;
+            font-size: .75rem;
+            opacity: .8;
+        }
+    </style>
+}
+
 @section Scripts {
     <script>
-        // Persist active tab across form submissions
+        // ── Branch checkbox dropdown ────────────────────────────────
+        (function () {
+            var wrapper  = document.getElementById('branchDdWrapper');
+            if (!wrapper) return;
+
+            var trigger  = document.getElementById('branchDdTrigger');
+            var panel    = document.getElementById('branchDdPanel');
+            var search   = document.getElementById('branchDdSearch');
+            var chkAll   = document.getElementById('branchChkAll');
+            var chkBoxes = Array.from(document.querySelectorAll('.branch-chk'));
+            var hidden   = document.getElementById('branchSelectHidden');
+            var label    = document.getElementById('branchDdLabel');
+
+            // Open / close
+            trigger.addEventListener('click', function (e) {
+                e.stopPropagation();
+                wrapper.classList.toggle('open');
+                if (wrapper.classList.contains('open')) search.focus();
+            });
+            document.addEventListener('click', function (e) {
+                if (!wrapper.contains(e.target)) wrapper.classList.remove('open');
+            });
+
+            // Search filter
+            search.addEventListener('input', function () {
+                var q = this.value.toLowerCase();
+                document.querySelectorAll('#branchDdList .branch-dd-item:not([data-value="__all__"])').forEach(function (li) {
+                    var txt = li.querySelector('label').textContent.toLowerCase();
+                    li.style.display = txt.includes(q) ? '' : 'none';
+                });
+            });
+
+            // Sync hidden <select> + label text
+            function syncHidden() {
+                var selected = chkBoxes.filter(c => c.checked);
+                // Update hidden select
+                Array.from(hidden.options).forEach(function (opt) {
+                    opt.selected = selected.some(c => c.value === opt.value);
+                });
+                // Update trigger label
+                if (selected.length === 0 || selected.length === chkBoxes.length) {
+                    label.textContent = 'All Branches';
+                } else if (selected.length === 1) {
+                    label.textContent = selected[0].closest('label').textContent.trim();
+                } else {
+                    label.textContent = selected.length + ' branches selected';
+                }
+                // Sync All checkbox state
+                chkAll.checked = selected.length === chkBoxes.length;
+                chkAll.indeterminate = selected.length > 0 && selected.length < chkBoxes.length;
+            }
+
+            // All toggle
+            chkAll.addEventListener('change', function () {
+                chkBoxes.forEach(c => c.checked = this.checked);
+                syncHidden();
+            });
+
+            // Individual checkboxes
+            chkBoxes.forEach(function (chk) {
+                chk.addEventListener('change', syncHidden);
+            });
+
+            // Init label on page load
+            syncHidden();
+        })();
+
+        // ── Persist active tab across form submissions ───────────────
         (function () {
             var stored = sessionStorage.getItem('plActiveTab');
             if (stored) {

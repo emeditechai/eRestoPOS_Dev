@@ -23,6 +23,10 @@ namespace RestaurantManagementSystem.Models
         public List<SelectListItem> Branches { get; set; } = new();
         public List<SelectListItem> Categories { get; set; } = new();
         public bool IsMainBranchAdmin { get; set; }
+
+        // Active login branch context
+        public int ActiveBranchId { get; set; }
+        public string ActiveBranchName { get; set; } = "";
     }
 
     // ─────────────────────────────────────────────────────────────────────────
