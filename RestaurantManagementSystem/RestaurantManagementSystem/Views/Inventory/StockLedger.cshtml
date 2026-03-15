@@ -139,10 +139,10 @@
                                 </td>
                                 <td class="text-muted small">@row.ReferenceNumber</td>
                                 <td class="text-end @(row.InQuantity > 0 ? "text-success fw-semibold" : "text-muted")">
-                                    @(row.InQuantity > 0 ? row.InQuantity.ToString("0.######") : "—")
+                                    @(row.InQuantity > 0 ? (row.InQuantity.ToString("0.######") + " " + row.UOMCode) : "—")
                                 </td>
                                 <td class="text-end @(row.OutQuantity > 0 ? "text-danger fw-semibold" : "text-muted")">
-                                    @(row.OutQuantity > 0 ? row.OutQuantity.ToString("0.######") : "—")
+                                    @(row.OutQuantity > 0 ? (row.OutQuantity.ToString("0.######") + " " + row.UOMCode) : "—")
                                 </td>
                                 <td class="text-end fw-semibold @(row.BalanceQty <= 0 ? "text-danger" : "")">
                                     @row.BalanceQty.ToString("0.######")
