@@ -957,6 +957,11 @@ END
                 return NotFound();
             }
 
+            if (IsMenuItemUsedInOrders(id))
+            {
+                ViewBag.UsedInOrders = true;
+            }
+
             return View(menuItem);
         }
 
@@ -970,6 +975,12 @@ END
                 if (!GetActiveBranchId().HasValue)
                 {
                     TempData["ErrorMessage"] = "Please select an active branch first.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                if (IsMenuItemUsedInOrders(id))
+                {
+                    TempData["ErrorMessage"] = "This menu item cannot be deleted because it has been used in one or more orders.";
                     return RedirectToAction(nameof(Index));
                 }
 
@@ -2122,6 +2133,28 @@ END
                     
                     command.ExecuteNonQuery();
                 }
+            }
+        }
+
+        private bool IsMenuItemUsedInOrders(int id)
+        {
+            try
+            {
+                using var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString);
+                connection.Open();
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT CASE
+                        WHEN EXISTS (SELECT 1 FROM dbo.OrderItems   WHERE MenuItemId = @Id)
+                          OR EXISTS (SELECT 1 FROM dbo.BOT_Detail   WHERE MenuItemId = @Id)
+                        THEN 1 ELSE 0 END";
+                cmd.Parameters.AddWithValue("@Id", id);
+                return (int)cmd.ExecuteScalar() == 1;
+            }
+            catch
+            {
+                // If check fails (e.g. column name differs), allow deletion to proceed
+                return false;
             }
         }
 
