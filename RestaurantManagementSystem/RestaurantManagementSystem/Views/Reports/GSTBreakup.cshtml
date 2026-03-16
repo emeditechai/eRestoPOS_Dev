@@ -216,7 +216,7 @@
                             </td>
                             <td class="small">@row.TableNumber</td>
                             <td class="text-end small text-secondary">&#8377;@subtotal.ToString("N2")</td>
-                            <td class="text-end small text-danger">@(row.DiscountAmount > 0 ? $"-&#8377;{row.DiscountAmount:N2}" : "-")</td>
+                            <td class="text-end small text-danger">@(row.DiscountAmount > 0 ? "-₹" + row.DiscountAmount.ToString("N2") : "-")</td>
                             <td class="text-end fw-bold">&#8377;@row.TaxableValue.ToString("N2")</td>
                             <td class="text-end">
                                 <span class="badge @(row.GSTPercentage >= 20 ? "bg-danger" : "bg-info text-dark")">
