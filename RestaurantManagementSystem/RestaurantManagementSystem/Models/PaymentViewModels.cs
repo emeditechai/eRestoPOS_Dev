@@ -38,6 +38,12 @@ namespace RestaurantManagementSystem.Models
         public decimal GSTPercentage { get; set; }
         public decimal CGSTAmount { get; set; }
         public decimal SGSTAmount { get; set; }
+
+        /// <summary>True when this order uses inclusive GST (BAR or Takeout/Delivery with IsTakeawayIncludedGSTReq=true).\n        /// Used by Payment/Index JS to preview the correct GST formula before Apply is clicked.</summary>
+        public bool IsInclusiveGST { get; set; }
+
+        /// <summary>Gross sum of all active OrderItems.Subtotal (before any GST extraction).\n        /// For inclusive GST orders this differs from Orders.Subtotal (which is the taxable net).\n        /// Used as the base for percentage-discount preview calculations.</summary>
+        public decimal GrossItemTotal { get; set; }
         
         public List<PaymentMethodViewModel> AvailablePaymentMethods { get; set; } = new List<PaymentMethodViewModel>();
         public List<Payment> Payments { get; set; } = new List<Payment>();
@@ -78,6 +84,14 @@ namespace RestaurantManagementSystem.Models
         // Share (0..1) of subtotal that is GST-applicable, derived from OrderItems.isGstApplicable.
         // Used only for UI preview computations; server re-computes from DB during POST.
         public decimal GstApplicableShare { get; set; } = 1.0m;
+
+        /// <summary>True when inclusive GST applies (Bar or Takeaway with IsTakeawayIncludedGSTReq=true).
+        /// Drives the split-payment JS preview formula.</summary>
+        public bool IsInclusiveGST { get; set; }
+
+        /// <summary>Gross sum of OrderItems.Subtotal (before GST extraction).
+        /// For inclusive GST orders this is larger than Subtotal (taxable base).</summary>
+        public decimal GrossItemTotal { get; set; }
         
         [Required]
         [Display(Name = "Payment Method")]

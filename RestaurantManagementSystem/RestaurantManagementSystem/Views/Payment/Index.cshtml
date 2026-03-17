@@ -76,7 +76,8 @@
                 </div>
              <div class="card-body p-4" id="paymentSummary"
                  data-subtotal="@Model.Subtotal" data-gst="@Model.GSTPercentage" data-tip="@Model.TipAmount"
-                 data-paid="@Model.PaidAmount" data-existing-discount="@Model.DiscountAmount" data-roundoff="@Model.TotalRoundoff">
+                 data-paid="@Model.PaidAmount" data-existing-discount="@Model.DiscountAmount" data-roundoff="@Model.TotalRoundoff"
+                 data-inclusive-gst="@(Model.IsInclusiveGST ? 1 : 0)" data-gross-item-total="@Model.GrossItemTotal">
                     @{
                         // Status strip values (keep consistent with Remaining display logic)
                         decimal stripRemaining = Model.RemainingAmount;
@@ -815,18 +816,23 @@
             function clamp(n, min, max) { return Math.min(Math.max(n, min), max); }
             function parseNum(s) { const v = parseFloat(s); return isNaN(v) ? 0 : v; }
 
-            const baseSubtotal = parseNum(summary.dataset.subtotal);
-            const gstPerc = parseNum(summary.dataset.gst);
-            const tip = parseNum(summary.dataset.tip);
-            const paid = parseNum(summary.dataset.paid);
-            const existingDisc = parseNum(summary.dataset.existingDiscount);
-            const existingRoundoff = parseNum(summary.dataset.roundoff);
+            const baseSubtotal    = parseNum(summary.dataset.subtotal);      // Orders.Subtotal (taxable net for inclusive)
+            const gstPerc         = parseNum(summary.dataset.gst);
+            const tip             = parseNum(summary.dataset.tip);
+            const paid            = parseNum(summary.dataset.paid);
+            const existingDisc    = parseNum(summary.dataset.existingDiscount);
+            const existingRoundoff= parseNum(summary.dataset.roundoff);
+            const isInclusiveGST  = parseInt(summary.dataset.inclusiveGst  || '0') === 1;
+            // For inclusive GST: gross = actual item prices (discount is applied on this)
+            // For exclusive GST: gross = baseSubtotal (Orders.Subtotal = item total before GST)
+            const grossItemTotal  = isInclusiveGST ? parseNum(summary.dataset.grossItemTotal) || baseSubtotal : baseSubtotal;
 
             function computeDiscountAmount() {
                 let v = parseNum(input.value);
                 if (currentType() === 'percent') {
                     v = clamp(v, 0, 100);
-                    return roundMoney(baseSubtotal * v / 100.0);
+                    // Percent always applied on gross item prices (important for inclusive GST orders)
+                    return roundMoney(grossItemTotal * v / 100.0);
                 }
                 // amount
                 v = Math.max(0, v);
@@ -834,11 +840,28 @@
             }
 
             function updateLinksAndPreview() {
-                const userDiscAmt = computeDiscountAmount();
-                const combinedDisc = Math.min(baseSubtotal, roundMoney(existingDisc + userDiscAmt));
-                const netSub = roundMoney(baseSubtotal - combinedDisc);
-                const gstAmt = roundMoney(netSub * gstPerc / 100.0);
-                const total = roundMoney(netSub + gstAmt + tip);
+                const userDiscAmt  = computeDiscountAmount();
+                const combinedDisc = Math.min(grossItemTotal, roundMoney(existingDisc + userDiscAmt));
+
+                let gstAmt, total, netSub;
+                if (isInclusiveGST) {
+                    // Inclusive GST: price already contains GST.
+                    // grossAfterDiscount = gross - discount
+                    // taxable = grossAfterDiscount / (1 + gst%)
+                    // gst     = taxable × gst%
+                    // total   = grossAfterDiscount (GST embedded)
+                    const grossAfterDisc = roundMoney(grossItemTotal - combinedDisc);
+                    const gstDivisor = 1.0 + (gstPerc / 100.0);
+                    const taxable = roundMoney(grossAfterDisc / gstDivisor);
+                    gstAmt  = roundMoney(taxable * gstPerc / 100.0);
+                    netSub  = taxable;              // taxable base (for display consistency)
+                    total   = roundMoney(grossAfterDisc + tip);
+                } else {
+                    // Exclusive GST: GST is added on top after discount
+                    netSub  = roundMoney(baseSubtotal - combinedDisc);
+                    gstAmt  = roundMoney(netSub * gstPerc / 100.0);
+                    total   = roundMoney(netSub + gstAmt + tip);
+                }
                 // Calculate roundoff ON TOTAL to avoid double-rounding when previous payments already include roundoff
                 const totalRounded = roundHalfUp(total);
                 const overallRoundoff = roundMoney(totalRounded - total);

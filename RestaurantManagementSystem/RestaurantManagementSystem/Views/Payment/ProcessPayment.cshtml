@@ -261,6 +261,8 @@
                                 <input type="hidden" name="Subtotal" value="@Model.Subtotal" />
                                 <input type="hidden" name="GSTPercentage" value="@Model.GSTPercentage" />
                                 <input type="hidden" name="RemainingAmount" value="@Model.RemainingAmount" />
+                                <input type="hidden" id="IsInclusiveGST" value="@(Model.IsInclusiveGST ? 1 : 0)" />
+                                <input type="hidden" id="GrossItemTotal" value="@Model.GrossItemTotal" />
 
                                 <div class="row g-4">
                                     <div class="col-lg-8">
@@ -410,41 +412,58 @@
             }
 
             function computeSplitTarget(){
-                // Use same math as single-payment: subtotal -> discount -> GST -> minus alreadyPaid, then round to rupee for display
-                var baseSubtotal = parseFloat($('#Subtotal').val()) || 0;
-                var gstPerc = parseFloat($('#GSTPercentage').val()) || 0;
-                var gstShare = parseFloat($('#GstApplicableShare').val());
+                // Use correct math respecting inclusive vs exclusive GST
+                var baseSubtotal  = parseFloat($('#Subtotal').val()) || 0;   // taxable net (inclusive) or gross (exclusive)
+                var gstPerc       = parseFloat($('#GSTPercentage').val()) || 0;
+                var gstShare      = parseFloat($('#GstApplicableShare').val());
+                var isInclusive   = parseInt($('#IsInclusiveGST').val() || '0') === 1;
+                var grossItemTot  = parseFloat($('#GrossItemTotal').val()) || baseSubtotal;
                 if (!isFinite(gstShare) || gstShare < 0) gstShare = 1;
                 if (gstShare > 1) gstShare = 1;
-                
+
                 // Check if there's already a persisted discount from Payment/Index page
                 var persistedDiscount = parseFloat($('#DiscountAmount').val()) || 0;
-                
+
                 // Get user entry from split discount field
                 var mode = $('input[name="DiscountType"]:checked').val() || 'amount';
                 var entry = parseFloat($('#splitDiscountEntry').val());
                 if (isNaN(entry) || entry < 0) entry = 0;
-                
+
                 var discountAmt = 0;
-                
-                // If there's a persisted discount and NO new entry, use persisted
-                // If there's a new entry, use that (it will replace persisted in backend)
+                // Discount percent base = gross item total (correct even for inclusive GST)
+                var discountBase = isInclusive ? grossItemTot : baseSubtotal;
+
                 if (entry > 0) {
-                    if (mode === 'percent') { 
-                        if (entry > 100) entry = 100; 
-                        discountAmt = baseSubtotal * (entry/100.0); 
-                    } else { 
-                        discountAmt = entry; 
+                    if (mode === 'percent') {
+                        if (entry > 100) entry = 100;
+                        discountAmt = roundMoney(discountBase * (entry/100.0));
+                    } else {
+                        discountAmt = entry;
                     }
                 } else if (persistedDiscount > 0) {
-                    // Use already persisted discount if no new entry
                     discountAmt = persistedDiscount;
                 }
-                
-                if (discountAmt > baseSubtotal) discountAmt = baseSubtotal;
-                var discountedSubtotal = baseSubtotal - discountAmt;
-                var gstAmount = roundAway(discountedSubtotal * gstPerc / 100.0 * gstShare, 2);
-                var preRoundTotal = roundMoney(discountedSubtotal + gstAmount);
+
+                if (discountAmt > discountBase) discountAmt = discountBase;
+
+                var gstAmount, preRoundTotal;
+                if (isInclusive) {
+                    // Inclusive: GST embedded in gross price
+                    // gross after discount = grossItemTot - discount
+                    // taxable = grossAfterDisc / (1 + gst%)
+                    // gst = taxable * gst%
+                    var grossAfterDisc = roundMoney(grossItemTot - discountAmt);
+                    var gstDivisor = 1.0 + (gstPerc / 100.0);
+                    var taxable = roundMoney(grossAfterDisc / gstDivisor);
+                    gstAmount = roundAway(taxable * gstPerc / 100.0 * gstShare, 2);
+                    preRoundTotal = roundMoney(grossAfterDisc);   // customer pays gross (GST embedded)
+                } else {
+                    // Exclusive: subtract discount from subtotal then add GST on top
+                    var discountedSubtotal = roundMoney(baseSubtotal - discountAmt);
+                    gstAmount = roundAway(discountedSubtotal * gstPerc / 100.0 * gstShare, 2);
+                    preRoundTotal = roundMoney(discountedSubtotal + gstAmount);
+                }
+
                 var newRemaining = Math.max(0, preRoundTotal - alreadyPaid);
                 var displayTarget = roundHalfUp(newRemaining);
                 $('#splitRemainingDisplay').text(displayTarget.toFixed(2));
