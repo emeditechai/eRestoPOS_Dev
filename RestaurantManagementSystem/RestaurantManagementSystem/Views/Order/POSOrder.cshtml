@@ -52,9 +52,51 @@
     }
     .pos-main { display: grid; grid-template-columns: 240px 1fr 360px; gap: .75rem; }
     .pos-main.pos-left-collapsed { grid-template-columns: 1fr 360px; }
-    @@media (max-width: 991.98px) { .pos-main.pos-left-collapsed { grid-template-columns: 1fr; } }
-    @@media (max-width: 1199.98px) { .pos-main { grid-template-columns: 220px 1fr 340px; } }
-    @@media (max-width: 991.98px) { .pos-main { grid-template-columns: 1fr; } }
+    /* Large desktop */
+    @@media (max-width: 1199.98px) and (min-width: 992px) { .pos-main { grid-template-columns: 200px 1fr 330px; } }
+    /* Tablet portrait/landscape (768–991px): 2 columns, categories in slide-out drawer */
+    @@media (max-width: 991.98px) and (min-width: 768px) {
+        .pos-main, .pos-main.pos-left-collapsed { grid-template-columns: 1fr 290px !important; }
+        #posShowCategories { display: inline-flex !important; }
+        #posToggleCategories { display: none !important; }
+        #posLeftPanel {
+            display: none;
+            position: fixed;
+            top: 88px;
+            left: .75rem;
+            bottom: .75rem;
+            width: min(320px, calc(100vw - 1.5rem));
+            z-index: 1056;
+            box-shadow: 0 12px 36px rgba(15,23,42,.18);
+        }
+        #posLeftPanel.pos-category-open { display: block !important; }
+    }
+    /* Mobile (<768px): single column; cart becomes bottom drawer */
+    @@media (max-width: 767.98px) {
+        .pos-main, .pos-main.pos-left-collapsed { grid-template-columns: 1fr !important; }
+        #posShowCategories { display: inline-flex !important; }
+        #posToggleCategories { display: none !important; }
+        #posLeftPanel {
+            display: none;
+            position: fixed;
+            top: 78px;
+            left: .65rem;
+            right: .65rem;
+            bottom: 78px;
+            width: auto;
+            z-index: 1056;
+            box-shadow: 0 12px 36px rgba(15,23,42,.18);
+        }
+        #posLeftPanel.pos-category-open { display: block !important; }
+    }
+    #posCategoryBackdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,.35);
+        z-index: 1055;
+    }
+    #posCategoryBackdrop.pos-category-open { display: block; }
     .pos-panel {
         border: 1px solid var(--pos-border);
         border-radius: .8rem;
@@ -82,6 +124,7 @@
     }
     .pos-panel-body { padding: .75rem .9rem; }
     .pos-scroll { overflow: auto; max-height: calc(100vh - 170px); }
+    .pos-scroll, #posCartItems, #posRightPanel { -webkit-overflow-scrolling: touch; }
     .pos-product-card { cursor: pointer; transition: transform .2s ease, box-shadow .2s ease; }
     .pos-product-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(15, 23, 42, .12); }
     .pos-product-img { width: 100%; height: 110px; object-fit: cover; background: var(--bs-light); }
@@ -265,12 +308,13 @@
         word-break: break-word;
     }
 
-    @@media (min-width: 992px) {
+    @@media (min-width: 768px) {
         #posRightPanel {
             position: sticky;
             top: 90px;
             align-self: start;
-            height: fit-content;
+            max-height: calc(100vh - 105px);
+            overflow-y: auto;
         }
     }
     .pos-loading {
@@ -293,6 +337,128 @@
     }
 
     .pos-toast-container { z-index: 2000; }
+
+    /* ===== TABLET RESPONSIVE IMPROVEMENTS ===== */
+
+    /* Topbar: stack search below on small screens */
+    @@media (max-width: 767.98px) {
+        .pos-topbar > .d-flex { flex-wrap: wrap; row-gap: .35rem; }
+        .pos-search-shell { order: 10; width: 100%; max-width: 100%; margin-left: 0 !important; }
+        .pos-search-chips { display: none; } /* save space on phone */
+        .pos-topbar .btn,
+        .pos-topbar .badge { font-size: .85rem; }
+    }
+    @@media (max-width: 991.98px) and (min-width: 768px) {
+        .pos-search-shell { max-width: 380px; }
+        .pos-search-chips .pos-filter-chip { font-size: .7rem; padding: .12rem .6rem; }
+        .pos-topbar .btn { white-space: nowrap; }
+    }
+
+    /* Product cards: bigger touch targets on tablet */
+    @@media (max-width: 991.98px) {
+        .pos-product-img, .pos-product-img-fallback { height: 95px; }
+        .pos-add-btn.btn-sm { padding: .45rem .5rem; font-size: .8rem; min-height: 38px; }
+        .pos-product-card .card-body { padding: .5rem .6rem .25rem; }
+    }
+
+    /* Cart panel scroll on tablet - constrain height relative to panel */
+    @@media (max-width: 991.98px) and (min-width: 768px) {
+        #posRightPanel .pos-panel-body { padding: .55rem .65rem; }
+        #posRightPanel .pos-scroll-cart { max-height: calc(100vh - 320px); overflow-y: auto; }
+        .pos-qty-input-group { width: 110px; }
+        .pos-summary-compact .compact-pill { min-width: 72px; }
+    }
+
+    /* Right panel scroll on tablet: inner cart list scrolls independently */
+    @@media (min-width: 768px) {
+        #posCartItems { max-height: 30vh; overflow-y: auto; }
+    }
+
+    /* ===== MOBILE CART DRAWER (<768px) ===== */
+    @@media (max-width: 767.98px) {
+        /* Hide desktop right panel from the grid */
+        #posRightPanel {
+            position: fixed !important;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            top: auto !important;
+            max-height: 88vh;
+            overflow-y: auto;
+            z-index: 1055;
+            border-radius: 1.25rem 1.25rem 0 0 !important;
+            border: none !important;
+            box-shadow: 0 -8px 32px rgba(15,23,42,.22);
+            transform: translateY(100%);
+            transition: transform .32s cubic-bezier(.4,0,.2,1);
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        #posRightPanel.pos-cart-open {
+            transform: translateY(0);
+        }
+        /* Drag handle at top of mobile cart drawer */
+        #posRightPanel::before {
+            content: '';
+            display: block;
+            width: 44px;
+            height: 4px;
+            border-radius: 2px;
+            background: rgba(15,23,42,.18);
+            margin: .55rem auto .15rem;
+        }
+        /* Backdrop overlay */
+        #posCartBackdrop {
+            display: block;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.45);
+            z-index: 1054;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .3s ease;
+        }
+        #posCartBackdrop.pos-cart-open { opacity: 1; pointer-events: auto; }
+
+        /* Sticky bottom cart FAB bar */
+        #posCartFab {
+            display: flex;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 1050;
+            background: var(--bs-body-bg);
+            border-top: 1px solid var(--pos-border);
+            padding: .55rem .9rem calc(.55rem + env(safe-area-inset-bottom));
+            gap: .6rem;
+            align-items: center;
+            box-shadow: 0 -4px 16px rgba(15,23,42,.10);
+        }
+        /* Add padding to main content so FAB doesn't overlap products */
+        .pos-shell { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+
+        /* Cart items bigger touch rows */
+        .pos-cart-item { padding: .85rem .75rem; }
+        #posCartItems .list-group-item { border-radius: .5rem; margin-bottom: .3rem; border: 1px solid var(--pos-border); }
+        .pos-qty-minus, .pos-qty-plus { padding: .4rem .65rem; min-width: 38px; min-height: 38px; }
+        .pos-qty-input-group { width: 120px; }
+    }
+    @@media (min-width: 768px) {
+        #posCartFab { display: none !important; }
+        #posCartBackdrop { display: none !important; }
+    }
+
+    /* General touch-friendly improvements for all tablet/mobile */
+    @@media (max-width: 991.98px) {
+        /* Larger tap targets for all interactive controls */
+        .btn-sm { min-height: 36px; }
+        .form-control-sm, .form-select-sm { min-height: 36px; font-size: .875rem; }
+        .pos-pay-method { min-height: 42px; font-size: .9rem; }
+        /* Bigger payment and submit buttons */
+        #posPayBtn, #posCreateBtn { min-height: 50px; font-size: 1rem; }
+        /* Wider spacing in cart totals */
+        .pos-panel-body .d-flex.justify-content-between { padding: .15rem 0; }
+    }
 </style>
 
 <div class="container-fluid py-2 pos-shell">
@@ -437,7 +603,7 @@
                 }
                 else
                 {
-                    <div class="row row-cols-2 row-cols-md-3 row-cols-xl-4 row-cols-xxl-5 g-3" id="posProductGrid">
+                    <div class="row row-cols-2 row-cols-sm-2 row-cols-md-3 row-cols-lg-3 row-cols-xl-4 row-cols-xxl-5 g-3" id="posProductGrid">
                         @foreach (var mi in catalog)
                         {
                             var catId = mi.CategoryId;
@@ -551,26 +717,25 @@
                                 <option value="2">Delivery</option>
                             </select>
                         </div>
-                        <div class="col-12">
-                            <label class="form-label">Customer Name</label>
-                            <input class="form-control" name="CustomerName" value="@Model.Create.CustomerName" />
+                        <div class="col-6">
+                            <label class="form-label form-label-sm mb-1 small fw-semibold">Name</label>
+                            <input class="form-control form-control-sm" name="CustomerName" placeholder="Customer name" autocomplete="name" value="@Model.Create.CustomerName" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label form-label-sm mb-1 small fw-semibold">Phone</label>
+                            <input class="form-control form-control-sm" type="tel" inputmode="tel" autocomplete="tel" name="CustomerPhone" placeholder="Phone number" value="@Model.Create.CustomerPhone" />
                         </div>
                         <div class="col-12">
-                            <label class="form-label">Customer Phone</label>
-                            <input class="form-control" name="CustomerPhone" value="@Model.Create.CustomerPhone" />
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">Customer Email</label>
-                            <input class="form-control" name="CustomerEmailId" value="@Model.Create.CustomerEmailId" />
+                            <label class="form-label form-label-sm mb-1 small fw-semibold">Email</label>
+                            <input class="form-control form-control-sm" type="email" inputmode="email" autocomplete="email" name="CustomerEmailId" placeholder="Email (optional)" value="@Model.Create.CustomerEmailId" />
                         </div>
                         <div class="col-12 d-none" id="posAddressWrap">
-                            <label class="form-label">Address (Delivery)</label>
-                            <textarea class="form-control" rows="2" name="CustomerAddress">@Model.Create.CustomerAddress</textarea>
-                            <div class="form-text">Required for Delivery orders.</div>
+                            <label class="form-label form-label-sm mb-1 small fw-semibold">Address <span class="text-muted fw-normal">(Delivery)</span></label>
+                            <textarea class="form-control form-control-sm" rows="2" name="CustomerAddress">@Model.Create.CustomerAddress</textarea>
                         </div>
                         <div class="col-12">
-                            <label class="form-label">Special Instructions</label>
-                            <textarea class="form-control" rows="2" name="SpecialInstructions">@Model.Create.SpecialInstructions</textarea>
+                            <label class="form-label form-label-sm mb-1 small fw-semibold">Special Instructions</label>
+                            <textarea class="form-control form-control-sm" rows="2" name="SpecialInstructions" placeholder="Notes / instructions (optional)">@Model.Create.SpecialInstructions</textarea>
                         </div>
                         <div class="col-12 d-grid mt-2">
                             <button class="btn btn-primary" type="submit" id="posCreateBtn">
@@ -805,6 +970,24 @@
     </div>
 </div>
 
+<div id="posCategoryBackdrop"></div>
+
+<!-- Mobile-only: cart backdrop overlay and sticky bottom FAB bar (hidden on tablet/desktop via CSS) -->
+<div id="posCartBackdrop"></div>
+<div id="posCartFab">
+    <button type="button" class="btn btn-outline-secondary btn-sm px-3" id="posCartFabClose" style="display:none;">
+        <i class="fas fa-times me-1"></i> Close
+    </button>
+    <button type="button" class="btn btn-primary flex-grow-1" id="posCartFabOpen">
+        <i class="fas fa-shopping-cart me-1"></i>
+        <span id="posCartFabLabel">View Cart</span>
+        <span class="badge bg-white text-primary ms-2" id="posCartFabBadge">0</span>
+    </button>
+    <button type="button" class="btn btn-success px-3" id="posCartFabPay">
+        <i class="fas fa-credit-card me-1"></i> Pay
+    </button>
+</div>
+
 <div class="toast-container position-fixed top-0 end-0 p-3 pos-toast-container">
     <div id="posToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
         <div class="toast-header">
@@ -973,6 +1156,7 @@
                 if (summaryEls.order) summaryEls.order.textContent = orderText;
                 if (summaryEls.type) summaryEls.type.textContent = typeText;
                 if (summaryEls.remaining) summaryEls.remaining.textContent = remainingText;
+                if (window.__posSyncFabState) window.__posSyncFabState();
             }
 
             // Counter selection bootstrapping
@@ -995,6 +1179,7 @@
                 const label = safe === 1 ? 'item' : 'items';
                 if (itemCountEls.badge) itemCountEls.badge.textContent = `${safe} ${label}`;
                 if (itemCountEls.compact) itemCountEls.compact.textContent = String(safe);
+                if (window.__posSyncFabState) window.__posSyncFabState();
             }
 
             function updateDetailsPanel(data){
@@ -1204,19 +1389,46 @@
                 if (center) center.style.display = show ? 'none' : '';
             }
 
+            function isCompactPosViewport(){
+                return window.matchMedia('(max-width: 991.98px)').matches;
+            }
+
             function setCategoriesCollapsed(collapsed, persist){
                 categoriesCollapsed = !!collapsed;
                 const main = document.querySelector('.pos-main');
                 const left = document.getElementById('posLeftPanel');
                 const showBtn = document.getElementById('posShowCategories');
                 const toggleBtn = document.getElementById('posToggleCategories');
+                const categoryBackdrop = document.getElementById('posCategoryBackdrop');
+                const compactViewport = isCompactPosViewport();
 
                 if (main) {
-                    if (categoriesCollapsed) main.classList.add('pos-left-collapsed');
-                    else main.classList.remove('pos-left-collapsed');
+                    if (!compactViewport) {
+                        if (categoriesCollapsed) main.classList.add('pos-left-collapsed');
+                        else main.classList.remove('pos-left-collapsed');
+                    } else {
+                        main.classList.add('pos-left-collapsed');
+                    }
                 }
-                if (left) left.style.display = categoriesCollapsed ? 'none' : '';
-                if (showBtn) showBtn.style.display = categoriesCollapsed ? 'inline-flex' : 'none';
+
+                if (left) {
+                    if (compactViewport) {
+                        left.classList.toggle('pos-category-open', !categoriesCollapsed);
+                        left.style.display = categoriesCollapsed ? 'none' : 'block';
+                    } else {
+                        left.classList.remove('pos-category-open');
+                        left.style.display = categoriesCollapsed ? 'none' : '';
+                    }
+                }
+
+                if (categoryBackdrop) {
+                    categoryBackdrop.classList.toggle('pos-category-open', compactViewport && !categoriesCollapsed);
+                }
+
+                if (showBtn) {
+                    if (compactViewport) showBtn.style.display = 'inline-flex';
+                    else showBtn.style.display = categoriesCollapsed ? 'inline-flex' : 'none';
+                }
                 if (toggleBtn) {
                     toggleBtn.title = categoriesCollapsed ? 'Show categories' : 'Hide categories';
                     const icon = toggleBtn.querySelector('i');
@@ -1234,6 +1446,9 @@
                 try {
                     categoriesCollapsed = (localStorage.getItem('pos_categories_collapsed') === '1');
                 } catch { categoriesCollapsed = false; }
+                if (isCompactPosViewport()) {
+                    categoriesCollapsed = true;
+                }
                 setCategoriesCollapsed(categoriesCollapsed, false);
                 buildCategoryList();
                 showLoading(false);
@@ -2158,6 +2373,9 @@
                 btn.classList.add('active');
                 selectedCategory = btn.getAttribute('data-category') || 'all';
                 applyFilters();
+                if (isCompactPosViewport()) {
+                    setCategoriesCollapsed(true, false);
+                }
             });
 
             document.getElementById('posSearch')?.addEventListener('input', applyFilters);
@@ -2171,7 +2389,26 @@
                 setCategoriesCollapsed(!categoriesCollapsed, true);
             });
             document.getElementById('posShowCategories')?.addEventListener('click', function(){
-                setCategoriesCollapsed(false, true);
+                setCategoriesCollapsed(false, isCompactPosViewport() ? false : true);
+            });
+            document.getElementById('posCategoryBackdrop')?.addEventListener('click', function(){
+                if (isCompactPosViewport()) {
+                    setCategoriesCollapsed(true, false);
+                }
+            });
+            window.addEventListener('resize', function(){
+                if (isCompactPosViewport()) {
+                    if (!categoriesCollapsed) setCategoriesCollapsed(true, false);
+                } else {
+                    const left = document.getElementById('posLeftPanel');
+                    const categoryBackdrop = document.getElementById('posCategoryBackdrop');
+                    if (left) left.classList.remove('pos-category-open');
+                    if (categoryBackdrop) categoryBackdrop.classList.remove('pos-category-open');
+                    try {
+                        categoriesCollapsed = (localStorage.getItem('pos_categories_collapsed') === '1');
+                    } catch { categoriesCollapsed = false; }
+                    setCategoriesCollapsed(categoriesCollapsed, false);
+                }
             });
             document.getElementById('posClearFilters')?.addEventListener('click', function(){
                 selectedCategory = 'all';
@@ -2543,6 +2780,74 @@
                 syncFromDom();
             })();
 
+                // Mobile cart drawer / bottom action bar
+                (function(){
+                    const rightPanel = document.getElementById('posRightPanel');
+                    const cartBackdrop = document.getElementById('posCartBackdrop');
+                    const cartFab = document.getElementById('posCartFab');
+                    const cartFabOpen = document.getElementById('posCartFabOpen');
+                    const cartFabClose = document.getElementById('posCartFabClose');
+                    const cartFabPay = document.getElementById('posCartFabPay');
+                    const cartFabBadge = document.getElementById('posCartFabBadge');
+                    const cartFabLabel = document.getElementById('posCartFabLabel');
+                    const itemCountBadge = document.getElementById('posItemCountBadge');
+                    const payTopBtn = document.getElementById('posPayBtnTop');
+
+                    function isMobileViewport() {
+                        return window.matchMedia('(max-width: 767.98px)').matches;
+                    }
+
+                    function syncFabState() {
+                        if (!cartFab || !cartFabBadge || !cartFabLabel) return;
+                        const countText = itemCountBadge ? itemCountBadge.textContent || '0 items' : '0 items';
+                        const countNum = parseInt(countText, 10) || 0;
+                        cartFabBadge.textContent = String(countNum);
+
+                        const remainingEl = document.getElementById('posSummaryRemainingMini');
+                        const remainingText = remainingEl ? remainingEl.textContent || '0.00' : '0.00';
+                        cartFabLabel.textContent = countNum > 0 ? ('Cart • ₹' + remainingText) : 'View Cart';
+
+                        if (cartFabPay) {
+                            cartFabPay.disabled = !orderId;
+                        }
+                    }
+
+                    function openMobileCart() {
+                        if (!isMobileViewport() || !rightPanel) return;
+                        rightPanel.classList.add('pos-cart-open');
+                        if (cartBackdrop) cartBackdrop.classList.add('pos-cart-open');
+                        if (cartFabClose) cartFabClose.style.display = 'inline-flex';
+                        document.body.style.overflow = 'hidden';
+                    }
+
+                    function closeMobileCart() {
+                        if (!rightPanel) return;
+                        rightPanel.classList.remove('pos-cart-open');
+                        if (cartBackdrop) cartBackdrop.classList.remove('pos-cart-open');
+                        if (cartFabClose) cartFabClose.style.display = 'none';
+                        document.body.style.overflow = '';
+                    }
+
+                    if (cartFabOpen) cartFabOpen.addEventListener('click', openMobileCart);
+                    if (cartFabClose) cartFabClose.addEventListener('click', closeMobileCart);
+                    if (cartBackdrop) cartBackdrop.addEventListener('click', closeMobileCart);
+                    if (cartFabPay) cartFabPay.addEventListener('click', function(){
+                        openMobileCart();
+                        if (payTopBtn && !payTopBtn.disabled) payTopBtn.focus();
+                    });
+
+                    window.addEventListener('resize', function(){
+                        if (!isMobileViewport()) {
+                            closeMobileCart();
+                        }
+                        syncFabState();
+                    });
+
+                    // Expose for refresh/update hooks
+                    window.__posSyncFabState = syncFabState;
+                    syncFabState();
+                })();
+
             setPriceFilter(activePriceFilterKey);
             toggleOrderSections(!!orderId);
             updateTopBarSubtitle();
@@ -2554,6 +2859,7 @@
             updatePrintButton(!!(orderId && initialFullyPaid === 'true'));
             setOrderStateBadge(orderId ? (initialFullyPaid === 'true' ? 'PAID' : 'OPEN') : 'NEW');
             updatePaymentFieldVisibility();
+            if (window.__posSyncFabState) window.__posSyncFabState();
 
             // If order is present, do an initial refresh to sync UI (totals + cart)
             if (orderId) {

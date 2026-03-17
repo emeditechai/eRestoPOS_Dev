@@ -48,6 +48,8 @@
                         <input type="hidden" id="GstApplicableShare" value="@Model.GstApplicableShare" />
                         <input type="hidden" asp-for="RoundoffAdjustmentAmt" id="RoundoffAdjustmentAmt" />
                         <input type="hidden" asp-for="OriginalAmount" id="OriginalAmount" />
+                        <input type="hidden" id="SingleInclusiveGST" value="@(Model.IsInclusiveGST ? 1 : 0)" />
+                        <input type="hidden" id="SingleGrossItemTotal" value="@Model.GrossItemTotal" />
 
                         <div class="row g-4">
                             <div class="col-lg-8">
@@ -413,13 +415,16 @@
 
             function computeSplitTarget(){
                 // Use correct math respecting inclusive vs exclusive GST
-                var baseSubtotal  = parseFloat($('#Subtotal').val()) || 0;   // taxable net (inclusive) or gross (exclusive)
+                var baseSubtotal  = parseFloat($('#Subtotal').val()) || 0;   // post-discount taxable net; NOT a pre-discount base
                 var gstPerc       = parseFloat($('#GSTPercentage').val()) || 0;
                 var gstShare      = parseFloat($('#GstApplicableShare').val());
                 var isInclusive   = parseInt($('#IsInclusiveGST').val() || '0') === 1;
-                var grossItemTot  = parseFloat($('#GrossItemTotal').val()) || baseSubtotal;
+                var grossItemTot  = parseFloat($('#GrossItemTotal').val()) || 0;
                 if (!isFinite(gstShare) || gstShare < 0) gstShare = 1;
                 if (gstShare > 1) gstShare = 1;
+
+                // GrossItemTotal is always the raw pre-discount item sum — use for BOTH inclusive and exclusive discount base
+                var gross = (grossItemTot > 0) ? grossItemTot : baseSubtotal;
 
                 // Check if there's already a persisted discount from Payment/Index page
                 var persistedDiscount = parseFloat($('#DiscountAmount').val()) || 0;
@@ -430,8 +435,8 @@
                 if (isNaN(entry) || entry < 0) entry = 0;
 
                 var discountAmt = 0;
-                // Discount percent base = gross item total (correct even for inclusive GST)
-                var discountBase = isInclusive ? grossItemTot : baseSubtotal;
+                // Discount percent base = gross item total (correct for both inclusive and exclusive GST)
+                var discountBase = gross;
 
                 if (entry > 0) {
                     if (mode === 'percent') {
@@ -452,16 +457,16 @@
                     // gross after discount = grossItemTot - discount
                     // taxable = grossAfterDisc / (1 + gst%)
                     // gst = taxable * gst%
-                    var grossAfterDisc = roundMoney(grossItemTot - discountAmt);
-                    var gstDivisor = 1.0 + (gstPerc / 100.0);
+                    var grossAfterDisc = roundMoney(Math.max(0, gross - discountAmt));
+                    var gstDivisor = 1.0 + (gstPerc * gstShare / 100.0);
                     var taxable = roundMoney(grossAfterDisc / gstDivisor);
-                    gstAmount = roundAway(taxable * gstPerc / 100.0 * gstShare, 2);
+                    gstAmount = roundAway(taxable * gstPerc * gstShare / 100.0, 2);
                     preRoundTotal = roundMoney(grossAfterDisc);   // customer pays gross (GST embedded)
                 } else {
-                    // Exclusive: subtract discount from subtotal then add GST on top
-                    var discountedSubtotal = roundMoney(baseSubtotal - discountAmt);
-                    gstAmount = roundAway(discountedSubtotal * gstPerc / 100.0 * gstShare, 2);
-                    preRoundTotal = roundMoney(discountedSubtotal + gstAmount);
+                    // Exclusive: apply discount to gross first, then add GST on the discounted base
+                    var discountedBase = roundMoney(Math.max(0, gross - discountAmt));
+                    gstAmount = roundAway(discountedBase * gstPerc / 100.0 * gstShare, 2);
+                    preRoundTotal = roundMoney(discountedBase + gstAmount);
                 }
 
                 var newRemaining = Math.max(0, preRoundTotal - alreadyPaid);
@@ -651,16 +656,33 @@
 
             // Recompute totals from Subtotal -> Discount -> GST; then compute remaining by subtracting paid
             function updatePaymentSummary() {
-                var baseSubtotal = parseFloat($('#Subtotal').val()) || 0; // pre-GST base
+                var isInclusiveGST = parseInt($('#SingleInclusiveGST').val() || '0') === 1;
+                var grossItemTotal = parseFloat($('#SingleGrossItemTotal').val()) || 0;
+                var baseSubtotal = parseFloat($('#Subtotal').val()) || 0; // post-discount taxable net; do NOT use directly as pre-discount base
                 var gstPerc = parseFloat($('#GSTPercentage').val()) || 0;
                 var gstShare = parseFloat($('#GstApplicableShare').val());
                 if (!isFinite(gstShare) || gstShare < 0) gstShare = 1;
                 if (gstShare > 1) gstShare = 1;
-                var discount = parseFloat($('#DiscountAmount').val()) || 0; // discount on subtotal
+                var discount = parseFloat($('#DiscountAmount').val()) || 0;
 
-                var discountedSubtotal = baseSubtotal - discount; if (discountedSubtotal < 0) discountedSubtotal = 0;
-                var gstAmount = roundAway(discountedSubtotal * gstPerc / 100.0 * gstShare, 2);
-                var preRoundTotal = roundMoney(discountedSubtotal + gstAmount);
+                // GrossItemTotal is always the raw pre-discount sum of item prices (inclusive of embedded tax for inclusive, excl of tax for exclusive)
+                // Use it as the discount base for BOTH paths when available; fallback to baseSubtotal only if not set.
+                var gross = (grossItemTotal > 0) ? grossItemTotal : baseSubtotal;
+
+                var preRoundTotal, gstAmount;
+                if (isInclusiveGST) {
+                    // Inclusive GST: gross already contains tax. Apply discount to gross, then the discounted gross IS the total.
+                    var discountedGross = Math.max(0, gross - discount);
+                    var divisor = 1 + (gstPerc * gstShare / 100.0);
+                    var taxableBase = roundAway(discountedGross / divisor, 2);
+                    gstAmount = roundAway(taxableBase * gstPerc * gstShare / 100.0, 2);
+                    preRoundTotal = roundMoney(discountedGross); // total = discounted gross (tax is already inside)
+                } else {
+                    // Exclusive GST: apply discount to gross first, then add GST on the discounted base.
+                    var discountedBase = Math.max(0, gross - discount);
+                    gstAmount = roundAway(discountedBase * gstPerc / 100.0 * gstShare, 2);
+                    preRoundTotal = roundMoney(discountedBase + gstAmount);
+                }
 
                 // Remaining after considering previous payments
                 var newRemaining = Math.max(0, preRoundTotal - alreadyPaid);
@@ -691,15 +713,20 @@
             }
 
             function recalcDiscountAndAmount(){
-                var baseSubtotal = parseFloat($('#Subtotal').val()) || 0; // pre-GST base
+                var isInclusiveGST = parseInt($('#SingleInclusiveGST').val() || '0') === 1;
+                var grossItemTotal = parseFloat($('#SingleGrossItemTotal').val()) || 0;
+                var baseSubtotal = parseFloat($('#Subtotal').val()) || 0;
                 var gstPerc = parseFloat($('#GSTPercentage').val()) || 0;
+                // Use GrossItemTotal as discount base for BOTH inclusive and exclusive when available.
+                // GrossItemTotal is the raw pre-discount item sum (the true full price customer paid before any discount).
+                var discountBase = (grossItemTotal > 0) ? grossItemTotal : baseSubtotal;
                 var mode = $('input[name=discountMode]:checked').val();
                 var entry = parseFloat($('#discountEntry').val());
                 if (isNaN(entry) || entry < 0) entry = 0;
                 var discountAmt = 0;
-                if (mode === 'percent') { if (entry > 100) entry = 100; discountAmt = baseSubtotal * (entry / 100.0); }
+                if (mode === 'percent') { if (entry > 100) entry = 100; discountAmt = discountBase * (entry / 100.0); }
                 else { discountAmt = entry; }
-                if (discountAmt > baseSubtotal) discountAmt = baseSubtotal;
+                if (discountAmt > discountBase) discountAmt = discountBase;
                 $('#DiscountAmount').val(roundMoney(discountAmt).toFixed(2));
                 // Recompute summary and header
                 manualAmountOverride = false; // reset when discount changes

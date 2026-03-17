@@ -4269,8 +4269,11 @@ END", connection))
                             if (model.TaxAmount == 0)
                             {
                                 model.TaxAmount = totalGSTFromPayments;
-                                // Recalculate total amount to include GST
-                                model.TotalAmount = model.Subtotal + model.TaxAmount - model.DiscountAmount + model.TipAmount;
+                                // NOTE: Subtotal already has discount deducted (set by UpdateOrderFinancials).
+                                // For inclusive GST: Subtotal = taxable base, TotalAmount = Subtotal + TaxAmount (= grossAfterDiscount).
+                                // For exclusive GST: Subtotal = grossAfterDiscount, TotalAmount = Subtotal + TaxAmount.
+                                // Never subtract DiscountAmount here — it is already embedded in Subtotal.
+                                model.TotalAmount = model.Subtotal + model.TaxAmount + model.TipAmount;
                                 model.RemainingAmount = model.TotalAmount - model.PaidAmount;
                             }
                         }
@@ -4506,6 +4509,10 @@ END", connection))
 
                 // Fallback GST calculation if no payment GST data available
                 // PRIORITY: Read from Orders table first (persisted values), then calculate
+                // Track whether TaxAmount was zero before this block so we only re-derive TotalAmount
+                // for truly pre-GST-column orders. For orders with persisted TaxAmount the SP already
+                // gave us the correct TotalAmount and we must NOT overwrite it.
+                bool taxWasZero = (model.TaxAmount == 0);
                 if (model.GSTPercentage == 0 || (model.CGSTAmount == 0 && model.SGSTAmount == 0))
                 {
                     try
@@ -4684,9 +4691,16 @@ END", connection))
                             model.CGSTAmount = Math.Round(gstAmount / 2m, 2, MidpointRounding.AwayFromZero);
                             model.SGSTAmount = gstAmount - model.CGSTAmount;
                         }
-                        
-                        // Recalculate total amount to include GST
-                        model.TotalAmount = model.Subtotal + model.TaxAmount - model.DiscountAmount + model.TipAmount;
+
+                        // Only recalculate TotalAmount when it was not already persisted (taxWasZero = true means
+                        // the SP returned TaxAmount=0 for a pre-GST-column order, so we must derive the total).
+                        // When TaxAmount came from the DB (non-zero), TotalAmount from the SP is already correct —
+                        // do NOT overwrite it. Formula: Subtotal + TaxAmount + TipAmount (discount is already
+                        // embedded in Subtotal by UpdateOrderFinancials; subtracting it again would double-count).
+                        if (taxWasZero)
+                        {
+                            model.TotalAmount = model.Subtotal + model.TaxAmount + model.TipAmount;
+                        }
                         model.RemainingAmount = model.TotalAmount - model.PaidAmount;
                     }
                     catch (Exception ex)
@@ -4694,18 +4708,21 @@ END", connection))
                         _logger?.LogError(ex, "Error calculating fallback GST for order {OrderId}", model.OrderId);
                         model.GSTPercentage = 5.0m;
                         decimal fallbackGst = Math.Round(model.Subtotal * 0.05m, 2, MidpointRounding.AwayFromZero);
-                        
+
                         // Update TaxAmount with calculated GST
                         if (model.TaxAmount == 0)
                         {
                             model.TaxAmount = fallbackGst;
                         }
-                        
+
                         model.CGSTAmount = Math.Round(fallbackGst / 2m, 2, MidpointRounding.AwayFromZero);
                         model.SGSTAmount = fallbackGst - model.CGSTAmount;
-                        
-                        // Recalculate total amount to include GST
-                        model.TotalAmount = model.Subtotal + model.TaxAmount - model.DiscountAmount + model.TipAmount;
+
+                        // Only recalculate if TaxAmount was originally zero (same rule as try-block above)
+                        if (taxWasZero)
+                        {
+                            model.TotalAmount = model.Subtotal + model.TaxAmount + model.TipAmount;
+                        }
                         model.RemainingAmount = model.TotalAmount - model.PaidAmount;
                     }
                 }

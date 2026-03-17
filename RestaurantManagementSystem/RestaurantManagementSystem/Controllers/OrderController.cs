@@ -486,6 +486,13 @@ SELECT @result;", connection))
             }
 
             var model = GetOrderDashboard(fromDate, toDate);
+            if (model?.ActiveOrders != null)
+            {
+                model.ActiveOrders = model.ActiveOrders
+                    .OrderByDescending(o => o.CreatedAt)
+                    .ThenByDescending(o => o.Id)
+                    .ToList();
+            }
 
             // Counter filter options (client-side).
             // Requirement: show ALL counters that are associated with the orders visible on the dashboard (even if inactive).
