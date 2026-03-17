@@ -707,9 +707,9 @@ async function submitAddLine() {
     const rawCostEl = document.getElementById('totalRawCost');
     if (rawCostEl) rawCostEl.textContent = '₹' + rawTotal.toFixed(4);
 
-    // ── 7. Reset + hide form LAST (after all DOM work is done) ───────────────
-    hideAddForm();
+    // ── 7. Reload page to reflect new ingredient line ────────────────────────
     showToast(res.message || 'Ingredient added to BOM.', 'success');
+    setTimeout(() => location.reload(), 800);
 }
 
 // ─── Inline Qty Update ────────────────────────────────────────────────────────
@@ -740,7 +740,18 @@ async function updateLineQty(lineId, ingredientId) {
 
 // ─── Delete BOM Line ──────────────────────────────────────────────────────────
 async function deleteBOMLine(lineId, name) {
-    if (!confirm(`Remove "${name}" from BOM?`)) return;
+    const result = await Swal.fire({
+        title: 'Remove Ingredient?',
+        html: `<span class="text-muted">Remove <strong>${name}</strong> from this BOM?</span>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc3545',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: '<i class="fas fa-trash-alt me-1"></i>Yes, Remove',
+        cancelButtonText: 'Cancel',
+        reverseButtons: true
+    });
+    if (!result.isConfirmed) return;
 
     const res = await postJSON('/BOM/DeleteBOMLine', { lineId });
 
