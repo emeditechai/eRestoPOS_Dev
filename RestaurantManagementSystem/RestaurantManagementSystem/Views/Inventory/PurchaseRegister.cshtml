@@ -14,13 +14,136 @@
     var totalNet   = Model.Sum(x => x.TotalAmount);
 }
 
-<div class="container-fluid px-0">
-    <div class="d-flex align-items-center justify-content-between mb-3">
+<style>
+    .purchase-register-page .pr-topbar {
+        gap: 1rem;
+    }
+    .purchase-register-page .pr-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem;
+        justify-content: flex-end;
+    }
+    .purchase-register-page .pr-actions .btn,
+    .purchase-register-page .pr-filter .btn,
+    .purchase-register-page .pr-filter .form-select,
+    .purchase-register-page .pr-filter .form-control {
+        min-height: 38px;
+    }
+    .purchase-register-page .pr-summary-card .card-body {
+        min-height: 100%;
+    }
+    .purchase-register-page .table-responsive {
+        -webkit-overflow-scrolling: touch;
+    }
+    .purchase-register-page .dataTables_wrapper .dataTables_filter input,
+    .purchase-register-page .dataTables_wrapper .dataTables_length select {
+        min-height: 38px;
+    }
+
+    @@media (max-width: 991.98px) {
+        .purchase-register-page .pr-topbar {
+            flex-direction: column;
+            align-items: stretch !important;
+        }
+        .purchase-register-page .pr-actions {
+            justify-content: flex-start;
+        }
+        .purchase-register-page .pr-filter .col-auto {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .5rem;
+        }
+        .purchase-register-page .pr-filter .col-auto .btn {
+            flex: 1 1 auto;
+        }
+    }
+
+    @@media (max-width: 767.98px) {
+        .purchase-register-page .pr-actions > * {
+            flex: 1 1 calc(50% - .5rem);
+            justify-content: center;
+        }
+        .purchase-register-page .pr-filter .col-auto {
+            width: 100%;
+        }
+        .purchase-register-page .pr-filter .col-auto .btn {
+            flex: 1 1 0;
+        }
+        .purchase-register-page .dataTables_wrapper .dataTables_length,
+        .purchase-register-page .dataTables_wrapper .dataTables_filter {
+            float: none !important;
+            text-align: left !important;
+            width: 100%;
+            margin-bottom: .75rem;
+        }
+        .purchase-register-page .dataTables_wrapper .dataTables_length label,
+        .purchase-register-page .dataTables_wrapper .dataTables_filter label {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: .35rem;
+        }
+        .purchase-register-page .dataTables_wrapper .dataTables_filter input,
+        .purchase-register-page .dataTables_wrapper .dataTables_length select {
+            width: 100% !important;
+            max-width: none;
+            margin-left: 0 !important;
+        }
+        .purchase-register-page .table-responsive {
+            overflow: visible;
+        }
+        .purchase-register-page #tblPR thead {
+            display: none;
+        }
+        .purchase-register-page #tblPR tbody {
+            display: block;
+        }
+        .purchase-register-page #tblPR tr {
+            display: block;
+            margin: .85rem;
+            border: 1px solid rgba(15, 23, 42, .12);
+            border-radius: .85rem;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, .08);
+        }
+        .purchase-register-page #tblPR td {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: .75rem;
+            width: 100%;
+            text-align: left !important;
+            padding: .6rem .75rem !important;
+            border: 0;
+            border-top: 1px solid rgba(15, 23, 42, .06);
+        }
+        .purchase-register-page #tblPR td:first-child {
+            border-top: 0;
+        }
+        .purchase-register-page #tblPR td::before {
+            content: attr(data-label);
+            flex: 0 0 96px;
+            font-size: .72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            color: #64748b;
+        }
+        .purchase-register-page #tblPR td[data-label="Details"] {
+            align-items: center;
+        }
+    }
+</style>
+
+<div class="container-fluid px-0 purchase-register-page">
+    <div class="d-flex align-items-center justify-content-between mb-3 pr-topbar">
         <div>
             <h4 class="mb-0 fw-bold"><i class="fas fa-receipt me-2 text-primary"></i>Purchase Register</h4>
             <small class="text-muted">All GRN-based purchase transactions</small>
         </div>
-        <div class="d-flex gap-2">
+        <div class="pr-actions">
             <a asp-action="PurchaseRegisterDetails" asp-controller="Inventory"
                asp-route-fromDate="@ViewBag.FromDate" asp-route-toDate="@ViewBag.ToDate" asp-route-supplierId="@(selSupplier > 0 ? selSupplier.ToString() : "")"
                class="btn btn-outline-info btn-sm"><i class="fas fa-list-ul me-1"></i>Detailed Report</a>
@@ -32,8 +155,8 @@
 
     <div class="card border-0 shadow-sm mb-3">
         <div class="card-body py-2">
-            <form method="get" asp-action="PurchaseRegister" asp-controller="Inventory" class="row g-2 align-items-end">
-                <div class="col-md-3">
+            <form method="get" asp-action="PurchaseRegister" asp-controller="Inventory" class="row g-2 align-items-end pr-filter">
+                <div class="col-12 col-md-3">
                     <label class="form-label small fw-semibold mb-1">Supplier</label>
                     <select name="supplierId" class="form-select form-select-sm">
                         <option value="0">All Suppliers</option>
@@ -46,17 +169,17 @@
                         }
                     </select>
                 </div>
-                <div class="col-md-2">
+                <div class="col-6 col-md-2">
                     <label class="form-label small fw-semibold mb-1">From Date</label>
                     <input type="date" name="fromDate" class="form-control form-control-sm" value="@dateFrom" />
                 </div>
-                <div class="col-md-2">
+                <div class="col-6 col-md-2">
                     <label class="form-label small fw-semibold mb-1">To Date</label>
                     <input type="date" name="toDate" class="form-control form-control-sm" value="@dateTo" />
                 </div>
                 @if (isMainBranchAdmin)
                 {
-                    <div class="col-md-3">
+                    <div class="col-12 col-md-3">
                         <label class="form-label small fw-semibold mb-1">Branches</label>
                         <div class="dropdown" id="branchSelectorDropdown">
                             <button class="btn btn-outline-info btn-sm dropdown-toggle w-100 text-start" type="button"
@@ -84,7 +207,7 @@
                         </div>
                     </div>
                 }
-                <div class="col-auto">
+                <div class="col-12 col-md-auto">
                     <button type="submit" class="btn btn-primary btn-sm px-3"><i class="fas fa-filter me-1"></i>Apply</button>
                     <a asp-action="PurchaseRegister" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm ms-1"><i class="fas fa-sync me-1"></i>Reset</a>
                 </div>
@@ -93,26 +216,26 @@
     </div>
 
     <div class="row g-3 mb-3">
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm border-start border-primary border-3"><div class="card-body py-2 px-3">
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card border-0 shadow-sm border-start border-primary border-3 pr-summary-card"><div class="card-body py-2 px-3">
                 <small class="text-muted fw-semibold d-block">Total Transactions</small>
                 <span class="fs-4 fw-bold text-primary">@Model.Count()</span>
             </div></div>
         </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm border-start border-info border-3"><div class="card-body py-2 px-3">
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card border-0 shadow-sm border-start border-info border-3 pr-summary-card"><div class="card-body py-2 px-3">
                 <small class="text-muted fw-semibold d-block">Taxable Amount</small>
                 <span class="fs-5 fw-bold text-info">₹@totalAmt.ToString("N2")</span>
             </div></div>
         </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm border-start border-warning border-3"><div class="card-body py-2 px-3">
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card border-0 shadow-sm border-start border-warning border-3 pr-summary-card"><div class="card-body py-2 px-3">
                 <small class="text-muted fw-semibold d-block">Total GST</small>
                 <span class="fs-5 fw-bold text-warning">₹@totalGst.ToString("N2")</span>
             </div></div>
         </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm border-start border-success border-3"><div class="card-body py-2 px-3">
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card border-0 shadow-sm border-start border-success border-3 pr-summary-card"><div class="card-body py-2 px-3">
                 <small class="text-muted fw-semibold d-block">Net Purchase Amount</small>
                 <span class="fs-5 fw-bold text-success">₹@totalNet.ToString("N2")</span>
             </div></div>
@@ -145,20 +268,20 @@
                         @foreach (var r in Model)
                         {
                             <tr>
-                                <td class="ps-3 fw-semibold small">@r.GRNNumber</td>
-                                <td class="text-muted small">@r.GRNDate.ToString("dd MMM yyyy")</td>
-                                <td class="text-muted small">@(r.InvoiceNo ?? "—")</td>
-                                <td class="text-muted small">@(r.PONumber ?? "—")</td>
-                                <td>@r.SupplierName</td>
-                                <td><span class="badge bg-info-subtle text-info small">@r.GodownName</span></td>
+                                <td class="ps-3 fw-semibold small" data-label="GRN No.">@r.GRNNumber</td>
+                                <td class="text-muted small" data-label="Date" data-order="@r.GRNDate.ToString("yyyy-MM-dd")">@r.GRNDate.ToString("dd MMM yyyy")</td>
+                                <td class="text-muted small" data-label="Invoice No">@(r.InvoiceNo ?? "—")</td>
+                                <td class="text-muted small" data-label="PO No">@(r.PONumber ?? "—")</td>
+                                <td data-label="Supplier">@r.SupplierName</td>
+                                <td data-label="Godown"><span class="badge bg-info-subtle text-info small">@r.GodownName</span></td>
                                 @if (isMainBranchAdmin)
                                 {
-                                    <td class="text-nowrap small">@r.BranchName</td>
+                                    <td class="text-nowrap small" data-label="Branch">@r.BranchName</td>
                                 }
-                                <td class="text-end">₹@r.SubTotal.ToString("N2")</td>
-                                <td class="text-end text-warning">₹@r.TotalGSTAmount.ToString("N2")</td>
-                                <td class="text-end pe-3 fw-semibold">₹@r.TotalAmount.ToString("N2")</td>
-                                <td class="text-center">
+                                <td class="text-end" data-label="Sub Total">₹@r.SubTotal.ToString("N2")</td>
+                                <td class="text-end text-warning" data-label="GST Amt">₹@r.TotalGSTAmount.ToString("N2")</td>
+                                <td class="text-end pe-3 fw-semibold" data-label="Net Amt">₹@r.TotalAmount.ToString("N2")</td>
+                                <td class="text-center" data-label="Details">
                                     <a asp-action="PurchaseRegisterDetails" asp-controller="Inventory"
                                        asp-route-grnId="@r.GRNId"
                                        asp-route-fromDate="@ViewBag.FromDate" asp-route-toDate="@ViewBag.ToDate" asp-route-supplierId="@(selSupplier > 0 ? selSupplier.ToString() : "")"
@@ -188,6 +311,7 @@
         var table = $('#tblPR').DataTable({
             paging: true, pageLength: 50, searching: true, ordering: true,
             order: [[1,'desc']],
+            autoWidth: false,
             buttons: [
                 { extend: 'excelHtml5', title: 'Purchase Register', exportOptions: { columns: ':visible' } },
                 { extend: 'pdfHtml5', title: 'Purchase Register', orientation: 'landscape', pageSize: 'A4', exportOptions: { columns: ':visible' } }

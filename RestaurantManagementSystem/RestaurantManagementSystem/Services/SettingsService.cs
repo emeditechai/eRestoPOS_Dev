@@ -245,6 +245,13 @@ namespace RestaurantManagementSystem.Services
                                     s.IsReqAutoSentbillEmail = !reader.IsDBNull(ord) && reader.GetBoolean(ord);
                                 }
 
+                                // Required Discount on POS flag
+                                if (ColumnExists(reader, "IsRequiredDiscountOnPOS"))
+                                {
+                                    ord = reader.GetOrdinal("IsRequiredDiscountOnPOS");
+                                    s.IsRequiredDiscountOnPOS = !reader.IsDBNull(ord) && reader.GetBoolean(ord);
+                                }
+
                                 ord = reader.GetOrdinal("BillFormat");
                                 s.BillFormat = reader.IsDBNull(ord) ? "A4" : reader.GetString(ord);
 
@@ -311,6 +318,7 @@ CREATE TABLE [dbo].[RestaurantSettings](
     [IsDiscountApprovalRequired] BIT NOT NULL DEFAULT 0,
     [IsCardPaymentApprovalRequired] BIT NOT NULL DEFAULT 0,
     [IsCounterRequired] BIT NOT NULL DEFAULT 0,
+    [IsRequiredDiscountOnPOS] BIT NOT NULL DEFAULT 0,
     [BillFormat] NVARCHAR(10) NOT NULL DEFAULT N'A4',
     [CreatedAt] DATETIME NOT NULL DEFAULT GETDATE(),
     [UpdatedAt] DATETIME NOT NULL DEFAULT GETDATE()
@@ -324,9 +332,9 @@ CREATE TABLE [dbo].[RestaurantSettings](
                 // Insert a default row
                 var insertSql = @"
 INSERT INTO dbo.RestaurantSettings (
-    RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsCounterRequired, BillFormat, CreatedAt, UpdatedAt
+    RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsCounterRequired, IsRequiredDiscountOnPOS, BillFormat, CreatedAt, UpdatedAt
 ) VALUES (
-    @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsCounterRequired, @BillFormat, GETDATE(), GETDATE()
+    @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsCounterRequired, @IsRequiredDiscountOnPOS, @BillFormat, GETDATE(), GETDATE()
 );";
 
                 using (var cmd = new SqlCommand(insertSql, connection))
@@ -353,6 +361,7 @@ INSERT INTO dbo.RestaurantSettings (
                     cmd.Parameters.AddWithValue("@IsDiscountApprovalRequired", false);
                     cmd.Parameters.AddWithValue("@IsCardPaymentApprovalRequired", false);
                     cmd.Parameters.AddWithValue("@IsCounterRequired", false);
+                    cmd.Parameters.AddWithValue("@IsRequiredDiscountOnPOS", false);
                     cmd.Parameters.AddWithValue("@BillFormat", "A4");
 
                     await cmd.ExecuteNonQueryAsync();
@@ -415,6 +424,7 @@ BEGIN
         IsKOTBillPrintRequired = @IsKOTBillPrintRequired,
         IsCounterRequired = @IsCounterRequired,
         isReqAutoSentbillEmail = @IsReqAutoSentbillEmail,
+        IsRequiredDiscountOnPOS = @IsRequiredDiscountOnPOS,
         BillFormat = @BillFormat,
         FssaiNo = @FssaiNo,
         UpdatedAt = GETDATE()
@@ -423,9 +433,9 @@ END
 ELSE
 BEGIN
     INSERT INTO dbo.RestaurantSettings (
-        BranchId, RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, BillFormat, FssaiNo, CreatedAt, UpdatedAt
+        BranchId, RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, IsRequiredDiscountOnPOS, BillFormat, FssaiNo, CreatedAt, UpdatedAt
     ) VALUES (
-        @BranchId, @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @BillFormat, @FssaiNo, GETDATE(), GETDATE()
+        @BranchId, @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @IsRequiredDiscountOnPOS, @BillFormat, @FssaiNo, GETDATE(), GETDATE()
     );
 END"
                         : @"
@@ -456,6 +466,7 @@ BEGIN
         IsKOTBillPrintRequired = @IsKOTBillPrintRequired,
         IsCounterRequired = @IsCounterRequired,
         isReqAutoSentbillEmail = @IsReqAutoSentbillEmail,
+        IsRequiredDiscountOnPOS = @IsRequiredDiscountOnPOS,
         BillFormat = @BillFormat,
         FssaiNo = @FssaiNo,
         UpdatedAt = GETDATE();
@@ -463,9 +474,9 @@ END
 ELSE
 BEGIN
     INSERT INTO dbo.RestaurantSettings (
-        RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, BillFormat, FssaiNo, CreatedAt, UpdatedAt
+        RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, IsRequiredDiscountOnPOS, BillFormat, FssaiNo, CreatedAt, UpdatedAt
     ) VALUES (
-        @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @BillFormat, @FssaiNo, GETDATE(), GETDATE()
+        @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @IsRequiredDiscountOnPOS, @BillFormat, @FssaiNo, GETDATE(), GETDATE()
     );
 END";
 
@@ -500,6 +511,7 @@ END";
                         cmd.Parameters.AddWithValue("@IsKOTBillPrintRequired", settings.IsKOTBillPrintRequired);
                         cmd.Parameters.AddWithValue("@IsCounterRequired", settings.IsCounterRequired);
                         cmd.Parameters.AddWithValue("@IsReqAutoSentbillEmail", settings.IsReqAutoSentbillEmail);
+                        cmd.Parameters.AddWithValue("@IsRequiredDiscountOnPOS", settings.IsRequiredDiscountOnPOS);
                         cmd.Parameters.AddWithValue("@BillFormat", (object)settings.BillFormat ?? "A4");
                         cmd.Parameters.AddWithValue("@FssaiNo", (object)settings.FssaiNo ?? DBNull.Value);
 
@@ -714,6 +726,8 @@ WHERE TABLE_SCHEMA = 'dbo'
                         ADD [SelectedOrderType] NVARCHAR(200) NULL", connection);
                     await addSelectedOrderType.ExecuteNonQueryAsync();
                 }
+
+
 
                 // Normalize existing rows: replace NULLs with sensible defaults to avoid EF materialization errors
                 try

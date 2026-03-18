@@ -6,8 +6,131 @@
     var toDate     = ViewBag.ToDate    as string ?? "";
 }
 
-<div class="container-fluid px-0">
-    <div class="d-flex align-items-center justify-content-between mb-3">
+<style>
+    .purchase-order-index-page .poi-topbar {
+        gap: 1rem;
+    }
+    .purchase-order-index-page .poi-topbar .btn,
+    .purchase-order-index-page .poi-filter .btn,
+    .purchase-order-index-page .poi-filter .form-control {
+        min-height: 38px;
+    }
+    .purchase-order-index-page .poi-status-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem;
+    }
+    .purchase-order-index-page .poi-status-tabs .btn {
+        margin-right: 0 !important;
+    }
+    .purchase-order-index-page .table-responsive {
+        -webkit-overflow-scrolling: touch;
+    }
+    .purchase-order-index-page .dataTables_wrapper .dataTables_filter input,
+    .purchase-order-index-page .dataTables_wrapper .dataTables_length select {
+        min-height: 38px;
+    }
+
+    .purchase-order-index-page .po-action-wrap {
+        margin-left: auto;
+    }
+    @@media (max-width: 991.98px) {
+        .purchase-order-index-page .poi-topbar {
+            flex-direction: column;
+            align-items: stretch !important;
+        }
+        .purchase-order-index-page .poi-topbar > a.btn {
+            align-self: flex-start;
+        }
+    }
+
+    @@media (max-width: 767.98px) {
+        .purchase-order-index-page .poi-topbar > a.btn {
+            width: 100%;
+            justify-content: center;
+        }
+        .purchase-order-index-page .poi-filter {
+            flex-direction: column;
+            align-items: stretch !important;
+        }
+        .purchase-order-index-page .poi-filter > div,
+        .purchase-order-index-page .poi-filter > button,
+        .purchase-order-index-page .poi-filter > a,
+        .purchase-order-index-page .poi-filter > span {
+            width: 100%;
+        }
+        .purchase-order-index-page .dataTables_wrapper .dataTables_length,
+        .purchase-order-index-page .dataTables_wrapper .dataTables_filter {
+            float: none !important;
+            text-align: left !important;
+            width: 100%;
+            margin-bottom: .75rem;
+        }
+        .purchase-order-index-page .dataTables_wrapper .dataTables_length label,
+        .purchase-order-index-page .dataTables_wrapper .dataTables_filter label {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: .35rem;
+        }
+        .purchase-order-index-page .dataTables_wrapper .dataTables_filter input,
+        .purchase-order-index-page .dataTables_wrapper .dataTables_length select {
+            width: 100% !important;
+            max-width: none;
+            margin-left: 0 !important;
+        }
+        .purchase-order-index-page .table-responsive {
+            overflow: visible;
+        }
+        .purchase-order-index-page #tblPO thead {
+            display: none;
+        }
+        .purchase-order-index-page #tblPO tbody {
+            display: block;
+        }
+        .purchase-order-index-page #tblPO tr {
+            display: block;
+            margin: .85rem;
+            border: 1px solid rgba(15, 23, 42, .12);
+            border-radius: .85rem;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, .08);
+        }
+        .purchase-order-index-page #tblPO td {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: .75rem;
+            width: 100%;
+            text-align: left !important;
+            padding: .6rem .75rem !important;
+            border: 0;
+            border-top: 1px solid rgba(15, 23, 42, .06);
+        }
+        .purchase-order-index-page #tblPO td:first-child {
+            border-top: 0;
+        }
+        .purchase-order-index-page #tblPO td::before {
+            content: attr(data-label);
+            flex: 0 0 96px;
+            font-size: .72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            color: #64748b;
+        }
+        .purchase-order-index-page #tblPO td[data-label="Actions"] {
+            align-items: center;
+        }
+        .purchase-order-index-page #tblPO td[data-label="Actions"] > * {
+            margin-left: auto;
+        }
+    }
+</style>
+
+<div class="container-fluid px-0 purchase-order-index-page">
+    <div class="d-flex align-items-center justify-content-between mb-3 poi-topbar">
         <div>
             <h4 class="mb-0 fw-bold"><i class="fas fa-shopping-cart me-2 text-primary"></i>Purchase Orders</h4>
             <small class="text-muted">Create and manage purchase orders to suppliers</small>
@@ -33,19 +156,19 @@
     }
 
     <!-- Status Tabs -->
-    <div class="mb-3">
-        <a href="@Url.Action("Index","PurchaseOrder",new{fromDate,toDate})" class="btn btn-sm @(selStatus == "" ? "btn-primary" : "btn-outline-secondary") me-1">All</a>
-        <a href="@Url.Action("Index","PurchaseOrder",new{status="Draft",fromDate,toDate})" class="btn btn-sm @(selStatus == "Draft" ? "btn-warning" : "btn-outline-warning") me-1">Draft</a>
-        <a href="@Url.Action("Index","PurchaseOrder",new{status="Approved",fromDate,toDate})" class="btn btn-sm @(selStatus == "Approved" ? "btn-success" : "btn-outline-success") me-1">Approved</a>
-        <a href="@Url.Action("Index","PurchaseOrder",new{status="PartialGRN",fromDate,toDate})" class="btn btn-sm @(selStatus == "PartialGRN" ? "btn-info" : "btn-outline-info") me-1">Partial GRN</a>
-        <a href="@Url.Action("Index","PurchaseOrder",new{status="FullGRN",fromDate,toDate})" class="btn btn-sm @(selStatus == "FullGRN" ? "btn-dark" : "btn-outline-dark") me-1">Fully Received</a>
+    <div class="mb-3 poi-status-tabs">
+        <a href="@Url.Action("Index","PurchaseOrder",new{fromDate,toDate})" class="btn btn-sm @(selStatus == "" ? "btn-primary" : "btn-outline-secondary")">All</a>
+        <a href="@Url.Action("Index","PurchaseOrder",new{status="Draft",fromDate,toDate})" class="btn btn-sm @(selStatus == "Draft" ? "btn-warning" : "btn-outline-warning")">Draft</a>
+        <a href="@Url.Action("Index","PurchaseOrder",new{status="Approved",fromDate,toDate})" class="btn btn-sm @(selStatus == "Approved" ? "btn-success" : "btn-outline-success")">Approved</a>
+        <a href="@Url.Action("Index","PurchaseOrder",new{status="PartialGRN",fromDate,toDate})" class="btn btn-sm @(selStatus == "PartialGRN" ? "btn-info" : "btn-outline-info")">Partial GRN</a>
+        <a href="@Url.Action("Index","PurchaseOrder",new{status="FullGRN",fromDate,toDate})" class="btn btn-sm @(selStatus == "FullGRN" ? "btn-dark" : "btn-outline-dark")">Fully Received</a>
         <a href="@Url.Action("Index","PurchaseOrder",new{status="Cancelled",fromDate,toDate})" class="btn btn-sm @(selStatus == "Cancelled" ? "btn-danger" : "btn-outline-danger")">Cancelled</a>
     </div>
 
     <!-- Date Range Filter -->
     <div class="card border-0 shadow-sm mb-3">
         <div class="card-body py-2">
-            <form method="get" asp-action="Index" asp-controller="PurchaseOrder" class="d-flex gap-2 align-items-end flex-wrap">
+            <form method="get" asp-action="Index" asp-controller="PurchaseOrder" class="d-flex gap-2 align-items-end flex-wrap poi-filter">
                 @if (!string.IsNullOrEmpty(selStatus))
                 {
                     <input type="hidden" name="status" value="@selStatus" />
@@ -103,59 +226,61 @@
                         @foreach (var po in Model)
                         {
                             <tr>
-                                <td class="ps-3 fw-semibold text-primary">@po.PONumber</td>
-                                <td class="text-muted small">@po.PODate.ToString("dd MMM yyyy")</td>
-                                <td>@po.SupplierName</td>
-                                <td><span class="badge bg-info-subtle text-info">@po.GodownName</span></td>
-                                <td class="text-muted small">
+                                <td class="ps-3 fw-semibold text-primary" data-label="PO Number">@po.PONumber</td>
+                                <td class="text-muted small" data-label="PO Date" data-order="@po.PODate.ToString("yyyy-MM-dd")">@po.PODate.ToString("dd MMM yyyy")</td>
+                                <td data-label="Supplier">@po.SupplierName</td>
+                                <td data-label="Godown"><span class="badge bg-info-subtle text-info">@po.GodownName</span></td>
+                                <td class="text-muted small" data-label="Delivery Date" data-order="@(po.ExpectedDate.HasValue ? po.ExpectedDate.Value.ToString("yyyy-MM-dd") : "")">
                                     @if (po.ExpectedDate.HasValue)
                                     { @po.ExpectedDate.Value.ToString("dd MMM yyyy") }
                                 </td>
-                                <td class="text-end fw-semibold">₹@po.TotalAmount.ToString("N2")</td>
-                                <td class="text-center">@Html.Raw(GetStatusBadgeHtml(po.Status))</td>
-                                <td class="text-center pe-3">
-                                    <a asp-action="Details" asp-controller="PurchaseOrder" asp-route-id="@po.POId"
-                                       class="btn btn-outline-info btn-sm py-0 px-2" title="View Details">
-                                        <i class="fas fa-eye"></i>
-                                    </a>
-                                    @if (po.Status == "Draft")
-                                    {
-                                        <a asp-action="Form" asp-controller="PurchaseOrder" asp-route-id="@po.POId"
-                                           class="btn btn-outline-primary btn-sm py-0 px-2" title="Edit">
-                                            <i class="fas fa-edit"></i>
-                                        </a>
-                                        <form method="post" asp-action="Approve" asp-controller="PurchaseOrder" class="d-inline">
-                                            @Html.AntiForgeryToken()
-                                            <input type="hidden" name="id" value="@po.POId" />
-                                            <button type="button" class="btn btn-outline-success btn-sm py-0 px-2" title="Approve"
-                                                    data-swal-confirm="The PO will be approved and sent for GRN processing."
-                                                    data-swal-title="Approve Purchase Order?"
-                                                    data-swal-icon="question"
-                                                    data-swal-ok="Yes, Approve"
-                                                    data-swal-color="#198754">
-                                                <i class="fas fa-check"></i>
-                                            </button>
-                                        </form>
-                                        <form method="post" asp-action="Cancel" asp-controller="PurchaseOrder" class="d-inline">
-                                            @Html.AntiForgeryToken()
-                                            <input type="hidden" name="id" value="@po.POId" />
-                                            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2" title="Cancel"
-                                                    data-swal-confirm="This PO will be cancelled and cannot be reactivated."
-                                                    data-swal-title="Cancel Purchase Order?"
-                                                    data-swal-icon="warning"
-                                                    data-swal-ok="Yes, Cancel PO"
-                                                    data-swal-color="#dc3545">
-                                                <i class="fas fa-times"></i>
-                                            </button>
-                                        </form>
-                                    }
-                                    @if (po.Status == "Approved" || po.Status == "PartialGRN")
-                                    {
-                                        <a asp-action="Form" asp-controller="GRN" asp-route-poId="@po.POId"
-                                           class="btn btn-outline-warning btn-sm py-0 px-2" title="Create GRN">
-                                            <i class="fas fa-truck"></i>
-                                        </a>
-                                    }
+                                <td class="text-end fw-semibold" data-label="Total Amount">₹@po.TotalAmount.ToString("N2")</td>
+                                <td class="text-center" data-label="Status">@Html.Raw(GetStatusBadgeHtml(po.Status))</td>
+                                <td class="text-center pe-3" data-label="Actions">
+                                        <div class="d-inline-flex flex-wrap gap-1 justify-content-end po-action-wrap">
+                                            <a asp-action="Details" asp-controller="PurchaseOrder" asp-route-id="@po.POId"
+                                               class="btn btn-outline-info btn-sm py-0 px-2" title="View Details">
+                                                <i class="fas fa-eye"></i>
+                                            </a>
+                                            @if (po.Status == "Draft")
+                                            {
+                                                <a asp-action="Form" asp-controller="PurchaseOrder" asp-route-id="@po.POId"
+                                                   class="btn btn-outline-primary btn-sm py-0 px-2" title="Edit">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
+                                                <form method="post" asp-action="Approve" asp-controller="PurchaseOrder" class="d-inline">
+                                                    @Html.AntiForgeryToken()
+                                                    <input type="hidden" name="id" value="@po.POId" />
+                                                    <button type="button" class="btn btn-outline-success btn-sm py-0 px-2" title="Approve"
+                                                            data-swal-confirm="The PO will be approved and sent for GRN processing."
+                                                            data-swal-title="Approve Purchase Order?"
+                                                            data-swal-icon="question"
+                                                            data-swal-ok="Yes, Approve"
+                                                            data-swal-color="#198754">
+                                                        <i class="fas fa-check"></i>
+                                                    </button>
+                                                </form>
+                                                <form method="post" asp-action="Cancel" asp-controller="PurchaseOrder" class="d-inline">
+                                                    @Html.AntiForgeryToken()
+                                                    <input type="hidden" name="id" value="@po.POId" />
+                                                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2" title="Cancel"
+                                                            data-swal-confirm="This PO will be cancelled and cannot be reactivated."
+                                                            data-swal-title="Cancel Purchase Order?"
+                                                            data-swal-icon="warning"
+                                                            data-swal-ok="Yes, Cancel PO"
+                                                            data-swal-color="#dc3545">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                </form>
+                                            }
+                                            @if (po.Status == "Approved" || po.Status == "PartialGRN")
+                                            {
+                                                <a asp-action="Form" asp-controller="GRN" asp-route-poId="@po.POId"
+                                                   class="btn btn-outline-warning btn-sm py-0 px-2" title="Create GRN">
+                                                    <i class="fas fa-truck"></i>
+                                                </a>
+                                            }
+                                        </div>
                                 </td>
                             </tr>
                         }
@@ -194,7 +319,7 @@
 <script>
     $(document).ready(function () {
         $('#tblPO').DataTable({ paging: true, pageLength: 25, searching: true, ordering: true,
-            order: [[0,'desc']], columnDefs: [{ orderable: false, targets: [7] }] });
+            order: [[0,'desc']], autoWidth: false, columnDefs: [{ orderable: false, targets: [7] }] });
     });
 </script>
 }

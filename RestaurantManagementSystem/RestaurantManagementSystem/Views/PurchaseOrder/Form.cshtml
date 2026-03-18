@@ -7,8 +7,139 @@
     var existingLinesJson = ViewBag.ExistingLinesJson as string ?? "[]";
 }
 
-<div class="container-fluid px-0">
-    <div class="d-flex align-items-center mb-3">
+<style>
+    .purchase-order-form-page .po-form-topbar {
+        gap: 1rem;
+    }
+    .purchase-order-form-page .po-lines-header {
+        gap: .75rem;
+    }
+    .purchase-order-form-page .po-lines-header .btn,
+    .purchase-order-form-page .po-form-actions .btn,
+    .purchase-order-form-page .form-control,
+    .purchase-order-form-page .form-select {
+        min-height: 38px;
+    }
+    .purchase-order-form-page #lineTableWrap {
+        -webkit-overflow-scrolling: touch;
+    }
+
+    @@media (max-width: 1199.98px) and (min-width: 768px) {
+        .purchase-order-form-page #lineTable {
+            min-width: 1120px !important;
+        }
+        .purchase-order-form-page #lineTable thead th:first-child,
+        .purchase-order-form-page #lineTable tbody td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 1;
+            background: #fff;
+        }
+        .purchase-order-form-page #lineTable thead th:first-child {
+            z-index: 2;
+            background: var(--bs-light);
+        }
+    }
+
+    @@media (max-width: 991.98px) {
+        .purchase-order-form-page .po-form-topbar {
+            align-items: flex-start !important;
+        }
+        .purchase-order-form-page .po-lines-header {
+            flex-wrap: wrap;
+        }
+    }
+
+    @@media (max-width: 767.98px) {
+        .purchase-order-form-page .po-form-topbar {
+            align-items: flex-start !important;
+        }
+        .purchase-order-form-page .po-form-topbar .btn-link {
+            min-height: 40px;
+        }
+        .purchase-order-form-page .po-lines-header {
+            flex-direction: column;
+            align-items: stretch !important;
+        }
+        .purchase-order-form-page .po-lines-header #btnAddLine {
+            width: 100%;
+        }
+        .purchase-order-form-page .po-form-actions {
+            flex-direction: column;
+        }
+        .purchase-order-form-page .po-form-actions .btn {
+            width: 100%;
+        }
+        .purchase-order-form-page #lineTable {
+            min-width: 0 !important;
+        }
+        .purchase-order-form-page #lineTable thead,
+        .purchase-order-form-page #lineFoot {
+            display: none !important;
+        }
+        .purchase-order-form-page #lineBody {
+            display: block;
+        }
+        .purchase-order-form-page #lineBody .line-row {
+            display: block;
+            margin: .85rem;
+            border: 1px solid rgba(15, 23, 42, .12);
+            border-radius: .9rem;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, .08);
+        }
+        .purchase-order-form-page #lineBody .line-row td {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: .75rem;
+            width: 100%;
+            padding: .65rem .75rem;
+            border: 0;
+            border-top: 1px solid rgba(15, 23, 42, .06);
+        }
+        .purchase-order-form-page #lineBody .line-row td:first-child {
+            border-top: 0;
+        }
+        .purchase-order-form-page #lineBody .line-row td::before {
+            content: attr(data-label);
+            flex: 0 0 92px;
+            font-size: .72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            color: #64748b;
+        }
+        .purchase-order-form-page #lineBody .line-row td:nth-child(7),
+        .purchase-order-form-page #lineBody .line-row td:nth-child(8),
+        .purchase-order-form-page #lineBody .line-row td:nth-child(9),
+        .purchase-order-form-page #lineBody .line-row td:nth-child(10),
+        .purchase-order-form-page #lineBody .line-row td:nth-child(11),
+        .purchase-order-form-page #lineBody .line-row td:nth-child(12) {
+            display: none;
+        }
+        .purchase-order-form-page #lineBody .line-row td > div,
+        .purchase-order-form-page #lineBody .line-row td > input,
+        .purchase-order-form-page #lineBody .line-row td > select,
+        .purchase-order-form-page #lineBody .line-row td > button {
+            margin-left: auto;
+            width: min(220px, 100%);
+        }
+        .purchase-order-form-page #lineBody .line-row td[data-label="Remove"] {
+            align-items: center;
+        }
+        .purchase-order-form-page #lineBody .line-row td[data-label="Remove"] > button {
+            width: auto;
+        }
+        .purchase-order-form-page #gstSummaryCard .po-gst-summary-row > div {
+            min-width: 0;
+        }
+    }
+</style>
+
+<div class="container-fluid px-0 purchase-order-form-page">
+    <div class="d-flex align-items-center mb-3 po-form-topbar">
         <a asp-action="Index" asp-controller="PurchaseOrder" class="btn btn-link text-muted ps-0 me-2">
             <i class="fas fa-arrow-left"></i>
         </a>
@@ -51,17 +182,17 @@
             </div>
             <div class="card-body">
                 <div class="row g-3">
-                    <div class="col-md-3">
+                    <div class="col-12 col-sm-6 col-xl-3">
                         <label asp-for="PODate" class="form-label small fw-semibold">PO Date <span class="text-danger">*</span></label>
                         <input asp-for="PODate" type="date" class="form-control form-control-sm" required />
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-12 col-sm-6 col-xl-3">
                         <label asp-for="SupplierId" class="form-label small fw-semibold">Supplier <span class="text-danger">*</span></label>
                         <select asp-for="SupplierId" asp-items="suppliers" class="form-select form-select-sm" required>
                             <option value="">-- Select Supplier --</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-12 col-sm-6 col-xl-3">
                         <label asp-for="GodownId" class="form-label small fw-semibold">Delivery Godown <span class="text-danger">*</span></label>
                         @if (mainOnly)
                         {
@@ -81,11 +212,11 @@
                             </select>
                         }
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-12 col-sm-6 col-xl-3">
                         <label asp-for="ExpectedDate" class="form-label small fw-semibold">Expected Delivery</label>
                         <input asp-for="ExpectedDate" type="date" class="form-control form-control-sm" />
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-12 col-sm-6 col-xl-3">
                         <label asp-for="PaymentTerms" class="form-label small fw-semibold">Payment Terms</label>
                         <select asp-for="PaymentTerms" class="form-select form-select-sm">
                             <option value="">-- Select --</option>
@@ -97,7 +228,7 @@
                             <option value="Net 60">Net 60</option>
                         </select>
                     </div>
-                    <div class="col-md-9">
+                    <div class="col-12 col-xl-9">
                         <label asp-for="Remarks" class="form-label small fw-semibold">Remarks</label>
                         <input asp-for="Remarks" type="text" class="form-control form-control-sm" placeholder="Optional notes" />
                     </div>
@@ -107,8 +238,9 @@
 
         <!-- Line Items Card -->
         <div class="card border-0 shadow-sm mb-3">
-            <div class="card-header bg-white border-bottom py-2 d-flex align-items-center">
+            <div class="card-header bg-white border-bottom py-2 d-flex align-items-center po-lines-header">
                 <span class="fw-semibold text-muted me-auto"><i class="fas fa-list me-1"></i>Order Line Items</span>
+                <small class="text-muted d-none d-md-inline d-xl-none"><i class="fas fa-arrows-left-right me-1"></i>Scroll sideways to review GST columns</small>
                 <button type="button" id="btnAddLine" class="btn btn-success btn-sm">
                     <i class="fas fa-plus me-1"></i>Add Item
                 </button>
@@ -165,18 +297,18 @@
         <!-- GST Summary Band -->
         <div class="card border-0 shadow-sm mb-3" id="gstSummaryCard" style="display:none">
             <div class="card-body py-2">
-                <div class="row g-2 text-center">
-                    <div class="col"><div class="small text-muted">Sub-Total (Taxable)</div><div class="fw-semibold" id="sumTaxable">&#8377;0.00</div></div>
-                    <div class="col"><div class="small text-primary">CGST</div><div class="fw-semibold text-primary" id="sumCGST">&#8377;0.00</div></div>
-                    <div class="col"><div class="small text-success">SGST</div><div class="fw-semibold text-success" id="sumSGST">&#8377;0.00</div></div>
-                    <div class="col"><div class="small text-danger">IGST</div><div class="fw-semibold text-danger" id="sumIGST">&#8377;0.00</div></div>
-                    <div class="col border-start"><div class="small fw-semibold">Grand Total</div><div class="fw-bold fs-6" id="sumNet">&#8377;0.00</div></div>
+                <div class="row g-2 text-center po-gst-summary-row">
+                    <div class="col-6 col-lg"><div class="small text-muted">Sub-Total (Taxable)</div><div class="fw-semibold" id="sumTaxable">&#8377;0.00</div></div>
+                    <div class="col-6 col-lg"><div class="small text-primary">CGST</div><div class="fw-semibold text-primary" id="sumCGST">&#8377;0.00</div></div>
+                    <div class="col-6 col-lg"><div class="small text-success">SGST</div><div class="fw-semibold text-success" id="sumSGST">&#8377;0.00</div></div>
+                    <div class="col-6 col-lg"><div class="small text-danger">IGST</div><div class="fw-semibold text-danger" id="sumIGST">&#8377;0.00</div></div>
+                    <div class="col-12 col-lg border-start"><div class="small fw-semibold">Grand Total</div><div class="fw-bold fs-6" id="sumNet">&#8377;0.00</div></div>
                 </div>
             </div>
         </div>
 
         <!-- Footer Buttons -->
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 po-form-actions">
             <button type="submit" class="btn btn-primary" id="btnSave">
                 <i class="fas fa-save me-1"></i>Save as Draft
             </button>
@@ -194,39 +326,39 @@
 <!-- Row template (hidden, cloned by JS) -->
 <template id="lineRowTpl">
     <tr class="line-row">
-        <td class="ps-2" style="min-width:210px">
+        <td class="ps-2" style="min-width:210px" data-label="Item">
             <div>
                 <input type="text" class="form-control form-control-sm item-search"
                        placeholder="Search by name / code…" autocomplete="off" />
                 <input type="hidden" class="line-item-id" />
             </div>
         </td>
-        <td style="min-width:90px">
+        <td style="min-width:90px" data-label="UOM">
             <select class="form-select form-select-sm line-uom">
                 <option value="">-- UOM --</option>
             </select>
         </td>
-        <td style="min-width:75px">
+        <td style="min-width:75px" data-label="Qty">
             <input type="number" min="0.01" step="0.01"
                    class="form-control form-control-sm text-end line-qty" value="1" />
         </td>
-        <td style="min-width:90px">
+        <td style="min-width:90px" data-label="Rate (₹)">
             <input type="number" min="0" step="0.01"
                    class="form-control form-control-sm text-end line-rate" value="0" />
         </td>
-        <td class="text-end small line-taxable" style="min-width:95px">&#8377;0.00</td>
-        <td style="min-width:65px">
+        <td class="text-end small line-taxable" style="min-width:95px" data-label="Taxable Amt">&#8377;0.00</td>
+        <td style="min-width:65px" data-label="GST%">
             <input type="number" min="0" max="100" step="0.01"
                    class="form-control form-control-sm text-end line-gst" value="0" />
         </td>
-        <td class="text-end small text-primary line-cgst-pct" style="min-width:58px">0%</td>
-        <td class="text-end small text-primary line-cgst-amt" style="min-width:88px">&#8377;0.00</td>
-        <td class="text-end small text-success line-sgst-pct" style="min-width:58px">0%</td>
-        <td class="text-end small text-success line-sgst-amt" style="min-width:88px">&#8377;0.00</td>
-        <td class="text-end small text-danger line-igst-pct" style="min-width:58px">0%</td>
-        <td class="text-end small text-danger line-igst-amt" style="min-width:88px">&#8377;0.00</td>
-        <td class="text-end fw-semibold line-net" style="min-width:98px">&#8377;0.00</td>
-        <td class="text-center pe-2" style="width:42px">
+        <td class="text-end small text-primary line-cgst-pct" style="min-width:58px" data-label="CGST%">0%</td>
+        <td class="text-end small text-primary line-cgst-amt" style="min-width:88px" data-label="CGST Amt">&#8377;0.00</td>
+        <td class="text-end small text-success line-sgst-pct" style="min-width:58px" data-label="SGST%">0%</td>
+        <td class="text-end small text-success line-sgst-amt" style="min-width:88px" data-label="SGST Amt">&#8377;0.00</td>
+        <td class="text-end small text-danger line-igst-pct" style="min-width:58px" data-label="IGST%">0%</td>
+        <td class="text-end small text-danger line-igst-amt" style="min-width:88px" data-label="IGST Amt">&#8377;0.00</td>
+        <td class="text-end fw-semibold line-net" style="min-width:98px" data-label="Net Amt">&#8377;0.00</td>
+        <td class="text-center pe-2" style="width:42px" data-label="Remove">
             <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1 remove-line">
                 <i class="fas fa-trash fa-xs"></i>
             </button>
@@ -476,10 +608,16 @@
 
 <style>
     .suggest-item:hover         { background: #eef2ff; color: #1a56db !important; }
-    #globalSuggestDropdown      { font-size: .82rem; }
+    #globalSuggestDropdown      { font-size: .82rem; max-width: calc(100vw - 1rem); }
     #lineTable thead th         { font-size: .72rem; vertical-align: middle; white-space: nowrap; padding: .35rem .4rem; }
     #lineTable tbody td         { vertical-align: middle; padding: .25rem .4rem; }
     #lineTable tfoot td         { font-size: .8rem; padding: .35rem .4rem; }
     #gstSummaryCard .col        { min-width: 100px; }
+
+    @@media (max-width: 767.98px) {
+        .purchase-order-form-page #lineBody .line-row td {
+            padding: .65rem .75rem !important;
+        }
+    }
 </style>
 }

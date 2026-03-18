@@ -367,6 +367,19 @@
                                             <div class="help-text">When enabled, bills will be automatically sent to customer email after order completion</div>
                                         </div>
                                     </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group mb-3">
+                                            <label asp-for="IsRequiredDiscountOnPOS" class="control-label"></label>
+                                            <div class="form-check form-switch">
+                                                <input asp-for="IsRequiredDiscountOnPOS" class="form-check-input" type="checkbox" id="isRequiredDiscountOnPOS">
+                                                <label class="form-check-label" for="isRequiredDiscountOnPOS">
+                                                    Required Discount on POS
+                                                </label>
+                                            </div>
+                                            <span asp-validation-for="IsRequiredDiscountOnPOS" class="field-validation-error"></span>
+                                            <div class="help-text">When enabled, staff can apply discounts directly on the POS order page</div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

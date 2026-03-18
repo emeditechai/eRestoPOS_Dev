@@ -56,6 +56,109 @@ BEGIN
     EXEC sp_executesql @Sql;
 END
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Copy main-branch RestaurantSettings (BranchId = @MainBranchId) to every
+   branch that does not yet have a settings row.
+   Safe to re-run – skips branches that already have a row.
+   ───────────────────────────────────────────────────────────────────────────── */
+IF OBJECT_ID('dbo.Branches', 'U') IS NOT NULL
+BEGIN
+    INSERT INTO dbo.RestaurantSettings (
+        BranchId,
+        RestaurantName,
+        StreetAddress,
+        PhoneNumber,
+        Email,
+        LogoPath,
+        DefaultGSTPercentage,
+        CurrencySymbol,
+        IsActive,
+        City,
+        [State],
+        Pincode,
+        Country,
+        GSTCode,
+        Website,
+        TakeAwayGSTPercentage,
+        IsDefaultGSTRequired,
+        BillFormat,
+        IsTakeAwayGSTRequired,
+        IsDiscountApprovalRequired,
+        IsCardPaymentApprovalRequired,
+        Is_TakeawayIncludedGST_Req,
+        FssaiNo,
+        IsKOTBillPrintRequired,
+        BarGSTPerc,
+        IsReqTableAvailableAfterpayment,
+        isReqAutoSentbillEmail,
+        SelectedOrderType,
+        IsCounterRequired,
+        IsSaleFromInventory,
+        IsRequiredDiscountOnPOS,
+        CreatedAt,
+        UpdatedAt
+    )
+    SELECT
+        b.BranchId,                   -- new branch
+        src.RestaurantName,
+        src.StreetAddress,
+        src.PhoneNumber,
+        src.Email,
+        src.LogoPath,
+        src.DefaultGSTPercentage,
+        src.CurrencySymbol,
+        src.IsActive,
+        src.City,
+        src.[State],
+        src.Pincode,
+        src.Country,
+        src.GSTCode,
+        src.Website,
+        src.TakeAwayGSTPercentage,
+        src.IsDefaultGSTRequired,
+        src.BillFormat,
+        src.IsTakeAwayGSTRequired,
+        src.IsDiscountApprovalRequired,
+        src.IsCardPaymentApprovalRequired,
+        src.Is_TakeawayIncludedGST_Req,
+        src.FssaiNo,
+        src.IsKOTBillPrintRequired,
+        src.BarGSTPerc,
+        src.IsReqTableAvailableAfterpayment,
+        src.isReqAutoSentbillEmail,
+        src.SelectedOrderType,
+        src.IsCounterRequired,
+        src.IsSaleFromInventory,
+        src.IsRequiredDiscountOnPOS,
+        GETDATE(),
+        GETDATE()
+    FROM dbo.Branches b
+    CROSS JOIN (
+        -- Source: main-branch settings row
+        SELECT TOP 1
+            RestaurantName, StreetAddress, PhoneNumber, Email, LogoPath,
+            DefaultGSTPercentage, CurrencySymbol, IsActive, City, [State],
+            Pincode, Country, GSTCode, Website, TakeAwayGSTPercentage,
+            IsDefaultGSTRequired, BillFormat, IsTakeAwayGSTRequired,
+            IsDiscountApprovalRequired, IsCardPaymentApprovalRequired,
+            Is_TakeawayIncludedGST_Req, FssaiNo, IsKOTBillPrintRequired,
+            BarGSTPerc,
+            ISNULL(IsReqTableAvailableAfterpayment, 0) AS IsReqTableAvailableAfterpayment,
+            isReqAutoSentbillEmail, SelectedOrderType, IsCounterRequired,
+            ISNULL(IsSaleFromInventory, 0)        AS IsSaleFromInventory,
+            ISNULL(IsRequiredDiscountOnPOS, 0)    AS IsRequiredDiscountOnPOS
+        FROM dbo.RestaurantSettings
+        WHERE BranchId = @MainBranchId
+    ) AS src
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM dbo.RestaurantSettings rs
+        WHERE rs.BranchId = b.BranchId
+    );
+
+    PRINT 'RestaurantSettings rows inserted for branches that had none.';
+END
+
 /* =========================
    tbl_MailConfiguration
    ========================= */

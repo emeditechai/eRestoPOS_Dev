@@ -1663,8 +1663,16 @@ WHERE BranchId = @BranchId
                 }
                 else
                 {
-                    var inserted = InsertBranch(model);
-                    TempData["ResultMessage"] = inserted ? "Branch added successfully." : "Branch add failed.";
+                    var newBranchId = InsertBranch(model);
+                    if (newBranchId > 0)
+                    {
+                        CopySettingsForNewBranch(newBranchId);
+                        TempData["ResultMessage"] = "Branch added successfully.";
+                    }
+                    else
+                    {
+                        TempData["ResultMessage"] = "Branch add failed.";
+                    }
                 }
 
                 return RedirectToAction(nameof(BranchList));
@@ -1854,14 +1862,16 @@ WHERE ISNULL(Is_MainBranch, 0) = 1
             }
         }
 
-        private bool InsertBranch(BranchMaster model)
+        // Returns the new BranchId on success, or 0 on failure.
+        private int InsertBranch(BranchMaster model)
         {
             using (var connection = new SqlConnection(_connectionString))
             {
                 connection.Open();
                 using (var cmd = new SqlCommand(@"
 INSERT INTO dbo.Branches (BranchCode, BranchName, BranchLocationId, Is_MainBranch, IsActive, CreatedAt, UpdatedAt)
-VALUES (@BranchCode, @BranchName, @BranchLocationId, @IsMainBranch, @IsActive, GETDATE(), NULL)
+VALUES (@BranchCode, @BranchName, @BranchLocationId, @IsMainBranch, @IsActive, GETDATE(), NULL);
+SELECT CAST(SCOPE_IDENTITY() AS INT);
 ", connection))
                 {
                     cmd.Parameters.AddWithValue("@BranchCode", NormalizeBranchCode(model.BranchCode));
@@ -1869,8 +1879,83 @@ VALUES (@BranchCode, @BranchName, @BranchLocationId, @IsMainBranch, @IsActive, G
                     cmd.Parameters.AddWithValue("@BranchLocationId", model.BranchLocationId);
                     cmd.Parameters.AddWithValue("@IsMainBranch", model.Is_MainBranch);
                     cmd.Parameters.AddWithValue("@IsActive", model.IsActive);
-                    return cmd.ExecuteNonQuery() > 0;
+                    var result = cmd.ExecuteScalar();
+                    return (result != null && result != DBNull.Value) ? Convert.ToInt32(result) : 0;
                 }
+            }
+        }
+
+        // Copies the main branch's RestaurantSettings row for the newly created branch.
+        // Falls back to the first available settings row if no main branch settings exist.
+        private void CopySettingsForNewBranch(int newBranchId)
+        {
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    connection.Open();
+
+                    // Verify the column exists before attempting the copy
+                    using (var checkCmd = new SqlCommand(@"
+SELECT COUNT(1)
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'dbo'
+  AND TABLE_NAME   = 'RestaurantSettings'
+  AND COLUMN_NAME  = 'BranchId'", connection))
+                    {
+                        var hasBranchCol = Convert.ToInt32(checkCmd.ExecuteScalar()) > 0;
+                        if (!hasBranchCol) return; // settings table not yet branch-aware
+                    }
+
+                    // Skip if settings already exist for this branch
+                    using (var existsCmd = new SqlCommand(
+                        "SELECT COUNT(1) FROM dbo.RestaurantSettings WHERE BranchId = @NewBranchId", connection))
+                    {
+                        existsCmd.Parameters.AddWithValue("@NewBranchId", newBranchId);
+                        if (Convert.ToInt32(existsCmd.ExecuteScalar()) > 0) return;
+                    }
+
+                    // Build dynamic column list from what actually exists in the table
+                    // so older DBs without every column still work.
+                    var columns = new System.Collections.Generic.List<string>();
+                    using (var colCmd = new SqlCommand(@"
+SELECT COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'dbo'
+  AND TABLE_NAME   = 'RestaurantSettings'
+  AND COLUMN_NAME NOT IN ('Id', 'BranchId', 'CreatedAt', 'UpdatedAt')", connection))
+                    using (var rdr = colCmd.ExecuteReader())
+                    {
+                        while (rdr.Read())
+                            columns.Add(rdr.GetString(0));
+                    }
+
+                    if (columns.Count == 0) return;
+
+                    var colList  = string.Join(", ", columns);
+                    var copySql  = $@"
+IF NOT EXISTS (SELECT 1 FROM dbo.RestaurantSettings WHERE BranchId = @NewBranchId)
+BEGIN
+    -- Prefer main-branch row; fall back to first available row
+    INSERT INTO dbo.RestaurantSettings (BranchId, {colList}, CreatedAt, UpdatedAt)
+    SELECT TOP 1 @NewBranchId, {colList}, GETDATE(), GETDATE()
+    FROM dbo.RestaurantSettings rs
+    LEFT JOIN dbo.Branches b ON rs.BranchId = b.BranchId
+    ORDER BY CASE WHEN ISNULL(b.Is_MainBranch, 0) = 1 THEN 0 ELSE 1 END, rs.Id
+END";
+
+                    using (var copyCmd = new SqlCommand(copySql, connection))
+                    {
+                        copyCmd.Parameters.AddWithValue("@NewBranchId", newBranchId);
+                        copyCmd.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Settings copy is best-effort. Branch was already created successfully.
+                _logger.LogWarning(ex, "Failed to copy RestaurantSettings for new branch {BranchId}. " +
+                    "Please configure settings manually via Settings > Edit Settings.", newBranchId);
             }
         }
 
