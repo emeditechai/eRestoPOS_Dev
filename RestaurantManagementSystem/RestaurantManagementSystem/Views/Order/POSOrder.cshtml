@@ -13,6 +13,11 @@
     var posIsCounterRequired = (ViewBag.PosIsCounterRequired is bool cr) && cr;
     var posCounters = (ViewBag.PosCounters as IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)
         ?? Enumerable.Empty<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>();
+    // Safe explicit cast — avoid fragile is-pattern on dynamic ViewBag
+    bool posShowDiscount = true;
+    var _psdRaw = ViewBag.PosShowDiscount;
+    if (_psdRaw != null) { try { posShowDiscount = (bool)_psdRaw; } catch { } }
+    var posDiscountHiddenClass = posShowDiscount ? string.Empty : " d-none";
 }
 
 <style>
@@ -151,7 +156,6 @@
         box-shadow: 0 4px 8px rgba(15, 23, 42, .18);
     }
     .pos-product-badge.value { background: linear-gradient(120deg, #38bdf8, #0ea5e9); }
-    .pos-product-badge.premium { background: linear-gradient(120deg, #fb923c, #f97316); }
     .pos-cart-item { padding: .65rem .75rem; }
     .pos-qty-input-group { width: 130px; }
     .pos-qty-input-group .form-control {
@@ -497,7 +501,6 @@
                 <div class="pos-search-chips" id="posSearchChips">
                     <button type="button" class="pos-filter-chip active" data-chip="all">All items</button>
                     <button type="button" class="pos-filter-chip" data-chip="value">Value picks</button>
-                    <button type="button" class="pos-filter-chip" data-chip="premium">Signature</button>
                 </div>
             </div>
                 <button class="btn btn-primary ms-2" type="button" id="posNewOrderBtn" style="display:@(hasOrder && Model?.Order?.IsFullyPaid == true ? "inline-flex" : "none")">
@@ -597,6 +600,14 @@
                 </div>
             </div>
             <div class="pos-panel-body pos-scroll">
+                @{
+                    // Intelligent "Value picks" threshold — items that sell at or above average
+                    // are considered top sellers. If no sales data yet, no badges shown.
+                    var itemsWithSales = catalog.Where(x => x.SalesCount > 0).ToList();
+                    var avgSalesCount  = itemsWithSales.Any() ? itemsWithSales.Average(x => (double)x.SalesCount) : 0.0;
+                    var avgPrice       = catalog.Any() ? catalog.Average(x => (double)x.Price) : 0.0;
+                    // A "Top Pick" = above-average sell frequency AND at or below average price
+                }
                 @if (!catalog.Any())
                 {
                     <div class="text-muted">No menu items available.</div>
@@ -614,11 +625,14 @@
                             var deliveryPrice = mi.DeliveryPrice;
                             var img = mi.ImagePath;
                             var vibeTags = new List<string>();
-                            if (basePrice <= 65m) { vibeTags.Add("value"); }
-                            if (basePrice >= 120m) { vibeTags.Add("premium"); }
+                            // Top seller (at-or-above average sales) AND at-or-below average price
+                            if (avgSalesCount > 0 && mi.SalesCount >= avgSalesCount && (double)basePrice <= avgPrice)
+                            {
+                                vibeTags.Add("value");
+                            }
                             var tagsAttr = string.Join(' ', vibeTags);
-                            var badgeLabel = vibeTags.Contains("premium") ? "Signature" : (vibeTags.Contains("value") ? "Value" : string.Empty);
-                            var badgeClass = vibeTags.Contains("premium") ? "premium" : (vibeTags.Contains("value") ? "value" : string.Empty);
+                            var badgeLabel = vibeTags.Contains("value") ? "Top Pick" : string.Empty;
+                            var badgeClass = vibeTags.Contains("value") ? "value" : string.Empty;
 
                             <div class="col pos-product" 
                                  data-category="@catId"
@@ -628,6 +642,7 @@
                                  data-takeout-price="@(takeoutPrice.HasValue ? takeoutPrice.Value.ToString("F2") : "")"
                                  data-delivery-price="@(deliveryPrice.HasValue ? deliveryPrice.Value.ToString("F2") : "")"
                                  data-id="@mi.Id"
+                                 data-sales-count="@mi.SalesCount"
                                  data-tags="@tagsAttr">
                                 <div class="card h-100 shadow-sm pos-product-card" role="button" tabindex="0">
                                         <div class="pos-img-wrap">
@@ -822,6 +837,8 @@
                                 <div class="text-muted">GST</div>
                                 <div>₹<span id="posTax">@(Model.Order?.TaxAmount.ToString("F2") ?? "0.00")</span></div>
                             </div>
+                            @if (posShowDiscount)
+                            {
                             <div class="d-flex justify-content-between">
                                 <div class="text-muted">Discount</div>
                                 <div>-₹<span id="posDiscount">@(Model.Order?.DiscountAmount.ToString("F2") ?? "0.00")</span></div>
@@ -850,6 +867,11 @@
                                 </div>
                                 <div class="form-text">Applied once on subtotal; GST recalculated.</div>
                             </div>
+                            }
+                            else
+                            {
+                            <span id="posDiscount" class="d-none">0.00</span>
+                            }
                             <div class="d-flex justify-content-between mt-2">
                                 <div class="fw-semibold">Total</div>
                                 <div class="fw-semibold">₹<span id="posTotal">@(Model.Order?.TotalAmount.ToString("F2") ?? "0.00")</span></div>
@@ -1035,10 +1057,10 @@
             let categoriesCollapsed = false;
             let lastAddedMenuItemId = 0;
             let lastAddedAt = 0;
+            const posDiscountEnabled = @(posShowDiscount ? "true" : "false");
             const priceFilters = {
                 all: null,
-                value: { tag: 'value' },
-                premium: { tag: 'premium' }
+                value: { tag: 'value' }
             };
             let activePriceFilterKey = 'all';
             const summaryEls = {
@@ -2591,6 +2613,7 @@
 
             // Discount (Amount/Percent) - persist via PaymentController, keep POS one-screen
             (function(){
+                if (!posDiscountEnabled) return; // hidden by RestaurantSettings for this branch
                 const applyBtn = document.getElementById('posApplyDiscountBtn');
                 const cancelBtn = document.getElementById('posCancelDiscountBtn');
                 const input = document.getElementById('posDiscountEntry');

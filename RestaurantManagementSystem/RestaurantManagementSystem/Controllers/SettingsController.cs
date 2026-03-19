@@ -166,6 +166,12 @@ namespace RestaurantManagementSystem.Controllers
                 // Bust POS counter required cache so POSOrder reflects changes immediately
                 _cache.Remove("RestaurantSettings.IsCounterRequired");
                 _cache.Set("RestaurantSettings.IsCounterRequired", settings.IsCounterRequired);
+                if (activeBranchId.HasValue)
+                {
+                    _cache.Remove($"RestaurantSettings.IsCounterRequired.Branch{activeBranchId.Value}");
+                    _cache.Remove($"RestaurantSettings.IsRequiredDiscountOnPOS.Branch{activeBranchId.Value}");
+                }
+                _cache.Remove("RestaurantSettings.IsRequiredDiscountOnPOS");
                 
                 TempData["SuccessMessage"] = "Restaurant settings updated successfully.";
                 return RedirectToAction(nameof(Index));

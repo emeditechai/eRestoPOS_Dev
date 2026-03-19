@@ -103,6 +103,10 @@ namespace RestaurantManagementSystem.Models
     [Display(Name = "Not Available")]
     public bool NotAvailable { get; set; } = false; // Separate flag while retaining existing IsAvailable for backward compatibility
         
+        /// <summary>Not persisted. Populated at runtime for POS sort (most selling items first).</summary>
+        [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+        public int SalesCount { get; set; }
+
         // Navigation properties
         public virtual ICollection<MenuItemAllergen> Allergens { get; set; } = new List<MenuItemAllergen>();
         public virtual ICollection<MenuItemIngredient> Ingredients { get; set; } = new List<MenuItemIngredient>();

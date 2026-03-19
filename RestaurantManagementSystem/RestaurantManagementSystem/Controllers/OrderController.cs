@@ -20,6 +20,7 @@ namespace RestaurantManagementSystem.Controllers
         private const string PosSelectedCounterSessionTokenKey = "POS.SelectedCounterSessionToken";
 
         private const string IsCounterRequiredCacheKey = "RestaurantSettings.IsCounterRequired";
+        private const string IsDiscountOnPOSCacheKey = "RestaurantSettings.IsRequiredDiscountOnPOS";
         private const string IsSaleFromInventoryCacheKey = "RestaurantSettings.IsSaleFromInventory";
         private static readonly TimeSpan CounterRequiredCacheDuration = TimeSpan.FromMinutes(2);
         private static readonly TimeSpan SaleFromInventoryCacheDuration = TimeSpan.FromMinutes(2);
@@ -162,6 +163,45 @@ END", connection))
             }
 
             return isRequired;
+        }
+
+        private bool GetShowDiscountOnPOS(int? branchId = null)
+        {
+            // No caching — must reflect settings changes immediately
+            try
+            {
+                bool hasBranchCol    = ColumnExistsInTable("RestaurantSettings", "BranchId");
+                bool hasDiscountCol  = ColumnExistsInTable("RestaurantSettings", "IsRequiredDiscountOnPOS");
+
+                if (!hasDiscountCol)
+                    return true; // column not yet migrated → show discount by default
+
+                string sql = hasBranchCol && branchId.HasValue
+                    ? @"SELECT TOP 1 ISNULL(IsRequiredDiscountOnPOS, 1)
+                        FROM dbo.RestaurantSettings
+                        WHERE BranchId = @BranchId OR BranchId IS NULL
+                        ORDER BY CASE WHEN BranchId = @BranchId THEN 0 ELSE 1 END, Id DESC"
+                    : @"SELECT TOP 1 ISNULL(IsRequiredDiscountOnPOS, 1)
+                        FROM dbo.RestaurantSettings
+                        ORDER BY Id DESC";
+
+                using (var conn = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    conn.Open();
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(sql, conn))
+                    {
+                        if (hasBranchCol && branchId.HasValue)
+                            cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+
+                        var val = cmd.ExecuteScalar();
+                        if (val != null && val != DBNull.Value)
+                            return Convert.ToBoolean(val);
+                    }
+                }
+            }
+            catch { /* fail-safe: show discount */ }
+
+            return true;
         }
 
         private string GetPosBillFormatFromSettings()
@@ -1265,34 +1305,38 @@ SELECT @result;", connection))
                                       BEGIN
                                           IF (@hasRoomServiceCol = 1)
                                           BEGIN
-                                                SELECT Id, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice, RoomServicePrice
-                                                FROM dbo.MenuItems
-                                                WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
-                                                ORDER BY Name
+                                                SELECT m.Id, m.PLUCode, m.Name, m.Description, m.Price, m.TakeoutPrice, m.DeliveryPrice, m.RoomServicePrice,
+                                                       ISNULL((SELECT COUNT(*) FROM dbo.OrderItems oi WHERE oi.MenuItemId = m.Id), 0) AS SalesCount
+                                                FROM dbo.MenuItems m
+                                                WHERE m.IsAvailable = 1 AND (m.menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND m.BranchId = @BranchId" : "") + @"
+                                                ORDER BY SalesCount DESC, m.Price ASC
                                           END
                                           ELSE
                                           BEGIN
-                                                SELECT Id, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice, CAST(NULL AS decimal(18,2)) AS RoomServicePrice
-                                                FROM dbo.MenuItems
-                                                WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
-                                                ORDER BY Name
+                                                SELECT m.Id, m.PLUCode, m.Name, m.Description, m.Price, m.TakeoutPrice, m.DeliveryPrice, CAST(NULL AS decimal(18,2)) AS RoomServicePrice,
+                                                       ISNULL((SELECT COUNT(*) FROM dbo.OrderItems oi WHERE oi.MenuItemId = m.Id), 0) AS SalesCount
+                                                FROM dbo.MenuItems m
+                                                WHERE m.IsAvailable = 1 AND (m.menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND m.BranchId = @BranchId" : "") + @"
+                                                ORDER BY SalesCount DESC, m.Price ASC
                                           END
                                       END
                                       ELSE
                                       BEGIN
                                           IF (@hasRoomServiceCol = 1)
                                           BEGIN
-                                                SELECT Id, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice, RoomServicePrice
-                                                FROM dbo.MenuItems
-                                                WHERE IsAvailable = 1 " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
-                                                ORDER BY Name
+                                                SELECT m.Id, m.PLUCode, m.Name, m.Description, m.Price, m.TakeoutPrice, m.DeliveryPrice, m.RoomServicePrice,
+                                                       ISNULL((SELECT COUNT(*) FROM dbo.OrderItems oi WHERE oi.MenuItemId = m.Id), 0) AS SalesCount
+                                                FROM dbo.MenuItems m
+                                                WHERE m.IsAvailable = 1 " + (hasMenuBranchColumn ? "AND m.BranchId = @BranchId" : "") + @"
+                                                ORDER BY SalesCount DESC, m.Price ASC
                                           END
                                           ELSE
                                           BEGIN
-                                                SELECT Id, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice, CAST(NULL AS decimal(18,2)) AS RoomServicePrice
-                                                FROM dbo.MenuItems
-                                                WHERE IsAvailable = 1 " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
-                                                ORDER BY Name
+                                                SELECT m.Id, m.PLUCode, m.Name, m.Description, m.Price, m.TakeoutPrice, m.DeliveryPrice, CAST(NULL AS decimal(18,2)) AS RoomServicePrice,
+                                                       ISNULL((SELECT COUNT(*) FROM dbo.OrderItems oi WHERE oi.MenuItemId = m.Id), 0) AS SalesCount
+                                                FROM dbo.MenuItems m
+                                                WHERE m.IsAvailable = 1 " + (hasMenuBranchColumn ? "AND m.BranchId = @BranchId" : "") + @"
+                                                ORDER BY SalesCount DESC, m.Price ASC
                                           END
                                       END";
                 using (var icmd = new Microsoft.Data.SqlClient.SqlCommand(sql, connection))
@@ -1316,7 +1360,8 @@ SELECT @result;", connection))
                                 Price = reader.GetDecimal(4),
                                 TakeoutPrice = reader.IsDBNull(5) ? (decimal?)null : reader.GetDecimal(5),
                                 DeliveryPrice = reader.IsDBNull(6) ? (decimal?)null : reader.GetDecimal(6),
-                                RoomServicePrice = reader.IsDBNull(7) ? (decimal?)null : reader.GetDecimal(7)
+                                RoomServicePrice = reader.IsDBNull(7) ? (decimal?)null : reader.GetDecimal(7),
+                                SalesCount = reader.IsDBNull(8) ? 0 : reader.GetInt32(8)
                             });
                         }
                     }
@@ -1411,56 +1456,60 @@ SELECT @result;", connection))
                                  BEGIN
                                     IF (@hasRoomServiceCol = 1)
                                     BEGIN
-                                        SELECT Id, PLUCode, Name, 
+                                        SELECT m.Id, m.PLUCode, m.Name, 
                                             CASE 
-                                                WHEN @OrderType = 1 THEN ISNULL(TakeoutPrice, Price)  -- Takeout
-                                                WHEN @OrderType = 4 THEN ISNULL(RoomServicePrice, ISNULL(DeliveryPrice, Price))  -- Room Service
-                                                WHEN @OrderType IN (2, 3) THEN ISNULL(DeliveryPrice, Price)  -- Delivery or Online
-                                                ELSE Price  -- Dine-In (0) or default
-                                            END AS Price
-                                        FROM dbo.MenuItems
-                                        WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
-                                        ORDER BY Name
+                                                WHEN @OrderType = 1 THEN ISNULL(m.TakeoutPrice, m.Price)  -- Takeout
+                                                WHEN @OrderType = 4 THEN ISNULL(m.RoomServicePrice, ISNULL(m.DeliveryPrice, m.Price))  -- Room Service
+                                                WHEN @OrderType IN (2, 3) THEN ISNULL(m.DeliveryPrice, m.Price)  -- Delivery or Online
+                                                ELSE m.Price  -- Dine-In (0) or default
+                                            END AS Price,
+                                            ISNULL((SELECT COUNT(*) FROM dbo.OrderItems oi WHERE oi.MenuItemId = m.Id), 0) AS SalesCount
+                                        FROM dbo.MenuItems m
+                                        WHERE m.IsAvailable = 1 AND (m.menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND m.BranchId = @BranchId" : "") + @"
+                                        ORDER BY SalesCount DESC, m.Price ASC
                                     END
                                     ELSE
                                     BEGIN
-                                        SELECT Id, PLUCode, Name, 
+                                        SELECT m.Id, m.PLUCode, m.Name, 
                                             CASE 
-                                                WHEN @OrderType = 1 THEN ISNULL(TakeoutPrice, Price)  -- Takeout
-                                                WHEN @OrderType IN (2, 3, 4) THEN ISNULL(DeliveryPrice, Price)  -- Delivery or Online
-                                                ELSE Price  -- Dine-In (0) or default
-                                            END AS Price
-                                        FROM dbo.MenuItems
-                                        WHERE IsAvailable = 1 AND (menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
-                                        ORDER BY Name
+                                                WHEN @OrderType = 1 THEN ISNULL(m.TakeoutPrice, m.Price)  -- Takeout
+                                                WHEN @OrderType IN (2, 3, 4) THEN ISNULL(m.DeliveryPrice, m.Price)  -- Delivery or Online
+                                                ELSE m.Price  -- Dine-In (0) or default
+                                            END AS Price,
+                                            ISNULL((SELECT COUNT(*) FROM dbo.OrderItems oi WHERE oi.MenuItemId = m.Id), 0) AS SalesCount
+                                        FROM dbo.MenuItems m
+                                        WHERE m.IsAvailable = 1 AND (m.menuitemgroupID = @GroupId) " + (hasMenuBranchColumn ? "AND m.BranchId = @BranchId" : "") + @"
+                                        ORDER BY SalesCount DESC, m.Price ASC
                                     END
                                  END
                                  ELSE
                                  BEGIN
                                     IF (@hasRoomServiceCol = 1)
                                     BEGIN
-                                        SELECT Id, PLUCode, Name, 
+                                        SELECT m.Id, m.PLUCode, m.Name, 
                                             CASE 
-                                                WHEN @OrderType = 1 THEN ISNULL(TakeoutPrice, Price)  -- Takeout
-                                                WHEN @OrderType = 4 THEN ISNULL(RoomServicePrice, ISNULL(DeliveryPrice, Price))  -- Room Service
-                                                WHEN @OrderType IN (2, 3) THEN ISNULL(DeliveryPrice, Price)  -- Delivery or Online
-                                                ELSE Price  -- Dine-In (0) or default
-                                            END AS Price
-                                        FROM dbo.MenuItems
-                                        WHERE IsAvailable = 1 " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
-                                        ORDER BY Name
+                                                WHEN @OrderType = 1 THEN ISNULL(m.TakeoutPrice, m.Price)  -- Takeout
+                                                WHEN @OrderType = 4 THEN ISNULL(m.RoomServicePrice, ISNULL(m.DeliveryPrice, m.Price))  -- Room Service
+                                                WHEN @OrderType IN (2, 3) THEN ISNULL(m.DeliveryPrice, m.Price)  -- Delivery or Online
+                                                ELSE m.Price  -- Dine-In (0) or default
+                                            END AS Price,
+                                            ISNULL((SELECT COUNT(*) FROM dbo.OrderItems oi WHERE oi.MenuItemId = m.Id), 0) AS SalesCount
+                                        FROM dbo.MenuItems m
+                                        WHERE m.IsAvailable = 1 " + (hasMenuBranchColumn ? "AND m.BranchId = @BranchId" : "") + @"
+                                        ORDER BY SalesCount DESC, m.Price ASC
                                     END
                                     ELSE
                                     BEGIN
-                                        SELECT Id, PLUCode, Name, 
+                                        SELECT m.Id, m.PLUCode, m.Name, 
                                             CASE 
-                                                WHEN @OrderType = 1 THEN ISNULL(TakeoutPrice, Price)  -- Takeout
-                                                WHEN @OrderType IN (2, 3, 4) THEN ISNULL(DeliveryPrice, Price)  -- Delivery or Online
-                                                ELSE Price  -- Dine-In (0) or default
-                                            END AS Price
-                                        FROM dbo.MenuItems
-                                        WHERE IsAvailable = 1 " + (hasMenuBranchColumn ? "AND BranchId = @BranchId" : "") + @"
-                                        ORDER BY Name
+                                                WHEN @OrderType = 1 THEN ISNULL(m.TakeoutPrice, m.Price)  -- Takeout
+                                                WHEN @OrderType IN (2, 3, 4) THEN ISNULL(m.DeliveryPrice, m.Price)  -- Delivery or Online
+                                                ELSE m.Price  -- Dine-In (0) or default
+                                            END AS Price,
+                                            ISNULL((SELECT COUNT(*) FROM dbo.OrderItems oi WHERE oi.MenuItemId = m.Id), 0) AS SalesCount
+                                        FROM dbo.MenuItems m
+                                        WHERE m.IsAvailable = 1 " + (hasMenuBranchColumn ? "AND m.BranchId = @BranchId" : "") + @"
+                                        ORDER BY SalesCount DESC, m.Price ASC
                                     END
                                  END";
                     using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(sql, connection))
@@ -1481,7 +1530,8 @@ SELECT @result;", connection))
                                     Id = r.GetInt32(0),
                                     PLUCode = r.IsDBNull(1) ? null : r.GetString(1),
                                     Name = r.GetString(2),
-                                    Price = r.GetDecimal(3)
+                                    Price = r.GetDecimal(3),
+                                    SalesCount = r.IsDBNull(4) ? 0 : r.GetInt32(4)
                                 });
                             }
                         }
@@ -3066,9 +3116,11 @@ SELECT @result;", connection))
             ViewData["Title"] = "POS Order";
 
             var isCounterRequired = GetIsCounterRequiredForPos(activeBranchId);
+            var showDiscountOnPOS   = GetShowDiscountOnPOS(activeBranchId);
 
             // Defaults (no counter UI unless explicitly required)
             ViewBag.PosIsCounterRequired = isCounterRequired;
+            ViewBag.PosShowDiscount      = showDiscountOnPOS;
             ViewBag.PosRequireCounterSelection = false;
             ViewBag.PosCounters = new List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>();
             ViewBag.PosSelectedCounterId = 0;
