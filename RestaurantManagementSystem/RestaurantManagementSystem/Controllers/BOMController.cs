@@ -198,12 +198,7 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
             if (!MenuItemBelongsToBranch(req.MenuItemId, branchId.Value))
                 return Json(new { success = false, message = "Access denied: item not in active branch." });
 
-            // New lines only: ingredient must have stock in this branch — no fallback to master cost
-            if (req.LineId == 0 && !IngredientHasStockInBranch(req.IngredientId, branchId.Value))
-            {
-                var ingName = GetIngredientNameForValidation(req.IngredientId);
-                return Json(new { success = false, message = $"Cannot add \u201c{ingName}\u201d \u2013 this ingredient has no stock in the current branch. Please receive stock before adding it to the BOM." });
-            }
+            // Ingredients with no stock are allowed — they contribute ₹0 line cost until stock is received.
 
             try
             {

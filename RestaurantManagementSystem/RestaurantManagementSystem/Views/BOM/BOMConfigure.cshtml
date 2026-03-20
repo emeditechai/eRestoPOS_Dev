@@ -43,12 +43,11 @@
 </style>
 
 <!-- Info: live avg cost, no fallback -->
-<div class="alert alert-warning alert-dismissible fade show py-2 px-3 mb-3 small" role="alert">
-    <i class="fas fa-exclamation-triangle me-1"></i>
-    <strong>Stock Cost Only:</strong> Ingredient costs are taken exclusively from the
-    <strong>branch-wise weighted average stock cost</strong> (AverageCost from <em>CurrentStock</em>).
-    Ingredients with <strong>no stock in this branch cannot be added to the BOM</strong>.
-    Receive stock first to unlock them.
+<div class="alert alert-info alert-dismissible fade show py-2 px-3 mb-3 small" role="alert">
+    <i class="fas fa-info-circle me-1"></i>
+    <strong>Branch Stock Cost:</strong> Ingredient line costs use the
+    <strong>branch-wise weighted average stock cost</strong> from <em>CurrentStock</em>.
+    Ingredients with <strong>no current stock contribute ₹0 to the BOM cost</strong> — they can still be added and cost will update automatically once stock is received.
     <button type="button" class="btn-close py-1" data-bs-dismiss="alert"></button>
 </div>
 
@@ -307,7 +306,7 @@
                 <strong>Line Cost</strong> = Qty (Consumption UOM) &divide; Conversion Factor &times; <strong>Avg Stock Cost</strong> (branch weighted avg per Purchase UOM)<br>
                 <strong>Total BOM Cost</strong> = &Sigma; Line Costs &divide; (Yield % / 100)<br>
                 <strong>Gross Margin %</strong> = (Selling Price &minus; BOM Cost) &divide; Selling Price &times; 100<br>
-                <small class="text-info"><i class="fas fa-info-circle me-1"></i>Avg Stock Cost = SUM(BalanceQty &times; AverageCost) / SUM(BalanceQty) across all godowns of the active branch. Falls back to item-master cost when no stock.</small>
+                <small class="text-info"><i class="fas fa-info-circle me-1"></i>Avg Stock Cost = SUM(BalanceQty &times; AverageCost) / SUM(BalanceQty) across all godowns of the active branch. Ingredients with no stock contribute &nbsp;&zwnj;&#8377;0 to BOM cost &mdash; cost updates automatically once stock is received.</small>
             </div>
         </div>
 
@@ -549,11 +548,9 @@ function onIngredientChange() {
                 badge.className     = 'badge bg-success-subtle text-success border ms-1';
                 hint.textContent    = 'Using live stock avg cost ₹' + info.standardCost.toFixed(4);
             } else {
-                badge.textContent   = 'Master';
-                badge.className     = 'badge bg-secondary-subtle text-secondary border ms-1';
-                hint.textContent    = info.standardCost > 0
-                    ? 'No stock found. Using item-master cost ₹' + info.standardCost.toFixed(4)
-                    : 'No stock & no master cost — cost will be ₹0';
+                badge.textContent   = 'No Stock';
+                badge.className     = 'badge bg-warning-subtle text-warning border ms-1';
+                hint.textContent    = 'No stock yet — line cost will be ₹0 until stock is received';
             }
         }
     } else {
@@ -610,14 +607,9 @@ async function submitAddLine() {
     if (!ingId)  { showToast('Please select an ingredient.', 'warning'); return; }
     if (qty <= 0){ showToast('Quantity must be greater than 0.', 'warning'); return; }
 
-    // ── 2. Client-side stock guard ────────────────────────────────────────────
     const ingInfo = INGREDIENT_MAP[ingId];
-    if (ingInfo && !ingInfo.hasLiveCost) {
-        showToast(`\u201c${ingInfo.name}\u201d has no stock in this branch. Receive stock first.`, 'danger');
-        return;
-    }
 
-    // ── 3. Save to server ─────────────────────────────────────────────────────
+    // ── 2. Save to server ─────────────────────────────────────────────────────
     const res = await postJSON('/BOM/SaveBOMLine', {
         lineId: 0,
         menuItemId:   MENU_ITEM_ID,
@@ -632,10 +624,10 @@ async function submitAddLine() {
         return;
     }
 
-    // ── 4. Update summary panel ───────────────────────────────────────────────
+    // ── 3. Update summary panel ───────────────────────────────────────────────
     updateSummaryPanel(res.computedCost, res.grossMarginPct, res.takeoutMarginPct, res.deliveryMarginPct, res.roomServiceMarginPct);
 
-    // ── 5. Inject new row into the table ─────────────────────────────────────
+    // ── 4. Inject new row into the table ─────────────────────────────────────
     const lineId   = res.lineId;
     const imap     = ingInfo || {};
     const conv     = parseFloat(imap.convFactor)   || 1;
@@ -694,7 +686,7 @@ async function submitAddLine() {
 
     document.getElementById('bomLinesBody').appendChild(tr);
 
-    // ── 6. Update badge + footer total ───────────────────────────────────────
+    // ── 5. Update badge + footer total ───────────────────────────────────────
     const allRows = document.querySelectorAll('#bomLinesBody tr.ingredient-line');
     const badge = document.getElementById('lineCountBadge');
     if (badge) badge.textContent = allRows.length;
@@ -707,9 +699,9 @@ async function submitAddLine() {
     const rawCostEl = document.getElementById('totalRawCost');
     if (rawCostEl) rawCostEl.textContent = '₹' + rawTotal.toFixed(4);
 
-    // ── 7. Reload page to reflect new ingredient line ────────────────────────
+    // ── 6. Hide form and show success toast ───────────────────────────────────
+    hideAddForm();
     showToast(res.message || 'Ingredient added to BOM.', 'success');
-    setTimeout(() => location.reload(), 800);
 }
 
 // ─── Inline Qty Update ────────────────────────────────────────────────────────
@@ -787,35 +779,37 @@ async function recalcCost() {
 }
 
 // ─── Summary panel update ─────────────────────────────────────────────────────
-function updateSummaryPanel(cost, margin) {
-    const costEl   = document.getElementById('summaryBOMCost');
-    const marginEl = document.getElementById('summaryMargin');
-    const guideEl  = document.getElementById('marginGuidance');
-    const lastEl   = document.getElementById('summaryLastCalc');
+function updateSummaryPanel(cost, grossMarginPct, takeoutMarginPct, deliveryMarginPct, roomSvcMarginPct) {
+    const costEl = document.getElementById('summaryBOMCost');
+    const lastEl = document.getElementById('summaryLastCalc');
 
-    if (cost != null) {
-        costEl.textContent = '₹' + parseFloat(cost).toFixed(4);
-    } else {
-        costEl.textContent = '—';
+    if (costEl) {
+        costEl.textContent = cost != null ? '₹' + parseFloat(cost).toFixed(4) : '—';
     }
 
-    if (margin != null) {
-        const m = parseFloat(margin);
-        marginEl.textContent = m.toFixed(1) + '%';
-        marginEl.className = 'margin-big ' +
-            (m >= 60 ? 'text-success' : m >= 40 ? 'text-warning' : 'text-danger');
-        guideEl.textContent = m >= 60 ? '✅ Excellent margin'
-            : m >= 40 ? '⚠️ Acceptable – review costs'
-            : '❌ Low margin – consider repricing';
-    } else {
-        marginEl.textContent = '—';
-        marginEl.className = 'margin-big text-secondary';
-        guideEl.textContent = '';
+    // Helper to render a margin badge
+    function renderMarginBadge(elId, pct) {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        if (pct == null) {
+            el.outerHTML = `<span class="text-muted" id="${elId}">—</span>`;
+            return;
+        }
+        const m = parseFloat(pct);
+        const cls = m >= 60 ? 'bg-success' : m >= 40 ? 'bg-warning text-dark' : 'bg-danger';
+        el.outerHTML = `<span class="badge ${cls} rounded-pill" id="${elId}">${m.toFixed(1)}%</span>`;
     }
+
+    renderMarginBadge('marginBadge_base',    grossMarginPct);
+    renderMarginBadge('marginBadge_takeout', takeoutMarginPct);
+    renderMarginBadge('marginBadge_delivery',deliveryMarginPct);
+    renderMarginBadge('marginBadge_roomsvc', roomSvcMarginPct);
 
     const now = new Date();
-    lastEl.textContent = now.toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'})
-        + ', ' + now.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',hour12:false});
+    if (lastEl) {
+        lastEl.textContent = now.toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'})
+            + ', ' + now.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',hour12:false});
+    }
 }
 
 // ─── Generic POST helper ──────────────────────────────────────────────────────
