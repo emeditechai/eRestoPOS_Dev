@@ -516,5 +516,276 @@ namespace RestaurantManagementSystem.Controllers
                 }
             }
         }
+
+        // ── Static helper: log a system (non-order) audit entry ──────────────
+        public static async Task LogSystemAuditAsync(
+            string connectionString,
+            string module,
+            string action,
+            int? entityId,
+            string? entityName,
+            string? fieldName,
+            string? oldValue,
+            string? newValue,
+            int? branchId,
+            int changedBy,
+            string changedByName,
+            string? ipAddress = null,
+            string? additionalInfo = null)
+        {
+            try
+            {
+                using var connection = new SqlConnection(connectionString);
+                await connection.OpenAsync();
+
+                // When trigger-based audit capture is installed for this module,
+                // let SQL Server triggers own the log entry to avoid duplicates.
+                if (SystemAuditBootstrapper.HasTriggerBasedAuditForModule(connection, module))
+                {
+                    return;
+                }
+
+                // Ensure table exists (idempotent inline DDL)
+                using (var ddl = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'SystemAuditLog')
+                    BEGIN
+                        CREATE TABLE dbo.SystemAuditLog
+                        (
+                            Id            INT           IDENTITY(1,1) PRIMARY KEY,
+                            Module        NVARCHAR(100) NOT NULL,
+                            Action        NVARCHAR(50)  NOT NULL,
+                            EntityId      INT           NULL,
+                            EntityName    NVARCHAR(500) NULL,
+                            FieldName     NVARCHAR(200) NULL,
+                            OldValue      NVARCHAR(MAX) NULL,
+                            NewValue      NVARCHAR(MAX) NULL,
+                            BranchId      INT           NULL,
+                            ChangedBy     INT           NOT NULL,
+                            ChangedByName NVARCHAR(200) NOT NULL,
+                            ChangedDate   DATETIME      NOT NULL DEFAULT GETDATE(),
+                            IPAddress     NVARCHAR(50)  NULL,
+                            AdditionalInfo NVARCHAR(MAX) NULL
+                        );
+                        CREATE INDEX IX_SystemAuditLog_Module      ON dbo.SystemAuditLog(Module);
+                        CREATE INDEX IX_SystemAuditLog_ChangedDate ON dbo.SystemAuditLog(ChangedDate DESC);
+                        CREATE INDEX IX_SystemAuditLog_ChangedBy   ON dbo.SystemAuditLog(ChangedBy);
+                        CREATE INDEX IX_SystemAuditLog_BranchId    ON dbo.SystemAuditLog(BranchId);
+                    END", connection))
+                {
+                    await ddl.ExecuteNonQueryAsync();
+                }
+
+                using var cmd = new SqlCommand(@"
+                    INSERT INTO dbo.SystemAuditLog
+                        (Module, Action, EntityId, EntityName, FieldName,
+                         OldValue, NewValue, BranchId,
+                         ChangedBy, ChangedByName, ChangedDate, IPAddress, AdditionalInfo)
+                    VALUES
+                        (@Module, @Action, @EntityId, @EntityName, @FieldName,
+                         @OldValue, @NewValue, @BranchId,
+                         @ChangedBy, @ChangedByName, GETDATE(), @IPAddress, @AdditionalInfo)", connection);
+
+                cmd.Parameters.AddWithValue("@Module",         module);
+                cmd.Parameters.AddWithValue("@Action",         action);
+                cmd.Parameters.AddWithValue("@EntityId",       (object?)entityId    ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@EntityName",     (object?)entityName  ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@FieldName",      (object?)fieldName   ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@OldValue",       (object?)oldValue    ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@NewValue",       (object?)newValue    ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@BranchId",       (object?)branchId    ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ChangedBy",      changedBy);
+                cmd.Parameters.AddWithValue("@ChangedByName",  changedByName);
+                cmd.Parameters.AddWithValue("@IPAddress",      (object?)ipAddress   ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@AdditionalInfo", (object?)additionalInfo ?? DBNull.Value);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                // Audit logging must never break the main flow — log to console for diagnostics
+                System.Diagnostics.Debug.WriteLine($"[SystemAudit] Failed to log: {module}/{action} — {ex.Message}");
+                Console.WriteLine($"[SystemAudit ERROR] {module}/{action} entity={entityName}: {ex.Message}");
+            }
+        }
+
+        // GET: AuditTrail/SystemLogsDiag  — quick JSON diagnostic (no view needed)
+        [HttpGet]
+        public async Task<IActionResult> SystemLogsDiag()
+        {
+            try
+            {
+                using var conn = new SqlConnection(_connectionString);
+                await conn.OpenAsync();
+
+                var tblExists = Convert.ToInt32(await new SqlCommand(
+                    "SELECT COUNT(1) FROM sys.tables WHERE name='SystemAuditLog'", conn).ExecuteScalarAsync()) > 0;
+                if (!tblExists) return Json(new { tableExists = false, rowCount = 0 });
+
+                var rowCount = Convert.ToInt32(await new SqlCommand(
+                    "SELECT COUNT(*) FROM dbo.SystemAuditLog", conn).ExecuteScalarAsync());
+
+                var recentRows = new List<object>();
+                using var cmd = new SqlCommand(
+                    "SELECT TOP 5 Id, Module, Action, EntityName, BranchId, ChangedByName, ChangedDate FROM dbo.SystemAuditLog ORDER BY ChangedDate DESC", conn);
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
+                {
+                    recentRows.Add(new
+                    {
+                        Id         = rdr.GetInt32(0),
+                        Module     = rdr.GetString(1),
+                        Action     = rdr.GetString(2),
+                        EntityName = rdr.IsDBNull(3) ? null : rdr.GetString(3),
+                        BranchId   = rdr.IsDBNull(4) ? (int?)null : rdr.GetInt32(4),
+                        ChangedBy  = rdr.GetString(5),
+                        ChangedDate= rdr.GetDateTime(6).ToString("yyyy-MM-dd HH:mm:ss")
+                    });
+                }
+
+                return Json(new { tableExists = true, rowCount, recentRows });
+            }
+            catch (Exception ex)
+            {
+                return Json(new { error = ex.Message });
+            }
+        }
+
+        // GET: AuditTrail/SystemLogs  — view system (non-order) audit log
+        public async Task<IActionResult> SystemLogs(
+            string? module, string? auditAction, int? userId,
+            DateTime? startDate, DateTime? endDate,
+            string? searchTerm, int page = 1, int pageSize = 50)
+        {
+            var activeBranchId = User.GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected.";
+                return RedirectToAction("Index", "Home");
+            }
+
+            if (!startDate.HasValue) startDate = DateTime.Now.AddDays(-30);
+            if (!endDate.HasValue)   endDate   = DateTime.Now.AddDays(1);
+
+            var vm = new SystemAuditLogViewModel
+            {
+                Module      = module,
+                Action      = auditAction,
+                UserId      = userId,
+                StartDate   = startDate,
+                EndDate     = endDate,
+                SearchTerm  = searchTerm,
+                CurrentPage = page,
+                PageSize    = pageSize
+            };
+
+            try
+            {
+                await LoadSystemAuditDataAsync(vm, activeBranchId.Value);
+            }
+            catch (Exception ex)
+            {
+                ViewBag.ErrorMessage = $"Error loading system audit log: {ex.Message}";
+            }
+
+            return View(vm);
+        }
+
+        private async Task LoadSystemAuditDataAsync(SystemAuditLogViewModel vm, int branchId)
+        {
+            using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            // Check table exists
+            var tblExists = Convert.ToInt32(await new SqlCommand(
+                "SELECT COUNT(1) FROM sys.tables WHERE name='SystemAuditLog'", connection).ExecuteScalarAsync()) > 0;
+            if (!tblExists) { vm.TotalRecords = 0; return; }
+
+            var where = new List<string>
+            {
+                "(@StartDate IS NULL OR ChangedDate >= @StartDate)",
+                "(@EndDate   IS NULL OR ChangedDate <= @EndDate)",
+                "(@UserId    IS NULL OR ChangedBy   = @UserId)",
+                "(@Module    IS NULL OR Module       = @Module)",
+                "(@Action    IS NULL OR Action       = @Action)"
+            };
+            if (!string.IsNullOrWhiteSpace(vm.SearchTerm))
+            {
+                where.Add(@"(Module LIKE '%'+@Search+'%' OR Action LIKE '%'+@Search+'%'
+                    OR EntityName LIKE '%'+@Search+'%' OR ChangedByName LIKE '%'+@Search+'%'
+                    OR OldValue LIKE '%'+@Search+'%' OR NewValue LIKE '%'+@Search+'%')");
+            }
+            var whereClause = string.Join(" AND ", where);
+            var offset = (vm.CurrentPage - 1) * vm.PageSize;
+
+            void AddParams(SqlCommand c)
+            {
+                c.Parameters.AddWithValue("@StartDate", (object?)vm.StartDate ?? DBNull.Value);
+                c.Parameters.AddWithValue("@EndDate",   (object?)vm.EndDate   ?? DBNull.Value);
+                c.Parameters.AddWithValue("@UserId",    (object?)vm.UserId    ?? DBNull.Value);
+                c.Parameters.AddWithValue("@Module",    string.IsNullOrWhiteSpace(vm.Module) ? (object)DBNull.Value : vm.Module);
+                c.Parameters.AddWithValue("@Action",    string.IsNullOrWhiteSpace(vm.Action) ? (object)DBNull.Value : vm.Action);
+                if (!string.IsNullOrWhiteSpace(vm.SearchTerm))
+                    c.Parameters.AddWithValue("@Search", vm.SearchTerm);
+            }
+
+            using (var cnt = new SqlCommand($"SELECT COUNT(*) FROM dbo.SystemAuditLog WHERE {whereClause}", connection))
+            {
+                AddParams(cnt);
+                vm.TotalRecords = Convert.ToInt32(await cnt.ExecuteScalarAsync());
+            }
+
+            using (var dat = new SqlCommand($@"
+                SELECT Id, Module, Action, EntityId, EntityName, FieldName,
+                       OldValue, NewValue, BranchId, ChangedBy, ChangedByName,
+                       ChangedDate, IPAddress, AdditionalInfo
+                FROM dbo.SystemAuditLog
+                WHERE {whereClause}
+                ORDER BY ChangedDate DESC
+                OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY", connection))
+            {
+                AddParams(dat);
+                dat.Parameters.AddWithValue("@Offset",   offset);
+                dat.Parameters.AddWithValue("@PageSize",  vm.PageSize);
+
+                using var reader = await dat.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    vm.Records.Add(new SystemAuditLogEntry
+                    {
+                        Id            = reader.GetInt32(0),
+                        Module        = reader.GetString(1),
+                        Action        = reader.GetString(2),
+                        EntityId      = reader.IsDBNull(3)  ? null : reader.GetInt32(3),
+                        EntityName    = reader.IsDBNull(4)  ? null : reader.GetString(4),
+                        FieldName     = reader.IsDBNull(5)  ? null : reader.GetString(5),
+                        OldValue      = reader.IsDBNull(6)  ? null : reader.GetString(6),
+                        NewValue      = reader.IsDBNull(7)  ? null : reader.GetString(7),
+                        BranchId      = reader.IsDBNull(8)  ? null : reader.GetInt32(8),
+                        ChangedBy     = reader.GetInt32(9),
+                        ChangedByName = reader.GetString(10),
+                        ChangedDate   = reader.GetDateTime(11),
+                        IPAddress     = reader.IsDBNull(12) ? null : reader.GetString(12),
+                        AdditionalInfo= reader.IsDBNull(13) ? null : reader.GetString(13)
+                    });
+                }
+            }
+
+            // Populate filter drop-down options
+            using (var modCmd = new SqlCommand("SELECT DISTINCT Module FROM dbo.SystemAuditLog ORDER BY Module", connection))
+            using (var modReader = await modCmd.ExecuteReaderAsync())
+            {
+                vm.Modules.Add(("", "All Modules"));
+                while (await modReader.ReadAsync())
+                    vm.Modules.Add((modReader.GetString(0), modReader.GetString(0)));
+            }
+
+            using (var usrCmd = new SqlCommand("SELECT DISTINCT ChangedBy, ChangedByName FROM dbo.SystemAuditLog ORDER BY ChangedByName", connection))
+            using (var usrReader = await usrCmd.ExecuteReaderAsync())
+            {
+                vm.Users.Add(("", "All Users"));
+                while (await usrReader.ReadAsync())
+                    vm.Users.Add((usrReader.GetInt32(0).ToString(), usrReader.GetString(1)));
+            }
+        }
     }
 }

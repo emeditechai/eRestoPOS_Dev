@@ -64,4 +64,44 @@ namespace RestaurantManagementSystem.Models
         public string UserName { get; set; } = string.Empty;
         public int ActivityCount { get; set; }
     }
+
+    // ── System (non-order) audit log models ─────────────────────────────────
+    public class SystemAuditLogEntry
+    {
+        public int Id { get; set; }
+        public string Module { get; set; } = string.Empty;
+        public string Action { get; set; } = string.Empty;
+        public int? EntityId { get; set; }
+        public string? EntityName { get; set; }
+        public string? FieldName { get; set; }
+        public string? OldValue { get; set; }
+        public string? NewValue { get; set; }
+        public int? BranchId { get; set; }
+        public int ChangedBy { get; set; }
+        public string ChangedByName { get; set; } = string.Empty;
+        public DateTime ChangedDate { get; set; }
+        public string? IPAddress { get; set; }
+        public string? AdditionalInfo { get; set; }
+    }
+
+    public class SystemAuditLogViewModel
+    {
+        public List<SystemAuditLogEntry> Records { get; set; } = new();
+        public int TotalRecords { get; set; }
+        public int CurrentPage { get; set; } = 1;
+        public int PageSize { get; set; } = 50;
+        public int TotalPages => (int)Math.Ceiling((double)TotalRecords / PageSize);
+
+        // Filters
+        public string? Module { get; set; }
+        public string? Action { get; set; }
+        public int? UserId { get; set; }
+        public DateTime? StartDate { get; set; }
+        public DateTime? EndDate { get; set; }
+        public string? SearchTerm { get; set; }
+
+        // Drop-down options
+        public List<(string Value, string Text)> Modules { get; set; } = new();
+        public List<(string Value, string Text)> Users { get; set; } = new();
+    }
 }

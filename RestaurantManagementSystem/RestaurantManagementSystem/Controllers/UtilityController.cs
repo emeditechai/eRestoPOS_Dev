@@ -4,6 +4,7 @@ using Microsoft.Data.SqlClient;
 using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace RestaurantManagementSystem.Controllers
 {
@@ -64,7 +65,7 @@ namespace RestaurantManagementSystem.Controllers
         // ═══════════════════════════════════════════════════════════════
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult SaveMenuItemRate([FromBody] SaveRateRequest req)
+        public async Task<IActionResult> SaveMenuItemRate([FromBody] SaveRateRequest req)
         {
             if (req == null || req.MenuItemId == 0)
                 return Json(new { success = false, message = "Invalid request." });
@@ -80,8 +81,29 @@ namespace RestaurantManagementSystem.Controllers
 
             try
             {
+                // Read old values for audit
+                decimal oldBase = 0; decimal? oldTakeout = null, oldDelivery = null, oldRoomSvc = null;
+                string itemName = "";
+                using (var connR = new SqlConnection(_connectionString))
+                {
+                    connR.Open();
+                    using var cmdR = new SqlCommand(
+                        "SELECT ISNULL(Name,''), ISNULL(Price,0), TakeoutPrice, DeliveryPrice, RoomServicePrice FROM dbo.MenuItems WHERE Id=@Id", connR);
+                    cmdR.Parameters.AddWithValue("@Id", req.MenuItemId);
+                    using var rdr = cmdR.ExecuteReader();
+                    if (rdr.Read())
+                    {
+                        itemName   = rdr.GetString(0);
+                        oldBase    = rdr.GetDecimal(1);
+                        oldTakeout = rdr.IsDBNull(2) ? null : (decimal?)rdr.GetDecimal(2);
+                        oldDelivery= rdr.IsDBNull(3) ? null : (decimal?)rdr.GetDecimal(3);
+                        oldRoomSvc = rdr.IsDBNull(4) ? null : (decimal?)rdr.GetDecimal(4);
+                    }
+                }
+
                 using var conn = new SqlConnection(_connectionString);
                 conn.Open();
+                SqlAuditContext.Apply(conn, User, HttpContext, activeBranchId.Value, "MenuItemRate");
                 using var cmd = new SqlCommand(@"
 UPDATE dbo.MenuItems
 SET    Price             = @BasePrice,
@@ -97,6 +119,19 @@ WHERE  Id = @MenuItemId", conn);
                 int rows = cmd.ExecuteNonQuery();
                 if (rows == 0)
                     return Json(new { success = false, message = "Menu item not found." });
+
+                // Audit
+                var uid  = User.GetUserId() ?? 0;
+                var uname= User.Identity?.Name ?? "Unknown";
+                var oldSummary = $"Base:{oldBase}, Takeout:{oldTakeout}, Delivery:{oldDelivery}, RoomSvc:{oldRoomSvc}";
+                var newSummary = $"Base:{req.BasePrice}, Takeout:{req.TakeoutPrice}, Delivery:{req.DeliveryPrice}, RoomSvc:{req.RoomServicePrice}";
+                try { await AuditTrailController.LogSystemAuditAsync(
+                    _connectionString, "MenuItemRate", "Update",
+                    req.MenuItemId, itemName, "Prices",
+                    oldSummary, newSummary,
+                    activeBranchId.Value, uid, uname,
+                    HttpContext.Connection.RemoteIpAddress?.ToString()); } catch { }
+
                 return Json(new { success = true, message = "Rate updated successfully." });
             }
             catch (Exception ex)
@@ -110,7 +145,7 @@ WHERE  Id = @MenuItemId", conn);
         // ═══════════════════════════════════════════════════════════════
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult SaveAllMenuItemRates([FromBody] SaveAllRatesRequest req)
+        public async Task<IActionResult> SaveAllMenuItemRates([FromBody] SaveAllRatesRequest req)
         {
             if (req == null || req.Items == null || req.Items.Count == 0)
                 return Json(new { success = false, message = "No items to save." });
@@ -122,9 +157,13 @@ WHERE  Id = @MenuItemId", conn);
             bool isMain = IsActiveBranchMain(activeBranchId.Value);
             int saved = 0;
             var errors = new List<string>();
+            var uid   = User.GetUserId() ?? 0;
+            var uname = User.Identity?.Name ?? "Unknown";
+            var ip    = HttpContext.Connection.RemoteIpAddress?.ToString();
 
             using var conn = new SqlConnection(_connectionString);
             conn.Open();
+            SqlAuditContext.Apply(conn, User, HttpContext, activeBranchId.Value, "MenuItemRate");
 
             foreach (var item in req.Items)
             {
@@ -136,6 +175,24 @@ WHERE  Id = @MenuItemId", conn);
                 }
                 try
                 {
+                    // Read old values
+                    string itemName = ""; decimal oldBase = 0;
+                    decimal? oldTakeout = null, oldDelivery = null, oldRoomSvc = null;
+                    using (var cmdR = new SqlCommand(
+                        "SELECT ISNULL(Name,''), ISNULL(Price,0), TakeoutPrice, DeliveryPrice, RoomServicePrice FROM dbo.MenuItems WHERE Id=@Id", conn))
+                    {
+                        cmdR.Parameters.AddWithValue("@Id", item.MenuItemId);
+                        using var rdr = cmdR.ExecuteReader();
+                        if (rdr.Read())
+                        {
+                            itemName    = rdr.GetString(0);
+                            oldBase     = rdr.GetDecimal(1);
+                            oldTakeout  = rdr.IsDBNull(2) ? null : (decimal?)rdr.GetDecimal(2);
+                            oldDelivery = rdr.IsDBNull(3) ? null : (decimal?)rdr.GetDecimal(3);
+                            oldRoomSvc  = rdr.IsDBNull(4) ? null : (decimal?)rdr.GetDecimal(4);
+                        }
+                    }
+
                     using var cmd = new SqlCommand(@"
 UPDATE dbo.MenuItems
 SET    Price             = @BasePrice,
@@ -150,6 +207,17 @@ WHERE  Id = @MenuItemId", conn);
                     cmd.Parameters.AddWithValue("@RoomServicePrice",  (object?)item.RoomServicePrice ?? DBNull.Value);
                     cmd.ExecuteNonQuery();
                     saved++;
+
+                    var old = $"Base:{oldBase}, Takeout:{oldTakeout}, Delivery:{oldDelivery}, RoomSvc:{oldRoomSvc}";
+                    var nw  = $"Base:{item.BasePrice}, Takeout:{item.TakeoutPrice}, Delivery:{item.DeliveryPrice}, RoomSvc:{item.RoomServicePrice}";
+                    try
+                    {
+                        await AuditTrailController.LogSystemAuditAsync(
+                            _connectionString, "MenuItemRate", "Update",
+                            item.MenuItemId, itemName, "Prices", old, nw,
+                            activeBranchId.Value, uid, uname, ip);
+                    }
+                    catch { /* audit must not break bulk save */ }
                 }
                 catch (Exception ex)
                 {

@@ -90,7 +90,12 @@ namespace RestaurantManagementSystem.Data
             // Configure MenuItem entity
             modelBuilder.Entity<MenuItem>(entity =>
             {
-                entity.ToTable("MenuItems", "dbo");
+                entity.ToTable("MenuItems", "dbo", tableBuilder =>
+                {
+                    tableBuilder.HasTrigger("trg_SystemAudit_MenuItems");
+                    tableBuilder.UseSqlOutputClause(false);
+                });
+                entity.Metadata.UseSqlOutputClause(false);
                 
                 // Configure foreign key relationship with Category
                 entity.HasOne(m => m.Category)
@@ -131,7 +136,12 @@ namespace RestaurantManagementSystem.Data
             // Configure UomMaster entity
             modelBuilder.Entity<UomMaster>(entity =>
             {
-                entity.ToTable("UomMaster", "dbo");
+                entity.ToTable("UomMaster", "dbo", tableBuilder =>
+                {
+                    tableBuilder.HasTrigger("trg_SystemAudit_UomMaster");
+                    tableBuilder.UseSqlOutputClause(false);
+                });
+                entity.Metadata.UseSqlOutputClause(false);
                 entity.HasKey(e => e.UOMId);
                 entity.Property(e => e.UOMCode).HasColumnName("UOMCode").IsRequired().HasMaxLength(15);
                 entity.Property(e => e.UOMName).HasColumnName("UOMName").IsRequired().HasMaxLength(100);
@@ -160,7 +170,12 @@ namespace RestaurantManagementSystem.Data
             // Configure enhanced Ingredients (Item Master) entity
             modelBuilder.Entity<Ingredients>(entity =>
             {
-                entity.ToTable("Ingredients", "dbo");
+                entity.ToTable("Ingredients", "dbo", tableBuilder =>
+                {
+                    tableBuilder.HasTrigger("trg_SystemAudit_Ingredients");
+                    tableBuilder.UseSqlOutputClause(false);
+                });
+                entity.Metadata.UseSqlOutputClause(false);
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.IngredientsName).HasColumnName("IngredientsName").IsRequired().HasMaxLength(150);
                 entity.Property(e => e.DisplayName).HasColumnName("DisplayName").HasMaxLength(150);

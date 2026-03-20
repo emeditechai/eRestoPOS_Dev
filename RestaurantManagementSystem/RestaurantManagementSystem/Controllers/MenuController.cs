@@ -549,7 +549,7 @@ END
         // POST: Menu/Create
         [HttpPostAttribute]
         [ValidateAntiForgeryTokenAttribute]
-        public IActionResult Create(MenuItemViewModel model)
+        public async Task<IActionResult> Create(MenuItemViewModel model)
         {
             if (!TryGetMenuFormBranchContext(out var activeBranchId, out var isMainBranch))
             {
@@ -709,6 +709,23 @@ END
                         AddMenuItemModifiers(menuItemId, model.SelectedModifiers, model.ModifierPrices);
                     }
 
+                    // Audit log
+                    try
+                    {
+                        await AuditTrailController.LogSystemAuditAsync(
+                            _connectionString, "MenuItem", "Create",
+                            menuItemId, model.Name, null,
+                            null, $"{model.PLUCode} - {model.Name}",
+                            targetBranchId,
+                            User.GetUserId() ?? 0, User.Identity?.Name ?? "Unknown",
+                            HttpContext.Connection.RemoteIpAddress?.ToString(),
+                            $"Price:{model.Price}, Category:{model.CategoryId}");
+                    }
+                    catch (Exception auditEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[SystemAudit] Create log failed: {auditEx.Message}");
+                    }
+
                     TempData["SuccessMessage"] = "Menu item created successfully.";
                     return RedirectToAction(nameof(Index));
                 }
@@ -835,7 +852,7 @@ END
         // POST: Menu/Edit/5
         [HttpPostAttribute]
         [ValidateAntiForgeryTokenAttribute]
-        public IActionResult Edit(int id, MenuItemViewModel model)
+        public async Task<IActionResult> Edit(int id, MenuItemViewModel model)
         {
             if (!TryGetMenuFormBranchContext(out var activeBranchId, out var isMainBranch))
             {
@@ -1011,6 +1028,23 @@ END
                         AddMenuItemModifiers(id, model.SelectedModifiers, model.ModifierPrices);
                     }
 
+                    // Audit log
+                    try
+                    {
+                        await AuditTrailController.LogSystemAuditAsync(
+                            _connectionString, "MenuItem", "Update",
+                            id, model.Name, null,
+                            null, $"{model.PLUCode} - {model.Name}",
+                            targetBranchId,
+                            User.GetUserId() ?? 0, User.Identity?.Name ?? "Unknown",
+                            HttpContext.Connection.RemoteIpAddress?.ToString(),
+                            $"Price:{model.Price}, IsAvailable:{model.IsAvailable}, GST:{model.GSTPercentage}");
+                    }
+                    catch (Exception auditEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[SystemAudit] Edit log failed: {auditEx.Message}");
+                    }
+
                     TempData["SuccessMessage"] = "Menu item updated successfully.";
                     return RedirectToAction(nameof(Index));
                 }
@@ -1074,7 +1108,7 @@ END
         // POST: Menu/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryTokenAttribute]
-        public IActionResult DeleteConfirmed(int id)
+        public async Task<IActionResult> DeleteConfirmed(int id)
         {
             try
             {
@@ -1118,6 +1152,23 @@ END
                     {
                         System.IO.File.Delete(imagePath);
                     }
+                }
+
+                // Audit log before delete
+                try
+                {
+                    await AuditTrailController.LogSystemAuditAsync(
+                        _connectionString, "MenuItem", "Delete",
+                        id, menuItem?.Name, null,
+                        menuItem?.Name, null,
+                        activeBranchId,
+                        User.GetUserId() ?? 0, User.Identity?.Name ?? "Unknown",
+                        HttpContext.Connection.RemoteIpAddress?.ToString(),
+                        $"PLU:{menuItem?.PLUCode}");
+                }
+                catch (Exception auditEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[SystemAudit] Delete log failed: {auditEx.Message}");
                 }
 
                 DeleteMenuItem(id);
@@ -1719,6 +1770,7 @@ END
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+                SqlAuditContext.Apply(connection, User, HttpContext, targetBranchId, "MenuItem");
                 EnsureMenuItemsBranchColumnExists(connection);
                 
                 // Check if SubCategoryId column exists
@@ -2082,6 +2134,7 @@ END
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+                SqlAuditContext.Apply(connection, User, HttpContext, targetBranchId, "MenuItem");
                 EnsureMenuItemsBranchColumnExists(connection);
                 
                 // Build UPDATE query for dbo schema
@@ -2294,6 +2347,7 @@ END
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+                SqlAuditContext.Apply(connection, User, HttpContext, activeBranchId.Value, "MenuItem");
                 EnsureMenuItemsBranchColumnExists(connection);
                 
                 using (var transaction = connection.BeginTransaction())

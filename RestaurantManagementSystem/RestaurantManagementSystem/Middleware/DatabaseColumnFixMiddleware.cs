@@ -5,6 +5,7 @@ using System.Linq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using RestaurantManagementSystem.Utilities;
 
 namespace RestaurantManagementSystem.Middleware
 {
@@ -107,6 +108,7 @@ namespace RestaurantManagementSystem.Middleware
                     
                     // Check for correct columns in existing tables
                     FixExistingTableColumns(connection);
+
                 }
             }
             catch (Exception ex)

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.Utilities;
 
 namespace RestaurantManagementSystem.Controllers
 {
@@ -190,7 +191,7 @@ namespace RestaurantManagementSystem.Controllers
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult Save(
+        public async Task<IActionResult> Save(
             int UOMId,
             string UOMCode, string UOMName, string UOMType,
             int? BaseUOMId, decimal ConversionFactor,
@@ -216,6 +217,7 @@ namespace RestaurantManagementSystem.Controllers
             {
                 using var connection = new SqlConnection(_connectionString);
                 connection.Open();
+                SqlAuditContext.Apply(connection, User, HttpContext, User.GetActiveBranchId(), "UOM");
 
                 if (UOMId == 0)
                 {
@@ -232,6 +234,13 @@ namespace RestaurantManagementSystem.Controllers
                                PackSize, DecimalPlaces, Description, IsActive);
                     cmd.ExecuteNonQuery();
                     TempData["SuccessMessage"] = $"UOM '{UOMCode} – {UOMName}' created successfully.";
+                    try { await AuditTrailController.LogSystemAuditAsync(
+                        _connectionString, "UOM", "Create",
+                        null, $"{UOMCode} – {UOMName}", null,
+                        null, $"{UOMCode} – {UOMName}, Type:{UOMType}",
+                        User.GetActiveBranchId(),
+                        User.GetUserId() ?? 0, User.Identity?.Name ?? "Unknown",
+                        HttpContext.Connection.RemoteIpAddress?.ToString()); } catch { }
                 }
                 else
                 {
@@ -251,6 +260,13 @@ namespace RestaurantManagementSystem.Controllers
                                PackSize, DecimalPlaces, Description, IsActive);
                     cmd.ExecuteNonQuery();
                     TempData["SuccessMessage"] = $"UOM '{UOMCode} – {UOMName}' updated successfully.";
+                    try { await AuditTrailController.LogSystemAuditAsync(
+                        _connectionString, "UOM", "Update",
+                        UOMId, $"{UOMCode} – {UOMName}", null,
+                        null, $"{UOMCode} – {UOMName}, Type:{UOMType}, CF:{ConversionFactor}",
+                        User.GetActiveBranchId(),
+                        User.GetUserId() ?? 0, User.Identity?.Name ?? "Unknown",
+                        HttpContext.Connection.RemoteIpAddress?.ToString()); } catch { }
                 }
             }
             catch (SqlException ex) when (ex.Number == 2627 || ex.Number == 2601)
@@ -294,6 +310,7 @@ namespace RestaurantManagementSystem.Controllers
             {
                 using var connection = new SqlConnection(_connectionString);
                 connection.Open();
+                SqlAuditContext.Apply(connection, User, HttpContext, User.GetActiveBranchId(), "UOM");
                 const string sql = @"
                     UPDATE [dbo].[UomMaster]
                     SET IsActive = CASE WHEN IsActive = 1 THEN 0 ELSE 1 END,
@@ -323,6 +340,7 @@ namespace RestaurantManagementSystem.Controllers
             {
                 using var connection = new SqlConnection(_connectionString);
                 connection.Open();
+                SqlAuditContext.Apply(connection, User, HttpContext, User.GetActiveBranchId(), "UOM");
 
                 // Check if this UOM is referenced as a base by another UOM
                 const string checkSql = @"

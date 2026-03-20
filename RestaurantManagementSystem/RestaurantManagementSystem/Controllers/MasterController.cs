@@ -32,6 +32,31 @@ namespace RestaurantManagementSystem.Controllers
             _logger = logger;
         }
 
+        private bool BeginDbContextAuditScope(string module, int? branchId)
+        {
+            if (_dbContext.Database.GetDbConnection() is not SqlConnection connection)
+            {
+                return false;
+            }
+
+            var shouldClose = connection.State != System.Data.ConnectionState.Open;
+            if (shouldClose)
+            {
+                _dbContext.Database.OpenConnection();
+            }
+
+            SqlAuditContext.Apply(connection, User, HttpContext, branchId, module);
+            return shouldClose;
+        }
+
+        private void EndDbContextAuditScope(bool shouldClose)
+        {
+            if (shouldClose)
+            {
+                _dbContext.Database.CloseConnection();
+            }
+        }
+
         // Category List
         public IActionResult CategoryList()
         {
@@ -198,7 +223,7 @@ ORDER  BY i.IngredientsName", connection))
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult IngredientsForm(Ingredients model)
+    public async Task<IActionResult> IngredientsForm(Ingredients model)
     {
         EnsureIngredientsColumnsExist();
 
@@ -208,48 +233,83 @@ ORDER  BY i.IngredientsName", connection))
 
         if (ModelState.IsValid)
         {
-            if (model.Id == 0)
-            {
-                model.CreatedAt = DateTime.UtcNow;
-                model.UpdatedAt = null;
-                _dbContext.Ingredients.Add(model);
-                _dbContext.SaveChanges();
-                TempData["ResultMessage"] = "Item added successfully.";
-            }
-            else
-            {
-                var existing = _dbContext.Ingredients.FirstOrDefault(i => i.Id == model.Id);
-                if (existing != null)
+                var uid   = User.GetUserId() ?? 0;
+                var uname = User.Identity?.Name ?? "Unknown";
+                var branchId = User.GetActiveBranchId();
+                var ip    = HttpContext.Connection.RemoteIpAddress?.ToString();
+
+                if (model.Id == 0)
                 {
-                    existing.IngredientsName        = model.IngredientsName;
-                    existing.DisplayName            = model.DisplayName;
-                    existing.Code                   = model.Code;
-                    existing.ItemCategory           = model.ItemCategory;
-                    existing.Description            = model.Description;
-                    existing.PurchaseUOMId          = model.PurchaseUOMId;
-                    existing.RecipeUOMId            = model.RecipeUOMId;
-                    existing.PurchaseToRecipeFactor = model.PurchaseToRecipeFactor;
-                    existing.StandardCost           = model.StandardCost;
-                    existing.ReorderLevel           = model.ReorderLevel;
-                    existing.GSTPercent             = model.GSTPercent;
-                    existing.IsActive               = model.IsActive;
-                    existing.UpdatedAt              = DateTime.UtcNow;
-                    _dbContext.SaveChanges();
-                    TempData["ResultMessage"] = "Item updated successfully.";
+                    model.CreatedAt = DateTime.UtcNow;
+                    model.UpdatedAt = null;
+                    _dbContext.Ingredients.Add(model);
+                    var shouldCloseAuditScope = false;
+                    try
+                    {
+                        shouldCloseAuditScope = BeginDbContextAuditScope("Ingredient", branchId);
+                        _dbContext.SaveChanges();
+                    }
+                    finally
+                    {
+                        EndDbContextAuditScope(shouldCloseAuditScope);
+                    }
+                    TempData["ResultMessage"] = "Item added successfully.";
+                    try { await AuditTrailController.LogSystemAuditAsync(
+                        _connectionString, "Ingredient", "Create",
+                        model.Id, model.IngredientsName, null,
+                        null, model.IngredientsName,
+                        branchId, uid, uname, ip); } catch { }
                 }
                 else
                 {
-                    TempData["ResultMessage"] = "Item update failed. Record not found.";
+                    var existing = _dbContext.Ingredients.FirstOrDefault(i => i.Id == model.Id);
+                    if (existing != null)
+                    {
+                        var oldName = existing.IngredientsName;
+                        existing.IngredientsName        = model.IngredientsName;
+                        existing.DisplayName            = model.DisplayName;
+                        existing.Code                   = model.Code;
+                        existing.ItemCategory           = model.ItemCategory;
+                        existing.Description            = model.Description;
+                        existing.PurchaseUOMId          = model.PurchaseUOMId;
+                        existing.RecipeUOMId            = model.RecipeUOMId;
+                        existing.PurchaseToRecipeFactor = model.PurchaseToRecipeFactor;
+                        existing.StandardCost           = model.StandardCost;
+                        existing.ReorderLevel           = model.ReorderLevel;
+                        existing.GSTPercent             = model.GSTPercent;
+                        existing.IsActive               = model.IsActive;
+                        existing.UpdatedAt              = DateTime.UtcNow;
+                        var shouldCloseAuditScope = false;
+                        try
+                        {
+                            shouldCloseAuditScope = BeginDbContextAuditScope("Ingredient", branchId);
+                            _dbContext.SaveChanges();
+                        }
+                        finally
+                        {
+                            EndDbContextAuditScope(shouldCloseAuditScope);
+                        }
+                        TempData["ResultMessage"] = "Item updated successfully.";
+                        try { await AuditTrailController.LogSystemAuditAsync(
+                            _connectionString, "Ingredient", "Update",
+                            model.Id, model.IngredientsName, "IngredientsName",
+                            oldName, model.IngredientsName,
+                            branchId, uid, uname, ip,
+                            $"StandardCost:{model.StandardCost}, IsActive:{model.IsActive}"); } catch { }
+                    }
+                    else
+                    {
+                        TempData["ResultMessage"] = "Item update failed. Record not found.";
+                    }
                 }
+                return RedirectToAction("IngredientsList");
             }
-            return RedirectToAction("IngredientsList");
-        }
 
-        ViewBag.IsView     = false;
-        ViewBag.AllUoms    = GetUomSelectList();
-        ViewBag.Categories = GetItemCategoryList();
-        return View("Ingredients", model);
-    }
+            ViewBag.IsView     = false;
+            ViewBag.AllUoms    = GetUomSelectList();
+            ViewBag.Categories = GetItemCategoryList();
+            return View("Ingredients", model);
+        }
 
     [HttpPost]
     [ValidateAntiForgeryToken]
@@ -260,7 +320,16 @@ ORDER  BY i.IngredientsName", connection))
         {
             item.IsActive  = !item.IsActive;
             item.UpdatedAt = DateTime.UtcNow;
-            _dbContext.SaveChanges();
+            var shouldCloseAuditScope = false;
+            try
+            {
+                shouldCloseAuditScope = BeginDbContextAuditScope("Ingredient", User.GetActiveBranchId());
+                _dbContext.SaveChanges();
+            }
+            finally
+            {
+                EndDbContextAuditScope(shouldCloseAuditScope);
+            }
             TempData["ResultMessage"] = $"Item {(item.IsActive ? "activated" : "deactivated")} successfully.";
         }
         return RedirectToAction(nameof(IngredientsList));
@@ -282,7 +351,16 @@ ORDER  BY i.IngredientsName", connection))
         if (item != null)
         {
             _dbContext.Ingredients.Remove(item);
-            _dbContext.SaveChanges();
+            var shouldCloseAuditScope = false;
+            try
+            {
+                shouldCloseAuditScope = BeginDbContextAuditScope("Ingredient", User.GetActiveBranchId());
+                _dbContext.SaveChanges();
+            }
+            finally
+            {
+                EndDbContextAuditScope(shouldCloseAuditScope);
+            }
             TempData["ResultMessage"] = "Item deleted successfully.";
         }
         return RedirectToAction(nameof(IngredientsList));
@@ -1600,7 +1678,7 @@ WHERE BranchId = @BranchId
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult BranchForm(BranchMaster model, bool isView = false)
+        public async Task<IActionResult> BranchForm(BranchMaster model, bool isView = false)
         {
             try
             {
@@ -1660,6 +1738,18 @@ WHERE BranchId = @BranchId
                 {
                     var updated = UpdateBranch(model);
                     TempData["ResultMessage"] = updated ? "Branch updated successfully." : "Branch update failed.";
+                    if (updated)
+                    {
+                        var uid = User.GetUserId() ?? 0;
+                        var uname = User.Identity?.Name ?? "Unknown";
+                        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+                        try { await AuditTrailController.LogSystemAuditAsync(
+                            _connectionString, "Branch", "Update",
+                            model.BranchId, model.BranchName, null,
+                            null, $"{model.BranchCode} - {model.BranchName}",
+                            model.BranchId, uid, uname, ip,
+                            $"IsActive:{model.IsActive}, IsMainBranch:{model.Is_MainBranch}"); } catch { }
+                    }
                 }
                 else
                 {
@@ -1668,6 +1758,14 @@ WHERE BranchId = @BranchId
                     {
                         CopySettingsForNewBranch(newBranchId);
                         TempData["ResultMessage"] = "Branch added successfully.";
+                        var uid = User.GetUserId() ?? 0;
+                        var uname = User.Identity?.Name ?? "Unknown";
+                        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+                        try { await AuditTrailController.LogSystemAuditAsync(
+                            _connectionString, "Branch", "Create",
+                            newBranchId, model.BranchName, null,
+                            null, $"{model.BranchCode} - {model.BranchName}",
+                            newBranchId, uid, uname, ip); } catch { }
                     }
                     else
                     {
@@ -1868,6 +1966,7 @@ WHERE ISNULL(Is_MainBranch, 0) = 1
             using (var connection = new SqlConnection(_connectionString))
             {
                 connection.Open();
+                SqlAuditContext.Apply(connection, User, HttpContext, User.GetActiveBranchId(), "Branch");
                 using (var cmd = new SqlCommand(@"
 INSERT INTO dbo.Branches (BranchCode, BranchName, BranchLocationId, Is_MainBranch, IsActive, CreatedAt, UpdatedAt)
 VALUES (@BranchCode, @BranchName, @BranchLocationId, @IsMainBranch, @IsActive, GETDATE(), NULL);
@@ -1964,6 +2063,7 @@ END";
             using (var connection = new SqlConnection(_connectionString))
             {
                 connection.Open();
+                SqlAuditContext.Apply(connection, User, HttpContext, User.GetActiveBranchId(), "Branch");
                 using (var cmd = new SqlCommand(@"
 UPDATE dbo.Branches
 SET BranchCode = @BranchCode,
@@ -2001,6 +2101,7 @@ WHERE BranchId = @BranchId
             using (var connection = new SqlConnection(_connectionString))
             {
                 connection.Open();
+                SqlAuditContext.Apply(connection, User, HttpContext, User.GetActiveBranchId(), "Branch");
                 using (var cmd = new SqlCommand(@"
 UPDATE dbo.Branches
 SET IsActive = @IsActive,

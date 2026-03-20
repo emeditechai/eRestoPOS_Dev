@@ -530,6 +530,7 @@ END";
                     using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
                     {
                         con.Open();
+                        SqlAuditContext.Apply(con, User, HttpContext, activeBranchId, "User");
                         
                         // Ensure Users table and columns exist
                         EnsureUsersTableExists(con);
@@ -935,6 +936,32 @@ VALUES (@UserId, @BranchId, @RoleId, 1, SYSUTCDATETIME(), NULL)", con))
                         }
                     }
                     TempData["ResultMessage"] = resultMessage;
+
+                    // Audit log for user create/edit
+                    var auditAction = model.Id == 0 ? "Create" : "Update";
+                    var auditUid   = User.GetUserId() ?? 0;
+                    var auditUname = User.Identity?.Name ?? "Unknown";
+                    var auditIp    = HttpContext.Connection.RemoteIpAddress?.ToString();
+                    var branchList = string.Join(",", model.SelectedBranchIds);
+                    try { await AuditTrailController.LogSystemAuditAsync(
+                        _config.GetConnectionString("DefaultConnection")!,
+                        "User", auditAction,
+                        model.Id, model.Username, null,
+                        null, $"{model.Username} ({model.FirstName} {model.LastName})",
+                        activeBranchId, auditUid, auditUname, auditIp,
+                        $"Email:{model.Email}, IsActive:{model.IsActive}, Branches:{branchList}"); } catch { }
+
+                    // Audit password change separately if password was supplied for an existing user
+                    if (model.Id > 0 && !string.IsNullOrWhiteSpace(Request.Form["password"].FirstOrDefault()))
+                    {
+                        try { await AuditTrailController.LogSystemAuditAsync(
+                            _config.GetConnectionString("DefaultConnection")!,
+                            "User", "PasswordChange",
+                            model.Id, model.Username, "Password",
+                            "***", "***",
+                            activeBranchId, auditUid, auditUname, auditIp); } catch { }
+                    }
+
                     return RedirectToAction("UserList");
                 }
                 catch (Exception ex)
