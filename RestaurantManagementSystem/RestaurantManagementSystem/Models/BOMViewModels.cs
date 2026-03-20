@@ -11,6 +11,7 @@ namespace RestaurantManagementSystem.Models
     {
         public int    MenuItemId       { get; set; }
         public string MenuItemName     { get; set; } = "";
+        public string? PLUCode         { get; set; }
         public string? CategoryName    { get; set; }
         /// <summary>Base (dine-in) selling price.</summary>
         public decimal SellingPrice    { get; set; }

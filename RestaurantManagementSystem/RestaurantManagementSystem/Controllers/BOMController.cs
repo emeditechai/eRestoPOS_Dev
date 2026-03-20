@@ -38,6 +38,16 @@ namespace RestaurantManagementSystem.Controllers
             return RedirectToAction("Index", "Home");
         }
 
+        private bool IsActiveBranchMain(int branchId)
+        {
+            using var conn = new SqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new SqlCommand(
+                "SELECT COUNT(1) FROM dbo.Branches WHERE BranchId = @BranchId AND Is_MainBranch = 1", conn);
+            cmd.Parameters.AddWithValue("@BranchId", branchId);
+            return (int)cmd.ExecuteScalar() > 0;
+        }
+
         // ═══════════════════════════════════════════════════════════════
         //  BOM LIST  –  all menu items with BOM status
         // ═══════════════════════════════════════════════════════════════
@@ -51,7 +61,225 @@ namespace RestaurantManagementSystem.Controllers
             EnsureBOMTablesReady();
             var list = LoadBOMList(branchId.Value);
             ViewBag.ActiveBranchId = branchId.Value;
+            ViewBag.IsMainBranch   = IsActiveBranchMain(branchId.Value);
             return View(list);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  AJAX – Get branches available for BOM copy (main branch only)
+        // ═══════════════════════════════════════════════════════════════
+
+        [HttpGet]
+        public IActionResult GetBranchesForBOMCopy()
+        {
+            var branchId = GetActiveBranchId();
+            if (!branchId.HasValue)
+                return Json(new { success = false, message = "No active branch." });
+            if (!IsActiveBranchMain(branchId.Value))
+                return Json(new { success = false, message = "Only the main branch can copy BOMs." });
+
+            using var conn = new SqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new SqlCommand(@"
+SELECT BranchId, BranchName
+FROM   dbo.Branches
+WHERE  ISNULL(IsActive, 1) = 1
+  AND  BranchId <> @BranchId
+ORDER  BY BranchName", conn);
+            cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+
+            var branches = new List<object>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                branches.Add(new {
+                    branchId   = reader.GetInt32(0),
+                    branchName = reader["BranchName"]?.ToString() ?? ""
+                });
+
+            return Json(new { success = true, branches });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  AJAX – Copy BOM configuration to other branches (by PLU code)
+        // ═══════════════════════════════════════════════════════════════
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult CopyBOMToBranches([FromBody] CopyBOMRequest req)
+        {
+            if (req == null || req.MenuItemId == 0 || req.TargetBranchIds == null || req.TargetBranchIds.Count == 0)
+                return Json(new { success = false, message = "Invalid request." });
+
+            var sourceBranchId = GetActiveBranchId();
+            if (!sourceBranchId.HasValue)
+                return Json(new { success = false, message = "No active branch." });
+            if (!IsActiveBranchMain(sourceBranchId.Value))
+                return Json(new { success = false, message = "Only the main branch can copy BOMs." });
+
+            using var conn = new SqlConnection(_connectionString);
+            conn.Open();
+
+            // 1. Get source PLU code + recipe header
+            string? pluCode  = null;
+            int     yield    = 1;
+            decimal yieldPct = 100;
+            int?    prepTime = null;
+
+            using (var cmd = new SqlCommand(@"
+SELECT mi.PLUCode,
+       ISNULL(r.Yield, 1)             AS Yield,
+       ISNULL(r.YieldPercentage, 100) AS YieldPct,
+       r.PreparationTimeMinutes
+FROM   dbo.MenuItems mi
+LEFT JOIN dbo.Recipes r ON r.MenuItemId = mi.Id
+WHERE  mi.Id = @MenuItemId AND mi.BranchId = @BranchId", conn))
+            {
+                cmd.Parameters.AddWithValue("@MenuItemId", req.MenuItemId);
+                cmd.Parameters.AddWithValue("@BranchId",   sourceBranchId.Value);
+                using var r = cmd.ExecuteReader();
+                if (!r.Read())
+                    return Json(new { success = false, message = "Source menu item not found." });
+                pluCode  = r["PLUCode"] == DBNull.Value ? null : r["PLUCode"]?.ToString();
+                yield    = r.GetInt32(r.GetOrdinal("Yield"));
+                yieldPct = r.GetDecimal(r.GetOrdinal("YieldPct"));
+                prepTime = r["PreparationTimeMinutes"] == DBNull.Value
+                    ? null : (int?)r.GetInt32(r.GetOrdinal("PreparationTimeMinutes"));
+            }
+
+            if (string.IsNullOrWhiteSpace(pluCode))
+                return Json(new { success = false, message = "Source menu item has no PLU code — cannot match across branches." });
+
+            // 2. Get source ingredient lines (actual schema: MenuItemId, IngredientId, Quantity, IsOptional, Instructions)
+            var lines = new List<(int IngredientId, decimal Qty, bool IsOptional, string? Instructions)>();
+            using (var cmd = new SqlCommand(@"
+SELECT IngredientId, Quantity, ISNULL(IsOptional, 0) AS IsOptional, Instructions
+FROM   dbo.MenuItemIngredients
+WHERE  MenuItemId = @MenuItemId", conn))
+            {
+                cmd.Parameters.AddWithValue("@MenuItemId", req.MenuItemId);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                    lines.Add((
+                        r.GetInt32(r.GetOrdinal("IngredientId")),
+                        r.GetDecimal(r.GetOrdinal("Quantity")),
+                        r.GetBoolean(r.GetOrdinal("IsOptional")),
+                        r["Instructions"] == DBNull.Value ? null : r["Instructions"]?.ToString()
+                    ));
+            }
+
+            // 2a. Pre-load target branch names
+            var branchNames = new Dictionary<int, string>();
+            using (var cmd = new SqlCommand(
+                "SELECT BranchId, BranchName FROM dbo.Branches WHERE BranchId IN (" +
+                string.Join(",", req.TargetBranchIds) + ")", conn))
+            {
+                using var br = cmd.ExecuteReader();
+                while (br.Read())
+                    branchNames[br.GetInt32(0)] = br["BranchName"]?.ToString() ?? "";
+            }
+
+            // 3. Copy to each target branch
+            var results = new List<CopyBOMResult>();
+            foreach (var targetBranchId in req.TargetBranchIds)
+            {
+                var bName = branchNames.TryGetValue(targetBranchId, out var bdn) ? bdn : targetBranchId.ToString();
+                try
+                {
+                    // Find target menu item by PLU code — skip gracefully if not found
+                    int targetMenuItemId;
+                    string targetMenuItemName = "";
+                    using (var cmd = new SqlCommand(
+                        "SELECT TOP 1 Id, ISNULL(Name,'') AS Name FROM dbo.MenuItems WHERE PLUCode = @PLU AND BranchId = @BranchId", conn))
+                    {
+                        cmd.Parameters.AddWithValue("@PLU",      pluCode);
+                        cmd.Parameters.AddWithValue("@BranchId", targetBranchId);
+                        using var rdr = cmd.ExecuteReader();
+                        if (!rdr.Read())
+                        {
+                            results.Add(new CopyBOMResult { BranchId = targetBranchId, Success = true, Skipped = true,
+                                Message = $"{bName}: Skipped — no menu item with PLU '{pluCode}'." });
+                            continue;
+                        }
+                        targetMenuItemId   = rdr.GetInt32(0);
+                        targetMenuItemName = rdr["Name"]?.ToString() ?? "";
+                    }
+
+                    // Upsert Recipes header — Title is NOT NULL so always supply it
+                    using (var chk = new SqlCommand("SELECT Id FROM dbo.Recipes WHERE MenuItemId = @Mid", conn))
+                    {
+                        chk.Parameters.AddWithValue("@Mid", targetMenuItemId);
+                        var existingRecipeId = chk.ExecuteScalar();
+                        if (existingRecipeId != null && existingRecipeId != DBNull.Value)
+                        {
+                            using var upd = new SqlCommand(@"
+UPDATE dbo.Recipes
+SET    Title = @Title, Yield = @Yield, YieldPercentage = @YieldPct, PreparationTimeMinutes = @PrepTime
+WHERE  Id = @Id", conn);
+                            upd.Parameters.AddWithValue("@Title",   targetMenuItemName);
+                            upd.Parameters.AddWithValue("@Yield",   yield);
+                            upd.Parameters.AddWithValue("@YieldPct", yieldPct);
+                            upd.Parameters.AddWithValue("@PrepTime", (object?)prepTime ?? DBNull.Value);
+                            upd.Parameters.AddWithValue("@Id",       Convert.ToInt32(existingRecipeId));
+                            upd.ExecuteNonQuery();
+                        }
+                        else
+                        {
+                            using var ins = new SqlCommand(@"
+INSERT INTO dbo.Recipes
+    (MenuItemId, Title, Yield, YieldPercentage, PreparationTimeMinutes,
+     PreparationInstructions, CookingInstructions)
+VALUES
+    (@Mid, @Title, @Yield, @YieldPct, @PrepTime, '', '')", conn);
+                            ins.Parameters.AddWithValue("@Mid",     targetMenuItemId);
+                            ins.Parameters.AddWithValue("@Title",   targetMenuItemName);
+                            ins.Parameters.AddWithValue("@Yield",   yield);
+                            ins.Parameters.AddWithValue("@YieldPct", yieldPct);
+                            ins.Parameters.AddWithValue("@PrepTime", (object?)prepTime ?? DBNull.Value);
+                            ins.ExecuteNonQuery();
+                        }
+                    }
+
+                    // Merge ingredient lines — upsert by (MenuItemId, IngredientId)
+                    int merged = 0;
+                    foreach (var line in lines)
+                    {
+                        using var cmd = new SqlCommand(@"
+IF EXISTS (SELECT 1 FROM dbo.MenuItemIngredients WHERE MenuItemId = @Mid AND IngredientId = @IId)
+    UPDATE dbo.MenuItemIngredients
+    SET    Quantity     = @Qty,
+           IsOptional   = @IsOpt,
+           Instructions = @Notes
+    WHERE  MenuItemId = @Mid AND IngredientId = @IId
+ELSE
+    INSERT INTO dbo.MenuItemIngredients (MenuItemId, IngredientId, Quantity, IsOptional, Instructions, Unit)
+    VALUES (@Mid, @IId, @Qty, @IsOpt, @Notes, '')", conn);
+                        cmd.Parameters.AddWithValue("@Mid",   targetMenuItemId);
+                        cmd.Parameters.AddWithValue("@IId",   line.IngredientId);
+                        cmd.Parameters.AddWithValue("@Qty",   line.Qty);
+                        cmd.Parameters.AddWithValue("@IsOpt", line.IsOptional);
+                        cmd.Parameters.AddWithValue("@Notes", (object?)line.Instructions ?? DBNull.Value);
+                        cmd.ExecuteNonQuery();
+                        merged++;
+                    }
+
+                    // Recalculate BOM cost using target branch's own stock (branch-wise weighted avg cost)
+                    RecalcBOMCost(targetMenuItemId, targetBranchId);
+                    var recalcedCost = GetComputedCost(targetMenuItemId);
+                    string costInfo = recalcedCost.HasValue
+                        ? $" | Cost: ₹{recalcedCost.Value:N2}"
+                        : " | Cost: ₹0 (no stock yet)";
+
+                    results.Add(new CopyBOMResult { BranchId = targetBranchId, Success = true,
+                        Message = $"{bName}: {merged} ingredient(s) merged & cost recalculated.{costInfo}" });
+                }
+                catch (Exception ex)
+                {
+                    results.Add(new CopyBOMResult { BranchId = targetBranchId, Success = false,
+                        Message = $"{bName}: {ex.Message}" });
+                }
+            }
+
+            return Json(new { success = true, results });
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -336,6 +564,7 @@ WHERE  i.Id = @Id AND ISNULL(i.IsActive, 1) = 1", conn);
 SELECT
     mi.Id                                                    AS MenuItemId,
     mi.Name                                                  AS MenuItemName,
+    mi.PLUCode                                               AS PLUCode,
     c.Name                                                   AS CategoryName,
     ISNULL(mi.Price, 0)                                      AS SellingPrice,
     mi.TakeoutPrice,
@@ -373,6 +602,7 @@ ORDER  BY c.Name, mi.Name", conn);
                 {
                     MenuItemId       = reader.GetInt32(reader.GetOrdinal("MenuItemId")),
                     MenuItemName     = reader["MenuItemName"]?.ToString() ?? "",
+                    PLUCode          = reader["PLUCode"] == DBNull.Value ? null : reader["PLUCode"]?.ToString(),
                     CategoryName     = reader["CategoryName"]?.ToString(),
                     SellingPrice     = sellingPrice,
                     TakeoutPrice     = takeoutPrice,
@@ -876,5 +1106,19 @@ IF COL_LENGTH('dbo.MenuItemIngredients', 'Instructions') IS NULL
     public class RecalcCostRequest
     {
         public int MenuItemId { get; set; }
+    }
+
+    public class CopyBOMRequest
+    {
+        public int MenuItemId { get; set; }
+        public List<int> TargetBranchIds { get; set; } = new();
+    }
+
+    public class CopyBOMResult
+    {
+        public int    BranchId { get; set; }
+        public bool   Success  { get; set; }
+        public bool   Skipped  { get; set; }
+        public string Message  { get; set; } = "";
     }
 }

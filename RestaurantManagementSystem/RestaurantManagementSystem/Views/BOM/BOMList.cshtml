@@ -7,6 +7,7 @@
     decimal avgMargin = Model.Where(x => x.GrossMarginPct.HasValue).Any()
         ? Math.Round(Model.Where(x => x.GrossMarginPct.HasValue).Average(x => x.GrossMarginPct!.Value), 1)
         : 0;
+    bool isMainBranch = (bool)(ViewBag.IsMainBranch ?? false);
 }
 
 <style>
@@ -179,11 +180,17 @@
                     @foreach (var item in Model)
                     {
                         rowNum++;
-                        <tr data-name="@item.MenuItemName.ToLower()"
+                        <tr data-name="@((item.PLUCode ?? "") + " " + item.MenuItemName.ToLower())"
                             data-category="@(item.CategoryName ?? "Uncategorised")"
                             data-status="@(item.IsConfigured ? "configured" : "pending")">
                             <td class="text-muted">@rowNum</td>
-                            <td class="fw-semibold">@item.MenuItemName</td>
+                            <td class="fw-semibold">
+                                @if (!string.IsNullOrEmpty(item.PLUCode))
+                                {
+                                    <span class="text-muted me-1" style="font-size:.75rem;">[<span class="fw-bold" style="color:#2563a8;">@item.PLUCode</span>]</span>
+                                }
+                                @item.MenuItemName
+                            </td>
                             <td>
                                 @if (!string.IsNullOrEmpty(item.CategoryName))
                                 {
@@ -294,6 +301,17 @@
                                     <i class="fas @(item.IsConfigured ? "fa-edit" : "fa-cog") me-1"></i>
                                     @(item.IsConfigured ? "Edit" : "Configure")
                                 </a>
+                                @if (isMainBranch && item.IsConfigured && !string.IsNullOrEmpty(item.PLUCode))
+                                {
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-success ms-1 btn-copy-bom"
+                                            data-menu-item-id="@item.MenuItemId"
+                                            data-menu-item-name="@Html.Raw(item.MenuItemName.Replace("\"","&quot;"))"
+                                            data-plu="@item.PLUCode"
+                                            title="Copy BOM to other branches">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                }
                             </td>
                         </tr>
                     }
@@ -318,6 +336,84 @@
         </span>
     </div>
 </div>
+
+@if (isMainBranch)
+{
+    @Html.AntiForgeryToken()
+<style>
+.bom-ms-wrapper { position: relative; }
+.bom-ms-trigger {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border: 1.5px solid #ced4da; border-radius: 8px;
+    cursor: pointer; background: #fff; user-select: none; font-size: .9rem;
+    transition: border-color .15s;
+}
+.bom-ms-trigger:hover { border-color: #2563a8; }
+.bom-ms-wrapper.open .bom-ms-trigger { border-color: #2563a8; box-shadow: 0 0 0 3px rgba(37,99,168,.12); }
+.bom-ms-arrow { transition: transform .2s; color: #6c757d; }
+.bom-ms-wrapper.open .bom-ms-arrow { transform: rotate(180deg); }
+.bom-ms-dropdown {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 1060;
+    background: #fff; border: 1.5px solid #ced4da; border-radius: 10px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.13); display: none; flex-direction: column;
+    max-height: 260px; overflow: hidden;
+}
+.bom-ms-wrapper.open .bom-ms-dropdown { display: flex; }
+.bom-ms-search { padding: 8px 10px; border-bottom: 1px solid #e9ecef; }
+.bom-ms-search input {
+    width: 100%; border: 1.5px solid #dee2e6; border-radius: 6px;
+    padding: 6px 10px; font-size: .85rem; outline: none; background: #f8f9fa;
+}
+.bom-ms-search input:focus { border-color: #2563a8; background: #fff; }
+.bom-ms-items { overflow-y: auto; flex: 1; }
+.bom-ms-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+    cursor: pointer; font-size: .9rem; transition: background .1s;
+}
+.bom-ms-item:hover { background: #f0f7ff; }
+.bom-ms-item.all-item { border-bottom: 1px solid #e9ecef; font-weight: 600; }
+.bom-ms-item input[type=checkbox] {
+    width: 17px; height: 17px; accent-color: #2563a8;
+    cursor: pointer; flex-shrink: 0;
+}
+.bom-ms-label-pill {
+    display: inline-block; background: #e8f0fe; color: #2563a8;
+    border-radius: 20px; padding: 2px 10px; font-size: .78rem; font-weight: 600;
+}
+</style>
+    <!-- Copy BOM Modal -->
+    <div class="modal fade" id="copyBOMModal" tabindex="-1" aria-labelledby="copyBOMModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header" style="background:linear-gradient(135deg,#1a7f37,#2dba4e);color:#fff;">
+                    <h5 class="modal-title" id="copyBOMModalLabel">
+                        <i class="fas fa-copy me-2"></i>Copy BOM to Branches
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted mb-3">
+                        Copying BOM configuration for:
+                        <strong id="copyBOMItemName"></strong>
+                        <span class="badge bg-secondary ms-1" id="copyBOMPLU"></span>
+                    </p>
+                    <label class="form-label fw-semibold small text-uppercase text-muted" style="letter-spacing:.4px;">Select Branches</label>
+                    <div id="copyBOMBranchList">
+                        <div class="text-center py-3">
+                            <i class="fas fa-spinner fa-spin"></i> Loading branches…
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" id="btnDoCopy">
+                        <i class="fas fa-copy me-1"></i>Copy BOM
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @section Scripts {
 <script>
@@ -345,5 +441,169 @@ function clearFilters() {
     document.getElementById('statusFilter').value = '';
     filterTable();
 }
+
+@if (isMainBranch)
+{
+    <text>
+document.addEventListener('DOMContentLoaded', function() {
+
+// ── Copy BOM logic ────────────────────────────────────────
+let _copyMenuItemId = 0;
+
+document.querySelectorAll('.btn-copy-bom').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        _copyMenuItemId = parseInt(this.dataset.menuItemId);
+        document.getElementById('copyBOMItemName').textContent = this.dataset.menuItemName;
+        document.getElementById('copyBOMPLU').textContent = '[' + this.dataset.plu + ']';
+
+        const listEl = document.getElementById('copyBOMBranchList');
+        listEl.innerHTML = '<div class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Loading branches…</div>';
+
+        const btnDo = document.getElementById('btnDoCopy');
+        btnDo.style.display = '';
+        btnDo.disabled = false;
+        btnDo.innerHTML = '<i class="fas fa-copy me-1"></i>Copy BOM';
+
+        var modalEl = document.getElementById('copyBOMModal');
+        var bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        bsModal.show();
+
+        fetch('@Url.Action("GetBranchesForBOMCopy","BOM")')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) {
+                    listEl.innerHTML = '<div class="alert alert-danger mb-0">' + data.message + '</div>';
+                    return;
+                }
+                if (!data.branches || data.branches.length === 0) {
+                    listEl.innerHTML = '<div class="text-muted small">No other branches available.</div>';
+                    return;
+                }
+                // Build searchable checkbox dropdown
+                var itemsHtml = '<label class="bom-ms-item all-item">'
+                    + '<input type="checkbox" id="chk_all"> All'
+                    + '</label>';
+                data.branches.forEach(function(b) {
+                    itemsHtml += '<label class="bom-ms-item" data-name="' + b.branchName.toLowerCase() + '">'
+                        + '<input type="checkbox" class="branch-chk" value="' + b.branchId + '"> ' + b.branchName
+                        + '</label>';
+                });
+                listEl.innerHTML =
+                    '<div class="bom-ms-wrapper" id="bmsWrapper">'
+                    + '<div class="bom-ms-trigger" id="bmsTrigger">'
+                    + '<span id="bmsLabel"><span class="text-muted">Select branches…</span></span>'
+                    + '<i class="fas fa-chevron-down bom-ms-arrow"></i>'
+                    + '</div>'
+                    + '<div class="bom-ms-dropdown" id="bmsDropdown">'
+                    + '<div class="bom-ms-search"><input type="text" id="bmsSearch" placeholder="Search…"></div>'
+                    + '<div class="bom-ms-items" id="bmsItems">' + itemsHtml + '</div>'
+                    + '</div></div>';
+
+                // Wire up events on freshly created elements
+                document.getElementById('bmsTrigger').addEventListener('click', function(ev) {
+                    ev.stopPropagation();
+                    document.getElementById('bmsWrapper').classList.toggle('open');
+                });
+                document.getElementById('bmsSearch').addEventListener('input', function() {
+                    var lq = this.value.toLowerCase().trim();
+                    document.querySelectorAll('#bmsItems .bom-ms-item:not(.all-item)').forEach(function(el) {
+                        el.style.display = (!lq || el.dataset.name.includes(lq)) ? '' : 'none';
+                    });
+                });
+                document.getElementById('chk_all').addEventListener('change', function() {
+                    document.querySelectorAll('.branch-chk').forEach(function(c) { c.checked = this.checked; }.bind(this));
+                    bmsUpdateLabel();
+                });
+                listEl.addEventListener('change', function(ev) {
+                    if (ev.target.classList.contains('branch-chk')) bmsUpdateLabel();
+                });
+                // Close when clicking outside
+                document.addEventListener('click', function outsideHandler(ev) {
+                    var w = document.getElementById('bmsWrapper');
+                    if (w && !w.contains(ev.target)) w.classList.remove('open');
+                    if (!document.getElementById('copyBOMModal').classList.contains('show'))
+                        document.removeEventListener('click', outsideHandler);
+                });
+            })
+            .catch(function() {
+                listEl.innerHTML = '<div class="alert alert-danger mb-0">Failed to load branches.</div>';
+            });
+    });
+});
+
+function bmsUpdateLabel() {
+    var all     = document.querySelectorAll('.branch-chk');
+    var checked = Array.from(all).filter(function(c) { return c.checked; });
+    var allChk  = document.getElementById('chk_all');
+    if (allChk) allChk.checked = (checked.length > 0 && checked.length === all.length);
+    var lbl = document.getElementById('bmsLabel');
+    if (!lbl) return;
+    if (checked.length === 0) {
+        lbl.innerHTML = '<span class="text-muted">Select branches…</span>';
+    } else if (checked.length === all.length) {
+        lbl.innerHTML = '<span class="bom-ms-label-pill">All branches selected</span>';
+    } else {
+        lbl.innerHTML = checked.map(function(c) {
+            return '<span class="bom-ms-label-pill me-1">' + c.closest('label').textContent.trim() + '</span>';
+        }).join('');
+    }
+}
+
+document.getElementById('btnDoCopy').addEventListener('click', function() {
+    var selected = Array.from(document.querySelectorAll('.branch-chk:checked')).map(function(c) { return parseInt(c.value); });
+    if (selected.length === 0) {
+        Swal.fire({ icon: 'warning', title: 'No Branch Selected', text: 'Please select at least one branch.', confirmButtonColor: '#2563a8' });
+        return;
+    }
+
+    var btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Copying…';
+
+    var token = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+
+    fetch('@Url.Action("CopyBOMToBranches","BOM")', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token },
+        body: JSON.stringify({ menuItemId: _copyMenuItemId, targetBranchIds: selected })
+    })
+    .then(function(r) {
+        if (!r.ok) throw new Error('Server error ' + r.status + '. Please try again.');
+        return r.json();
+    })
+    .then(function(data) {
+        btn.style.display = 'none';
+        var listEl = document.getElementById('copyBOMBranchList');
+        var html = '<ul class="list-group mt-2">';
+        (data.results || []).forEach(function(r) {
+            var cls, icon;
+            if (r.skipped) {
+                cls  = 'list-group-item-secondary';
+                icon = 'fa-minus-circle text-secondary';
+            } else if (r.success) {
+                cls  = 'list-group-item-success';
+                icon = 'fa-check-circle text-success';
+            } else {
+                cls  = 'list-group-item-danger';
+                icon = 'fa-times-circle text-danger';
+            }
+            html += '<li class="list-group-item ' + cls + ' d-flex align-items-center gap-2">'
+                  + '<i class="fas ' + icon + '"></i>' + r.message + '</li>';
+        });
+        html += '</ul>';
+        listEl.innerHTML = html;
+    })
+    .catch(function(err) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-copy me-1"></i>Copy BOM';
+        Swal.fire({ icon: 'error', title: 'Copy Failed', text: err.message || 'An unexpected error occurred.', confirmButtonColor: '#dc3545' });
+    });
+});
+
+}); // end DOMContentLoaded
+    </text>
+}
+
 </script>
 }
