@@ -378,6 +378,34 @@ WHERE UserId = @UserId
 
         // Stub: Checks if a username exists (implement as needed)
         private bool UserExists(string username, int? excludeUserId = null) { return false; /* TODO: Implement actual check */ }
+
+        /// <summary>
+        /// Returns true when the given email is already registered to a different user.
+        /// Safe — returns false on any error or when the Email column doesn't exist.
+        /// </summary>
+        private bool EmailInUse(string? email, int? excludeUserId = null)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return false;
+            try
+            {
+                using var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection"));
+                con.Open();
+                // Guard: check column exists first
+                using (var chk = new Microsoft.Data.SqlClient.SqlCommand(
+                    "SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Users' AND COLUMN_NAME='Email'", con))
+                {
+                    if (Convert.ToInt32(chk.ExecuteScalar()) == 0) return false;
+                }
+                var sql = excludeUserId.HasValue
+                    ? "SELECT COUNT(1) FROM dbo.Users WHERE LOWER(LTRIM(RTRIM(Email))) = LOWER(LTRIM(RTRIM(@Email))) AND Id <> @ExcludeId"
+                    : "SELECT COUNT(1) FROM dbo.Users WHERE LOWER(LTRIM(RTRIM(Email))) = LOWER(LTRIM(RTRIM(@Email)))";
+                using var cmd = new Microsoft.Data.SqlClient.SqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("@Email", email.Trim());
+                if (excludeUserId.HasValue) cmd.Parameters.AddWithValue("@ExcludeId", excludeUserId.Value);
+                return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+            }
+            catch { return false; }
+        }
         private readonly IConfiguration _config;
         private readonly UserRoleService _userRoleService;
 
@@ -765,8 +793,15 @@ END";
                     {
                         ModelState.AddModelError("Username", "Username is already in use");
                         return View("UserForm", model);
-                    // End of isUsernameInUse block
-                }
+                    }
+
+                    // Check email uniqueness before hitting the DB constraint
+                    if (!string.IsNullOrWhiteSpace(model.Email) &&
+                        EmailInUse(model.Email, model.Id > 0 ? model.Id : null))
+                    {
+                        ModelState.AddModelError("Email", $"The email address '{model.Email}' is already registered to another user. Please use a different email.");
+                        return View("UserForm", model);
+                    }
 
                     using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
                     {
@@ -904,7 +939,22 @@ VALUES (@UserId, @BranchId, @RoleId, 1, SYSUTCDATETIME(), NULL)", con))
                 }
                 catch (Exception ex)
                 {
-                    ModelState.AddModelError(string.Empty, $"Error saving user: {ex.Message}");
+                    // Friendly message for email or username unique-key constraint violations
+                    var msg = ex.Message ?? "";
+                    if (msg.Contains("Email", StringComparison.OrdinalIgnoreCase) &&
+                        (msg.Contains("duplicate", StringComparison.OrdinalIgnoreCase) || msg.Contains("unique", StringComparison.OrdinalIgnoreCase) || msg.Contains("UNIQUE")))
+                    {
+                        ModelState.AddModelError("Email", $"The email address '{model.Email}' is already registered to another user. Please use a different email.");
+                    }
+                    else if (msg.Contains("Username", StringComparison.OrdinalIgnoreCase) &&
+                        (msg.Contains("duplicate", StringComparison.OrdinalIgnoreCase) || msg.Contains("unique", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        ModelState.AddModelError("Username", "Username is already in use. Please choose a different username.");
+                    }
+                    else
+                    {
+                        ModelState.AddModelError(string.Empty, $"Error saving user: {ex.Message}");
+                    }
                 }
             }
             // Get roles for dropdown before returning
