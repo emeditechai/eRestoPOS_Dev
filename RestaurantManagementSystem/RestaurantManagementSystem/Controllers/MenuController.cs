@@ -55,6 +55,42 @@ WHERE BranchId = @BranchId
             }
         }
 
+        /// <summary>
+        /// Reads IsRestrictMenuEditNonMainBranch from RestaurantSettings for the given branch.
+        /// Returns false (no restriction) when column is missing or on any error.
+        /// </summary>
+        private bool GetIsRestrictMenuEditNonMainBranch(int branchId)
+        {
+            try
+            {
+                using (var conn = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    conn.Open();
+                    using (var chk = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='RestaurantSettings'
+  AND COLUMN_NAME='IsRestrictMenuEditNonMainBranch'", conn))
+                    {
+                        if (Convert.ToInt32(chk.ExecuteScalar()) == 0) return false;
+                    }
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+SELECT TOP 1 ISNULL(IsRestrictMenuEditNonMainBranch, 0)
+FROM dbo.RestaurantSettings
+WHERE BranchId = @BranchId OR BranchId IS NULL
+ORDER BY CASE WHEN BranchId = @BranchId THEN 0 ELSE 1 END, Id DESC", conn))
+                    {
+                        cmd.Parameters.AddWithValue("@BranchId", branchId);
+                        var result = cmd.ExecuteScalar();
+                        return result != null && Convert.ToInt32(result) == 1;
+                    }
+                }
+            }
+            catch
+            {
+                return false; // safe default: no restriction
+            }
+        }
+
         private bool CanCurrentUserCopyMenuItems()
         {
             if (User?.Identity?.IsAuthenticated != true || !User.IsInRole("Administrator"))
@@ -302,6 +338,11 @@ END
                 ViewBag.CanCopyMenuItems = canCopyMenuItems;
                 ViewBag.CopyFeatureDebug = $"IsAdmin={isAdmin}, ActiveBranchId={(activeBranchId?.ToString() ?? "null")}, ActiveBranchName={(string.IsNullOrWhiteSpace(activeBranchName) ? "(empty)" : activeBranchName)}, IsMainBranch={isMainBranch}, CanCopy={canCopyMenuItems}";
 
+                // Determine if menu add/edit/delete is allowed for this session
+                var restrictMenuEdit = activeBranchId.HasValue && GetIsRestrictMenuEditNonMainBranch(activeBranchId.Value);
+                var menuEditAllowed = !restrictMenuEdit || isMainBranch;
+                ViewBag.MenuEditAllowed = menuEditAllowed;
+
                 if (!GetActiveBranchId().HasValue)
                 {
                     TempData["ErrorMessage"] = "Please select an active branch first.";
@@ -459,6 +500,24 @@ END
                 return NotFound();
             }
 
+            // Compute edit restriction so the view can show/disable the Edit button
+            var activeBranchId = GetActiveBranchId();
+            bool isMainBranch = false;
+            if (activeBranchId.HasValue)
+            {
+                try
+                {
+                    using (var conn = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                    {
+                        conn.Open();
+                        isMainBranch = IsActiveBranchMain(conn, activeBranchId.Value);
+                    }
+                }
+                catch { }
+            }
+            var restrictMenuEdit = activeBranchId.HasValue && GetIsRestrictMenuEditNonMainBranch(activeBranchId.Value);
+            ViewBag.MenuEditAllowed = !restrictMenuEdit || isMainBranch;
+
             return View(menuItem);
         }
 
@@ -468,6 +527,13 @@ END
             if (!TryGetMenuFormBranchContext(out var activeBranchId, out var isMainBranch))
             {
                 TempData["ErrorMessage"] = "Please select an active branch first.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            // Restriction: when IsRestrictMenuEditNonMainBranch is enabled, only main branch can create
+            if (GetIsRestrictMenuEditNonMainBranch(activeBranchId) && !isMainBranch)
+            {
+                TempData["ErrorMessage"] = "Creating menu items is restricted to the main branch. Please switch to the main branch.";
                 return RedirectToAction(nameof(Index));
             }
 
@@ -488,6 +554,13 @@ END
             if (!TryGetMenuFormBranchContext(out var activeBranchId, out var isMainBranch))
             {
                 ModelState.AddModelError("", "Please select an active branch first.");
+            }
+
+            // Restriction guard
+            if (activeBranchId > 0 && GetIsRestrictMenuEditNonMainBranch(activeBranchId) && !isMainBranch)
+            {
+                TempData["ErrorMessage"] = "Creating menu items is restricted to the main branch.";
+                return RedirectToAction(nameof(Index));
             }
 
             if (activeBranchId > 0)
@@ -668,6 +741,13 @@ END
                 return RedirectToAction(nameof(Index));
             }
 
+            // Restriction: when IsRestrictMenuEditNonMainBranch is enabled, only main branch can edit
+            if (GetIsRestrictMenuEditNonMainBranch(activeBranchId) && !isMainBranch)
+            {
+                TempData["ErrorMessage"] = "Editing menu items is restricted to the main branch. Please switch to the main branch.";
+                return RedirectToAction(nameof(Index));
+            }
+
             var menuItem = GetMenuItemById(id);
             if (menuItem == null)
             {
@@ -760,6 +840,13 @@ END
             if (!TryGetMenuFormBranchContext(out var activeBranchId, out var isMainBranch))
             {
                 ModelState.AddModelError("", "Please select an active branch first.");
+            }
+
+            // Restriction guard
+            if (activeBranchId > 0 && GetIsRestrictMenuEditNonMainBranch(activeBranchId) && !isMainBranch)
+            {
+                TempData["ErrorMessage"] = "Editing menu items is restricted to the main branch.";
+                return RedirectToAction(nameof(Index));
             }
 
             if (activeBranchId > 0)
@@ -945,9 +1032,28 @@ END
         // GET: Menu/Delete/5
         public IActionResult Delete(int id)
         {
-            if (!GetActiveBranchId().HasValue)
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
             {
                 TempData["ErrorMessage"] = "Please select an active branch first.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            // Restriction guard
+            bool isMainBranch = false;
+            try
+            {
+                using (var conn = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                {
+                    conn.Open();
+                    isMainBranch = IsActiveBranchMain(conn, activeBranchId.Value);
+                }
+            }
+            catch { }
+
+            if (GetIsRestrictMenuEditNonMainBranch(activeBranchId.Value) && !isMainBranch)
+            {
+                TempData["ErrorMessage"] = "Deleting menu items is restricted to the main branch. Please switch to the main branch.";
                 return RedirectToAction(nameof(Index));
             }
 
@@ -972,9 +1078,28 @@ END
         {
             try
             {
-                if (!GetActiveBranchId().HasValue)
+                var activeBranchId = GetActiveBranchId();
+                if (!activeBranchId.HasValue)
                 {
                     TempData["ErrorMessage"] = "Please select an active branch first.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                // Restriction guard
+                bool isMainBranchDel = false;
+                try
+                {
+                    using (var conn = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
+                    {
+                        conn.Open();
+                        isMainBranchDel = IsActiveBranchMain(conn, activeBranchId.Value);
+                    }
+                }
+                catch { }
+
+                if (GetIsRestrictMenuEditNonMainBranch(activeBranchId.Value) && !isMainBranchDel)
+                {
+                    TempData["ErrorMessage"] = "Deleting menu items is restricted to the main branch.";
                     return RedirectToAction(nameof(Index));
                 }
 

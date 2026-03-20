@@ -5,6 +5,8 @@
     var canCopyMenuItems = ViewBag.CanCopyMenuItems is bool allowed && allowed;
     var showCopyDebug = (Context?.Request?.Query["debugCopy"].ToString() ?? "") == "1";
     var copyFeatureDebug = ViewBag.CopyFeatureDebug as string ?? "Debug data unavailable.";
+    // true = allow Add/Edit/Delete; false = read-only (non-main branch + restriction enabled)
+    var menuEditAllowed = !(ViewBag.MenuEditAllowed is bool mea) || mea;
 }
 
 <div class="container-fluid">
@@ -20,9 +22,18 @@
                                 <i class="fas fa-copy"></i> Copy to Branch
                             </button>
                         }
-                        <a asp-action="Create" class="btn btn-primary">
-                            <i class="fa fa-plus"></i> Create New
-                        </a>
+                        @if (menuEditAllowed)
+                        {
+                            <a asp-action="Create" class="btn btn-primary">
+                                <i class="fa fa-plus"></i> Create New
+                            </a>
+                        }
+                        else
+                        {
+                            <button class="btn btn-primary" disabled title="Menu creation is restricted to the main branch. Please switch to the main branch to add items.">
+                                <i class="fa fa-plus"></i> Create New
+                            </button>
+                        }
                         <a asp-action="ExportCsv" class="btn btn-outline-secondary ms-2" title="Export CSV">
                             <i class="fas fa-file-csv"></i>
                         </a>
@@ -32,6 +43,14 @@
                     </div>
                 </div>
                 <div class="card-body">
+                    @if (!menuEditAllowed)
+                    {
+                        <div class="alert alert-warning py-2 px-3 small mb-3" role="alert">
+                            <i class="fas fa-lock me-1"></i>
+                            <strong>Read-only:</strong> Menu item add, edit and delete are restricted to the <strong>main branch</strong> by the administrator. Switch to the main branch to make changes.
+                        </div>
+                    }
+
                     @if (showCopyDebug)
                     {
                         <div class="alert alert-secondary py-2 small">
@@ -138,15 +157,29 @@
                                             <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">
                                                 <i class="fa fa-info-circle"></i>
                                             </a>
-                                            <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-primary">
-                                                <i class="fa fa-edit"></i>
-                                            </a>
+                                            @if (menuEditAllowed)
+                                            {
+                                                <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-primary">
+                                                    <i class="fa fa-edit"></i>
+                                                </a>
+                                            }
+                                            else
+                                            {
+                                                <button class="btn btn-sm btn-primary" disabled title="Restricted to main branch only."><i class="fa fa-edit"></i></button>
+                                            }
                                             <a asp-controller="Recipe" asp-action="Create" asp-route-menuItemId="@item.Id" class="btn btn-sm btn-secondary recipe-link" data-menu-id="@item.Id">
                                                 <i class="fa fa-book"></i> Recipe
                                             </a>
-                                            <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">
-                                                <i class="fa fa-trash"></i>
-                                            </a>
+                                            @if (menuEditAllowed)
+                                            {
+                                                <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">
+                                                    <i class="fa fa-trash"></i>
+                                                </a>
+                                            }
+                                            else
+                                            {
+                                                <button class="btn btn-sm btn-danger" disabled title="Restricted to main branch only."><i class="fa fa-trash"></i></button>
+                                            }
                                         </div>
                                     </td>
                                 </tr>

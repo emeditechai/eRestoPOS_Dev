@@ -108,6 +108,9 @@ namespace RestaurantManagementSystem.Models
 
     [Display(Name = "Required Discount on POS")]
     public bool IsRequiredDiscountOnPOS { get; set; } = false;
+
+    [Display(Name = "Restrict Menu Add/Edit/Delete from Non-Main Branch")]
+    public bool IsRestrictMenuEditNonMainBranch { get; set; } = false;
         
         [Required(ErrorMessage = "Bill Format is required")]
         [Display(Name = "Bill Format")]

@@ -380,6 +380,19 @@
                                             <div class="help-text">When enabled, staff can apply discounts directly on the POS order page</div>
                                         </div>
                                     </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group mb-3">
+                                            <label asp-for="IsRestrictMenuEditNonMainBranch" class="control-label"></label>
+                                            <div class="form-check form-switch">
+                                                <input asp-for="IsRestrictMenuEditNonMainBranch" class="form-check-input" type="checkbox" id="isRestrictMenuEditNonMainBranch">
+                                                <label class="form-check-label" for="isRestrictMenuEditNonMainBranch">
+                                                    Restrict Menu Add/Edit/Delete from Non-Main Branch
+                                                </label>
+                                            </div>
+                                            <span asp-validation-for="IsRestrictMenuEditNonMainBranch" class="field-validation-error"></span>
+                                            <div class="help-text">When enabled, only the main branch can create, edit or delete menu items. Non-main branches get read-only access.</div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

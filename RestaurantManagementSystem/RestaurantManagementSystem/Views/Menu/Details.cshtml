@@ -2,6 +2,7 @@
 
 @{
     ViewData["Title"] = "Menu Item Details";
+    var menuEditAllowed = !(ViewBag.MenuEditAllowed is bool mea) || mea;
 }
 
 <div class="container-fluid py-2">
@@ -36,9 +37,18 @@
                     <div class="d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">Menu Item Details</h5>
                         <div class="btn-group btn-group-sm">
-                            <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-sm btn-primary">
-                                <i class="fa fa-edit"></i> Edit
-                            </a>
+                            @if (menuEditAllowed)
+                            {
+                                <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-sm btn-primary">
+                                    <i class="fa fa-edit"></i> Edit
+                                </a>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-primary" disabled title="Editing is restricted to the main branch only.">
+                                    <i class="fa fa-edit"></i> Edit
+                                </button>
+                            }
                             <a asp-controller="Recipe" asp-action="Create" asp-route-menuItemId="@Model.Id" class="btn btn-sm btn-info" id="recipeBtn">
                                 <i class="fa fa-book"></i> Recipe
                             </a>
