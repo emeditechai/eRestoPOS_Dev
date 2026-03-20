@@ -212,6 +212,505 @@
         .quick-action-btn {
             position: relative;
         }
+
+        .selection-modal .modal-dialog {
+            max-width: 560px;
+            width: min(560px, calc(100vw - 1.25rem));
+            margin: 0.85rem auto;
+        }
+
+        .selection-modal .modal-content {
+            border: 0;
+            border-radius: 16px;
+            overflow: hidden;
+            background: linear-gradient(180deg, #ffffff 0%, #f5f8fc 100%);
+            box-shadow: 0 20px 46px rgba(12, 30, 51, 0.18);
+        }
+
+        .selection-modal .modal-header {
+            padding: 0.8rem 0.9rem 0.72rem;
+            border-bottom: 0;
+            background:
+                radial-gradient(circle at top right, rgba(244, 191, 117, 0.34), transparent 32%),
+                linear-gradient(135deg, #10263a 0%, #184b73 100%);
+            color: #fff;
+        }
+
+        .selection-modal__headline {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            width: 100%;
+            min-width: 0;
+        }
+
+        .selection-modal__icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 0.82rem;
+            color: #fff6dd;
+            background: rgba(255, 255, 255, 0.12);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        }
+
+        .selection-modal__header-copy {
+            min-width: 0;
+        }
+
+        .selection-modal__eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            margin-bottom: 0.08rem;
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: rgba(255, 244, 214, 0.88);
+        }
+
+        .selection-modal .modal-title {
+            font-size: 0.98rem;
+            font-weight: 700;
+            line-height: 1.2;
+            margin: 0;
+        }
+
+        .selection-modal__subtitle {
+            display: none;
+        }
+
+        .selection-modal .btn-close {
+            margin: 0;
+            opacity: 0.9;
+        }
+
+        .selection-modal .btn-close:hover,
+        .selection-modal .btn-close:focus {
+            opacity: 1;
+        }
+
+        .selection-modal__body {
+            padding: 0.5rem 0.9rem 0.8rem;
+        }
+
+        .selection-modal__intro {
+            display: none;
+        }
+
+        .selection-modal__intro-label {
+            display: none;
+        }
+
+        .selection-modal__description {
+            margin: 0;
+            color: #5b6b7d;
+            font-size: 0.78rem;
+            line-height: 1.35;
+        }
+
+        .selection-card-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-auto-rows: 144px;
+            gap: 0.55rem;
+            max-height: min(42vh, 300px);
+            overflow-y: auto;
+            padding-right: 0.1rem;
+        }
+
+        .selection-card-grid::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .selection-card-grid::-webkit-scrollbar-thumb {
+            border-radius: 999px;
+            background: rgba(24, 75, 115, 0.18);
+        }
+
+        .selection-option-card {
+            position: relative;
+            width: 100%;
+            height: 144px;
+            min-height: 144px;
+            padding: 0.7rem;
+            border: 1px solid rgba(20, 57, 88, 0.12);
+            border-radius: 12px;
+            background: #fff;
+            text-align: left;
+            color: #10263a;
+            box-shadow: 0 8px 18px rgba(17, 39, 61, 0.06);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .selection-option-card:hover,
+        .selection-option-card:focus {
+            border-color: rgba(24, 75, 115, 0.35);
+            box-shadow: 0 12px 24px rgba(17, 39, 61, 0.1);
+            transform: translateY(-1px);
+            outline: none;
+        }
+
+        .selection-option-card::before {
+            content: '';
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 4px;
+            border-radius: 14px 0 0 14px;
+            background: linear-gradient(180deg, #dca54b 0%, #1a5e91 100%);
+            opacity: 0.24;
+            transition: opacity 0.2s ease;
+        }
+
+        .selection-option-card.is-selected {
+            border-color: rgba(26, 94, 145, 0.5);
+            background: linear-gradient(180deg, #ffffff 0%, #f2f8fd 100%);
+            box-shadow: 0 14px 28px rgba(17, 39, 61, 0.11);
+        }
+
+        .selection-option-card.is-selected::before,
+        .selection-option-card.is-current::before {
+            opacity: 1;
+        }
+
+        .selection-option-card__header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.4rem;
+        }
+
+        .selection-option-card__bodycopy {
+            min-width: 0;
+            margin-top: 0.45rem;
+        }
+
+        .selection-option-card__avatar {
+            width: 30px;
+            height: 30px;
+            border-radius: 9px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 0.72rem;
+            color: #184b73;
+            background: linear-gradient(180deg, rgba(220, 165, 75, 0.18) 0%, rgba(26, 94, 145, 0.12) 100%);
+        }
+
+        .selection-option-card__title {
+            margin: 0;
+            font-size: 0.82rem;
+            font-weight: 700;
+            line-height: 1.25;
+            color: #10263a;
+            word-break: break-word;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            min-height: 2.05em;
+        }
+
+        .selection-option-card__subtitle {
+            margin: 0.16rem 0 0;
+            font-size: 0.7rem;
+            line-height: 1.3;
+            color: #5a6b7e;
+            display: -webkit-box;
+            -webkit-line-clamp: 1;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            min-height: 1.2em;
+        }
+
+        .selection-option-card__check {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(16, 38, 58, 0.12);
+            color: transparent;
+            background: #fff;
+            flex-shrink: 0;
+            font-size: 0.62rem;
+            transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+
+        .selection-option-card.is-selected .selection-option-card__check {
+            color: #fff;
+            background: linear-gradient(135deg, #1a5e91 0%, #184b73 100%);
+            border-color: transparent;
+        }
+
+        .selection-option-card__meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.28rem;
+            margin-top: 0.5rem;
+            padding-left: 0;
+        }
+
+        .selection-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.22rem;
+            padding: 0.2rem 0.38rem;
+            border-radius: 999px;
+            background: #eef4f9;
+            color: #425466;
+            font-size: 0.61rem;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+        }
+
+        .selection-chip--accent {
+            background: rgba(220, 165, 75, 0.16);
+            color: #8a5f15;
+        }
+
+        .selection-chip--success {
+            background: rgba(34, 197, 94, 0.14);
+            color: #177d43;
+        }
+
+        .selection-chip--primary {
+            background: rgba(26, 94, 145, 0.12);
+            color: #184b73;
+        }
+
+        .selection-modal .alert {
+            border-radius: 16px;
+        }
+
+        .selection-modal__loading {
+            padding: 1rem 0.65rem;
+        }
+
+        .selection-modal__footer {
+            padding: 0.65rem 0.9rem 0.9rem;
+            border-top: 0;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.6rem;
+        }
+
+        .selection-modal__footer-copy {
+            display: none;
+        }
+
+        .selection-modal__footer-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+        }
+
+        .selection-modal__footer .btn {
+            min-width: 96px;
+            min-height: 40px;
+            border-radius: 999px;
+            font-weight: 600;
+            padding: 0.42rem 0.82rem;
+            font-size: 0.8rem;
+        }
+
+        @@media (max-width: 1024.98px) {
+            .selection-modal .modal-dialog {
+                max-width: 620px;
+                width: min(620px, calc(100vw - 1.5rem));
+                margin: 0.8rem auto;
+            }
+
+            .selection-card-grid {
+                grid-auto-rows: 136px;
+                max-height: min(44vh, 284px);
+            }
+
+            .selection-option-card {
+                height: 136px;
+                min-height: 136px;
+            }
+
+            .selection-modal__footer .btn {
+                min-height: 42px;
+            }
+        }
+
+        @@media (max-width: 820.98px) and (min-width: 768px) {
+            .selection-modal .modal-dialog {
+                max-width: 600px;
+                width: min(600px, calc(100vw - 1.4rem));
+            }
+
+            .selection-card-grid {
+                gap: 0.5rem;
+            }
+        }
+
+        @@media (min-width: 821px) and (max-width: 1180.98px) and (orientation: landscape) {
+            .selection-modal .modal-dialog {
+                max-width: 740px;
+                width: min(740px, calc(100vw - 2rem));
+                margin: 0.7rem auto;
+            }
+
+            .selection-modal__body {
+                padding-top: 0.45rem;
+                padding-bottom: 0.7rem;
+            }
+
+            .selection-card-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                grid-auto-rows: 128px;
+                gap: 0.5rem;
+                max-height: min(46vh, 252px);
+            }
+
+            .selection-option-card {
+                height: 128px;
+                min-height: 128px;
+                padding: 0.62rem;
+            }
+
+            .selection-option-card__title {
+                font-size: 0.78rem;
+            }
+
+            .selection-option-card__subtitle {
+                font-size: 0.68rem;
+            }
+        }
+
+        @@media (max-width: 767.98px) {
+            .selection-modal .modal-dialog {
+                width: calc(100vw - 1rem);
+                margin: 0.5rem auto;
+            }
+
+            .selection-modal .modal-header,
+            .selection-modal__body,
+            .selection-modal__footer {
+                padding-left: 0.9rem;
+                padding-right: 0.9rem;
+            }
+
+            .selection-card-grid {
+                grid-template-columns: 1fr;
+                grid-auto-rows: minmax(124px, auto);
+                max-height: min(58vh, 360px);
+            }
+
+            .selection-option-card {
+                height: auto;
+                min-height: 124px;
+            }
+
+            .selection-option-card__title {
+                -webkit-line-clamp: 3;
+                min-height: 3.1em;
+            }
+
+            .selection-option-card__subtitle {
+                -webkit-line-clamp: 2;
+                min-height: 2.3em;
+            }
+
+            .selection-modal__footer {
+                justify-content: stretch;
+            }
+
+            .selection-modal__footer-actions {
+                width: 100%;
+            }
+
+            .selection-modal__footer-actions .btn {
+                flex: 1 1 0;
+            }
+        }
+
+        @@media (max-width: 479.98px) {
+            .selection-modal .modal-dialog {
+                width: calc(100vw - 0.75rem);
+                margin: 0.35rem auto;
+            }
+
+            .selection-modal .modal-header,
+            .selection-modal__body,
+            .selection-modal__footer {
+                padding-left: 0.75rem;
+                padding-right: 0.75rem;
+            }
+
+            .selection-modal__headline {
+                align-items: flex-start;
+            }
+
+            .selection-card-grid {
+                gap: 0.45rem;
+                max-height: min(60vh, 380px);
+            }
+
+            .selection-option-card {
+                min-height: 120px;
+                padding: 0.65rem;
+            }
+
+            .selection-option-card__title {
+                font-size: 0.78rem;
+            }
+
+            .selection-chip {
+                font-size: 0.58rem;
+            }
+
+            .selection-modal__footer-actions {
+                flex-direction: column-reverse;
+                width: 100%;
+            }
+
+            .selection-modal__footer .btn {
+                width: 100%;
+            }
+        }
+
+        @@media (hover: none) and (pointer: coarse) {
+            .selection-option-card,
+            .selection-modal__footer .btn {
+                -webkit-tap-highlight-color: transparent;
+                touch-action: manipulation;
+            }
+
+            .selection-option-card:hover,
+            .selection-option-card:focus {
+                transform: none;
+            }
+
+            .selection-modal__footer .btn {
+                min-height: 44px;
+            }
+        }
+
+        @@media (max-height: 720px) {
+            .selection-card-grid {
+                max-height: min(54vh, 260px);
+            }
+
+            .selection-modal__body {
+                padding-top: 0.45rem;
+                padding-bottom: 0.65rem;
+            }
+        }
         
     /* Ensure page main content is not hidden behind fixed navbar (update if navbar height changes) */
     /* Navbar height ~56px on desktop; increase if your brand/header is taller */
@@ -404,7 +903,7 @@
                 if (!controls.options) {
                     return [];
                 }
-                return Array.from(controls.options.querySelectorAll('.list-group-item'));
+                return Array.from(controls.options.querySelectorAll('.selection-option-card'));
             }
 
             function wireSwitchBranchTriggers() {
@@ -559,19 +1058,34 @@
                     const isActive = Boolean(resolveBranchField(branch, 'isActive', 'IsActive'));
                     const fullName = locationName ? `${locationName} - ${branchName}` : branchName;
                     const displayName = branchCode ? `${branchCode} - ${fullName}` : fullName;
+                    const locationLabel = locationName || 'Branch location';
 
                     const item = document.createElement('button');
                     item.type = 'button';
                     item.setAttribute('tabindex', '0');
-                    item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+                    item.className = `selection-option-card${isActive ? ' is-current' : ''}`;
                     item.dataset.branchId = branchId;
                     item.dataset.branchDisplayName = displayName;
                     item.dataset.branchIsMain = isMainBranch ? 'true' : 'false';
+                    item.setAttribute('aria-pressed', 'false');
                     item.innerHTML = `
-                        <div>
-                            <div class="fw-semibold">${displayName}${isMainBranch ? '<span class="badge bg-light text-primary ms-2" style="font-size: 0.72rem; vertical-align: middle;">Main Branch</span>' : ''}</div>
+                        <div class="selection-option-card__header">
+                            <span class="selection-option-card__avatar" aria-hidden="true">
+                                <i class="fa-solid fa-store"></i>
+                            </span>
+                            <span class="selection-option-card__check" aria-hidden="true">
+                                <i class="fa-solid fa-check"></i>
+                            </span>
                         </div>
-                        <span class="badge ${isActive ? 'bg-success' : 'bg-light text-dark'}">${isActive ? 'Current' : 'Select'}</span>
+                        <div class="selection-option-card__bodycopy">
+                            <p class="selection-option-card__title">${displayName}</p>
+                            <p class="selection-option-card__subtitle">${locationLabel}</p>
+                        </div>
+                        <div class="selection-option-card__meta">
+                            ${branchCode ? `<span class="selection-chip"><i class="fa-solid fa-hashtag"></i>${branchCode}</span>` : ''}
+                            ${isMainBranch ? '<span class="selection-chip selection-chip--accent"><i class="fa-solid fa-star"></i>Main</span>' : ''}
+                            ${isActive ? '<span class="selection-chip selection-chip--success"><i class="fa-solid fa-circle-check"></i>Current</span>' : '<span class="selection-chip selection-chip--primary"><i class="fa-solid fa-hand-pointer"></i>Select</span>'}
+                        </div>
                     `;
 
                     item.addEventListener('click', function () {
@@ -594,12 +1108,14 @@
             function setSelectedBranch(branchId, button, silent) {
                 state.selectedBranchId = branchId;
                 if (controls.options) {
-                    controls.options.querySelectorAll('.list-group-item').forEach(function (item) {
-                        item.classList.remove('active');
+                    controls.options.querySelectorAll('.selection-option-card').forEach(function (item) {
+                        item.classList.remove('is-selected');
+                        item.setAttribute('aria-pressed', 'false');
                     });
                 }
                 if (button) {
-                    button.classList.add('active');
+                    button.classList.add('is-selected');
+                    button.setAttribute('aria-pressed', 'true');
                     const buttons = getBranchButtons();
                     state.focusedIndex = buttons.findIndex(item => item === button);
                 }
@@ -733,7 +1249,7 @@
                     modalEl.removeEventListener('shown.bs.modal', onShown);
                     const buttons = getBranchButtons();
                     if (buttons.length > 0) {
-                        const current = buttons.find(btn => btn.classList.contains('active')) || buttons[0];
+                        const current = buttons.find(btn => btn.classList.contains('is-selected')) || buttons[0];
                         current.focus();
                     }
                 });
@@ -782,7 +1298,7 @@
                 if (!controls.options) {
                     return [];
                 }
-                return Array.from(controls.options.querySelectorAll('.list-group-item'));
+                return Array.from(controls.options.querySelectorAll('.selection-option-card'));
             }
 
             function wireSwitchRoleTriggers() {
@@ -933,18 +1449,31 @@
                     const roleName = resolveRoleField(role, 'name', 'Name') || 'Role';
                     const description = resolveRoleField(role, 'description', 'Description');
                     const isActive = Boolean(resolveRoleField(role, 'isActive', 'IsActive'));
+                    const detailText = description || 'Permission profile';
 
                     const item = document.createElement('button');
                     item.type = 'button';
                     item.setAttribute('tabindex', '0');
-                    item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+                    item.className = `selection-option-card${isActive ? ' is-current' : ''}`;
                     item.dataset.roleId = roleId;
+                    item.setAttribute('aria-pressed', 'false');
                     item.innerHTML = `
-                        <div>
-                            <div class="fw-semibold">${roleName}</div>
-                            ${description ? `<div class="text-muted small">${description}</div>` : ''}
+                        <div class="selection-option-card__header">
+                            <span class="selection-option-card__avatar" aria-hidden="true">
+                                <i class="fa-solid fa-user-shield"></i>
+                            </span>
+                            <span class="selection-option-card__check" aria-hidden="true">
+                                <i class="fa-solid fa-check"></i>
+                            </span>
                         </div>
-                        <span class="badge ${isActive ? 'bg-success' : 'bg-light text-dark'}">${isActive ? 'Current' : 'Select'}</span>
+                        <div class="selection-option-card__bodycopy">
+                            <p class="selection-option-card__title">${roleName}</p>
+                            <p class="selection-option-card__subtitle">${detailText}</p>
+                        </div>
+                        <div class="selection-option-card__meta">
+                            <span class="selection-chip"><i class="fa-solid fa-user-tag"></i>Access</span>
+                            ${isActive ? '<span class="selection-chip selection-chip--success"><i class="fa-solid fa-circle-check"></i>Current</span>' : '<span class="selection-chip selection-chip--primary"><i class="fa-solid fa-hand-pointer"></i>Select</span>'}
+                        </div>
                     `;
 
                     item.addEventListener('click', function () {
@@ -967,12 +1496,14 @@
             function setSelectedRole(roleId, button, silent) {
                 state.selectedRoleId = roleId;
                 if (controls.options) {
-                    controls.options.querySelectorAll('.list-group-item').forEach(function (item) {
-                        item.classList.remove('active');
+                    controls.options.querySelectorAll('.selection-option-card').forEach(function (item) {
+                        item.classList.remove('is-selected');
+                        item.setAttribute('aria-pressed', 'false');
                     });
                 }
                 if (button) {
-                    button.classList.add('active');
+                    button.classList.add('is-selected');
+                    button.setAttribute('aria-pressed', 'true');
                     const buttons = getRoleButtons();
                     state.focusedIndex = buttons.findIndex(item => item === button);
                 }
@@ -1072,7 +1603,7 @@
                     modalEl.removeEventListener('shown.bs.modal', onShown);
                     const buttons = getRoleButtons();
                     if (buttons.length > 0) {
-                        const current = buttons.find(btn => btn.classList.contains('active')) || buttons[0];
+                        const current = buttons.find(btn => btn.classList.contains('is-selected')) || buttons[0];
                         current.focus();
                     }
                 });
@@ -1130,64 +1661,90 @@
     <partial name="_HelpInfo" />
 
     <!-- Branch Selection Modal -->
-    <div class="modal fade" id="branchSelectionModal" tabindex="-1" aria-labelledby="branchSelectionModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
+    <div class="modal fade selection-modal" id="branchSelectionModal" tabindex="-1" aria-labelledby="branchSelectionModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
             <div class="modal-content shadow-lg border-0">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title" id="branchSelectionModalLabel" data-branch-modal-title>Choose a branch to continue</h5>
+                <div class="modal-header">
+                    <div class="selection-modal__headline">
+                        <div class="selection-modal__icon" aria-hidden="true">
+                            <i class="fa-solid fa-store"></i>
+                        </div>
+                        <div class="selection-modal__header-copy">
+                            <div class="selection-modal__eyebrow">Session setup</div>
+                            <h5 class="modal-title" id="branchSelectionModalLabel" data-branch-modal-title>Choose a branch to continue</h5>
+                        </div>
+                    </div>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" data-branch-close></button>
                 </div>
-                <div class="modal-body">
-                    <p class="text-muted small mb-3" data-branch-modal-description>
+                <div class="modal-body selection-modal__body">
+                    <p class="selection-modal__description visually-hidden" data-branch-modal-description>
                         Select the branch you want to use for this session. You can switch branches later from the profile menu.
                     </p>
                     <div class="alert alert-danger d-none" role="alert" data-branch-error></div>
-                    <div class="text-center py-4" data-branch-loading>
+                    <div class="text-center selection-modal__loading" data-branch-loading>
                         <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading branches…</span>
                         </div>
                         <div class="mt-2 text-muted small">Fetching your assigned branches</div>
                     </div>
-                    <div class="list-group branch-selection-options d-none" data-branch-options></div>
+                    <div class="selection-card-grid branch-selection-options d-none" data-branch-options></div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-branch-close>Cancel</button>
-                    <button type="button" class="btn btn-primary" data-branch-confirm disabled>
-                        <span data-branch-confirm-text>Continue</span>
-                        <span class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true" data-branch-confirm-spinner></span>
-                    </button>
+                <div class="modal-footer selection-modal__footer">
+                    <div class="selection-modal__footer-copy">
+                        Your branch sets the context for day-to-day work, reports, and permissions tied to that location.
+                    </div>
+                    <div class="selection-modal__footer-actions">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-branch-close>Cancel</button>
+                        <button type="button" class="btn btn-primary" data-branch-confirm disabled>
+                            <span data-branch-confirm-text>Continue</span>
+                            <span class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true" data-branch-confirm-spinner></span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Role Selection Modal -->
-    <div class="modal fade" id="roleSelectionModal" tabindex="-1" aria-labelledby="roleSelectionModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
+    <div class="modal fade selection-modal" id="roleSelectionModal" tabindex="-1" aria-labelledby="roleSelectionModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
             <div class="modal-content shadow-lg border-0">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title" id="roleSelectionModalLabel" data-role-modal-title>Choose a role to continue</h5>
+                <div class="modal-header">
+                    <div class="selection-modal__headline">
+                        <div class="selection-modal__icon" aria-hidden="true">
+                            <i class="fa-solid fa-user-shield"></i>
+                        </div>
+                        <div class="selection-modal__header-copy">
+                            <div class="selection-modal__eyebrow">Session setup</div>
+                            <h5 class="modal-title" id="roleSelectionModalLabel" data-role-modal-title>Choose a role to continue</h5>
+                        </div>
+                    </div>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" data-role-close></button>
                 </div>
-                <div class="modal-body">
-                    <p class="text-muted small mb-3" data-role-modal-description>
+                <div class="modal-body selection-modal__body">
+                    <p class="selection-modal__description visually-hidden" data-role-modal-description>
                         Select the role you want to use for this session. You can switch roles later from the profile menu.
                     </p>
                     <div class="alert alert-danger d-none" role="alert" data-role-error></div>
-                    <div class="text-center py-4" data-role-loading>
+                    <div class="text-center selection-modal__loading" data-role-loading>
                         <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading roles…</span>
                         </div>
                         <div class="mt-2 text-muted small">Fetching your assigned roles</div>
                     </div>
-                    <div class="list-group role-selection-options d-none" data-role-options></div>
+                    <div class="selection-card-grid role-selection-options d-none" data-role-options></div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-role-close>Cancel</button>
-                    <button type="button" class="btn btn-primary" data-role-confirm disabled>
-                        <span data-role-confirm-text>Continue</span>
-                        <span class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true" data-role-confirm-spinner></span>
-                    </button>
+                <div class="modal-footer selection-modal__footer">
+                    <div class="selection-modal__footer-copy">
+                        Your selected role controls which actions, screens, and operational permissions are available in this session.
+                    </div>
+                    <div class="selection-modal__footer-actions">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-role-close>Cancel</button>
+                        <button type="button" class="btn btn-primary" data-role-confirm disabled>
+                            <span data-role-confirm-text>Continue</span>
+                            <span class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true" data-role-confirm-spinner></span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
