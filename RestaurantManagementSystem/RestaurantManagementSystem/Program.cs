@@ -26,6 +26,7 @@ namespace RestaurantManagementSystem
                 options.Filters.AddService<EnforceMenuPermissionFilter>();
             });
             builder.Services.AddMemoryCache();
+            builder.Services.AddHttpClient();
             builder.Services.AddHttpContextAccessor();
 
             // Persist Data Protection keys to disk so auth cookies survive server restarts.
@@ -82,6 +83,7 @@ namespace RestaurantManagementSystem
             builder.Services.AddScoped<AdminSetupService>();
             builder.Services.AddScoped<PasswordResetTool>();
             builder.Services.AddScoped<UrlEncryptionService>();
+            builder.Services.AddScoped<ILicensingService, LicensingService>();
             builder.Services.AddScoped<IEmailSender, DatabaseEmailSender>();
             builder.Services.AddScoped<IDayClosingService, DayClosingService>();
             // Hosted service for non-blocking admin initialization
@@ -127,6 +129,7 @@ namespace RestaurantManagementSystem
 
             app.UseMiddleware<DatabaseColumnFixMiddleware>();
             app.UseAuthentication();
+            app.UseMiddleware<LicensingMiddleware>();
             app.UseAuthorization();
 
             app.MapControllerRoute(

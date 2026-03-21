@@ -1,0 +1,123 @@
+@model RestaurantManagementSystem.ViewModels.LicenseBlockedViewModel
+@{
+    ViewData["Title"] = "License Blocked";
+    Layout = "_AuthLayout";
+    var showFailureReason = !string.IsNullOrWhiteSpace(Model.FailureReason)
+        && !string.Equals(Model.FailureReason, Model.Message, StringComparison.OrdinalIgnoreCase);
+}
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="login-logo-text">eRestoPOS</div>
+            <h2>@Model.Title</h2>
+            <p>Application access is blocked until licensing validation succeeds.</p>
+        </div>
+
+        <div class="login-form">
+            <div class="license-status-panel">
+                <span class="license-status-chip">
+                    <i class="fas fa-shield-alt"></i>
+                    @Model.Status
+                </span>
+
+                <p class="mt-3 mb-2">@Model.Message</p>
+
+                @if (showFailureReason)
+                {
+                    <div class="alert alert-danger mb-0">
+                        @Model.FailureReason
+                    </div>
+                }
+            </div>
+
+            <div class="license-detail-grid">
+                <div class="license-detail-card">
+                    <span class="label">Client Code</span>
+                    <span class="value">@(string.IsNullOrWhiteSpace(Model.ClientCode) ? "Not Available" : Model.ClientCode)</span>
+                </div>
+
+                <div class="license-detail-card">
+                    <span class="label">License Key</span>
+                    <span class="value">@(string.IsNullOrWhiteSpace(Model.LicenseKey) ? "Not Available" : Model.LicenseKey)</span>
+                </div>
+
+                <div class="license-detail-card">
+                    <span class="label">Expiry Date</span>
+                    <span class="value">@(Model.ExpiryDate.HasValue ? Model.ExpiryDate.Value.ToString("dd-MMM-yyyy") : "Not Available")</span>
+                </div>
+
+                <div class="license-detail-card">
+                    <span class="label">Last Validation</span>
+                    <span class="value">@(Model.LastValidatedAt.HasValue ? Model.LastValidatedAt.Value.ToString("dd-MMM-yyyy HH:mm") : "Not Available")</span>
+                </div>
+            </div>
+
+            <p class="text-muted mb-0">If this server was rebuilt or hardware changed, update the remote license record before retrying validation.</p>
+
+            <div class="license-actions">
+                @if (Model.ShowRetryAction)
+                {
+                    <form asp-action="RetryValidation" method="post" class="d-inline">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-sync-alt me-2"></i>Retry Validation
+                        </button>
+                    </form>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="licenseAlertModal" tabindex="-1" aria-labelledby="licenseAlertModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="licenseAlertModalLabel">@Model.Title</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <div class="modal-body">
+                <p class="mb-2 fw-semibold">@Model.Message</p>
+
+                @if (showFailureReason)
+                {
+                    <p class="mb-0 text-muted small">@Model.FailureReason</p>
+                }
+            </div>
+
+            <div class="modal-footer">
+                @if (Model.ShowRetryAction)
+                {
+                    <form asp-action="RetryValidation" method="post" class="me-auto">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-sync-alt me-2"></i>Retry Validation
+                        </button>
+                    </form>
+                }
+
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const modalElement = document.getElementById('licenseAlertModal');
+            if (!modalElement) {
+                return;
+            }
+
+            const modal = new bootstrap.Modal(modalElement, {
+                backdrop: 'static',
+                keyboard: false
+            });
+
+            modal.show();
+        });
+    </script>
+}
