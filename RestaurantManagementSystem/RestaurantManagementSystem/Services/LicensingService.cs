@@ -376,7 +376,7 @@ namespace RestaurantManagementSystem.Services
                 await using var remoteConnection = new SqlConnection(remoteConnectionString);
                 await remoteConnection.OpenAsync();
 
-                var remoteLicense = await GetRemoteLicenseByFingerprintAsync(remoteConnection, null, machine);
+                var remoteLicense = await GetRemoteLicenseByFingerprintAsync(remoteConnection, null, machine, GetCurrentAppUrl());
                 if (remoteLicense == null)
                 {
                     var transaction = (SqlTransaction)await remoteConnection.BeginTransactionAsync(IsolationLevel.Serializable);
@@ -1151,11 +1151,13 @@ FROM dbo.ClientAppLicense
 ORDER BY CreatedAt DESC, Id DESC;";
 
             await using var command = new SqlCommand(sql, connection);
+            var currentAppUrl = GetCurrentAppUrl();
             await using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
                 var license = MapLocalLicense(reader);
-                if (FingerprintsMatch(machine, license))
+                if (FingerprintsMatch(machine, license) &&
+                    string.Equals(license.AppUrl, currentAppUrl, StringComparison.OrdinalIgnoreCase))
                 {
                     return license;
                 }
@@ -1638,9 +1640,9 @@ ORDER BY CreatedAt DESC, Id DESC;";
             return await reader.ReadAsync() ? MapLicense(reader) : null;
         }
 
-        private async Task<ClientAppLicense?> GetRemoteLicenseByFingerprintAsync(SqlConnection connection, SqlTransaction? transaction, LicenseMachineFingerprint machine)
+        private async Task<ClientAppLicense?> GetRemoteLicenseByFingerprintAsync(SqlConnection connection, SqlTransaction? transaction, LicenseMachineFingerprint machine, string? appUrl = null)
         {
-            const string sql = @"
+            var sql = @"
 SELECT TOP 1
     Id,
     ClientCode,
@@ -1663,13 +1665,19 @@ SELECT TOP 1
 FROM dbo.ClientAppLicense
 WHERE ServerMacID = @ServerMacID
   AND HardDiskNumber = @HardDiskNumber
-  AND MotherboardNumber = @MotherboardNumber
-ORDER BY CreatedAt DESC, Id DESC;";
+  AND MotherboardNumber = @MotherboardNumber";
+
+            if (!string.IsNullOrWhiteSpace(appUrl))
+                sql += "\n  AND AppUrl = @AppUrl";
+
+            sql += "\nORDER BY CreatedAt DESC, Id DESC;";
 
             await using var command = new SqlCommand(sql, connection, transaction);
             command.Parameters.AddWithValue("@ServerMacID", machine.ServerMacID);
             command.Parameters.AddWithValue("@HardDiskNumber", machine.HardDiskNumber);
             command.Parameters.AddWithValue("@MotherboardNumber", machine.MotherboardNumber);
+            if (!string.IsNullOrWhiteSpace(appUrl))
+                command.Parameters.AddWithValue("@AppUrl", appUrl);
             await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow);
             return await reader.ReadAsync() ? MapLicense(reader) : null;
         }
