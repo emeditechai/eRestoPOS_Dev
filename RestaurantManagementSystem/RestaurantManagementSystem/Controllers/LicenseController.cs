@@ -174,6 +174,32 @@ namespace RestaurantManagementSystem.Controllers
             return RedirectToAction(nameof(Blocked), new { status = gateResult.Status.ToString() });
         }
 
+        /// <summary>
+        /// GET /License/ClearValidationCache
+        /// Clears the in-process daily license cache and the cached hardware fingerprint,
+        /// then re-evaluates the license state so the correct page (Register, Blocked, or
+        /// Login) is shown. Useful when a license row is deleted or modified outside the
+        /// application and the cached result needs to be discarded immediately.
+        /// </summary>
+        [HttpGet]
+        public async Task<IActionResult> ClearValidationCache()
+        {
+            await _licensingService.ClearLocalLicenseAsync();
+            var gateResult = await _licensingService.EvaluateAccessAsync(true, ResolveRequestIp());
+
+            if (gateResult.Status == LicenseGateStatus.Unregistered)
+            {
+                return RedirectToAction(nameof(Register));
+            }
+
+            if (gateResult.IsAllowed)
+            {
+                return RedirectToPostLicenseDestination();
+            }
+
+            return RedirectToAction(nameof(Blocked), new { status = gateResult.Status.ToString() });
+        }
+
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ReRegister()
@@ -186,6 +212,59 @@ namespace RestaurantManagementSystem.Controllers
 
             await _licensingService.ClearLocalLicenseAsync();
             return RedirectToAction(nameof(Register));
+        }
+
+        /// <summary>
+        /// POST /License/StartRenewalOtp
+        /// Validates the submitted license key against the remote table, then sends a
+        /// 6-digit OTP to internal approvers. Called by AJAX from the Blocked page modal.
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> StartRenewalOtp([FromForm] string licenseKey)
+        {
+            var gateResult = await _licensingService.EvaluateAccessAsync(false, ResolveRequestIp());
+            if (gateResult.IsAllowed)
+            {
+                return Json(new { success = true, message = "License is already valid.", redirectUrl = Url.Action("Login", "Account") });
+            }
+
+            if (gateResult.Status != LicenseGateStatus.HardwareMismatch)
+            {
+                return Json(new { success = false, message = "Hardware renewal is only available when a hardware mismatch is detected." });
+            }
+
+            var result = await _licensingService.SendHardwareRenewalOtpAsync(licenseKey, ResolveRequestIp());
+            return Json(new { success = result.Success, message = result.Message, expiresInSeconds = result.ExpiresInSeconds });
+        }
+
+        /// <summary>
+        /// POST /License/VerifyRenewalOtp
+        /// Verifies the OTP and, on success, updates the server hardware identifiers in
+        /// both the remote and local license databases, then redirects to login.
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> VerifyRenewalOtp([FromForm] string otpCode)
+        {
+            var gateResult = await _licensingService.EvaluateAccessAsync(false, ResolveRequestIp());
+            if (gateResult.IsAllowed)
+            {
+                return Json(new { success = true, message = "License is already valid.", redirectUrl = Url.Action("Login", "Account") });
+            }
+
+            if (gateResult.Status != LicenseGateStatus.HardwareMismatch)
+            {
+                return Json(new { success = false, message = "Hardware renewal is only available when a hardware mismatch is detected." });
+            }
+
+            var result = await _licensingService.VerifyHardwareRenewalOtpAsync(otpCode, ResolveRequestIp());
+            if (!result.Success)
+            {
+                return Json(new { success = false, message = result.Message });
+            }
+
+            return Json(new { success = true, message = result.Message, redirectUrl = Url.Action("Login", "Account") });
         }
 
         private IActionResult RedirectToPostLicenseDestination()

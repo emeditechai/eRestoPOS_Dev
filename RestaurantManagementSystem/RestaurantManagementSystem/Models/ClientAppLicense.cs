@@ -55,5 +55,9 @@ namespace RestaurantManagementSystem.Models
 
         [Column("AppUrl")]
         public string? AppUrl { get; set; }
+
+        [Column("ProductType")]
+        [StringLength(100)]
+        public string? ProductType { get; set; }
     }
 }

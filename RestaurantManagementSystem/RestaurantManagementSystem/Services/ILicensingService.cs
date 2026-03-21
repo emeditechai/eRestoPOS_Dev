@@ -15,5 +15,9 @@ namespace RestaurantManagementSystem.Services
         Task<LicenseBlockedViewModel> BuildBlockedViewModelAsync(LicenseGateStatus? statusOverride = null);
 
         Task ClearLocalLicenseAsync();
+
+        Task<(bool Success, string Message, int ExpiresInSeconds)> SendHardwareRenewalOtpAsync(string licenseKey, string? requestIp = null);
+
+        Task<(bool Success, string Message)> VerifyHardwareRenewalOtpAsync(string otpCode, string? requestIp = null);
     }
 }

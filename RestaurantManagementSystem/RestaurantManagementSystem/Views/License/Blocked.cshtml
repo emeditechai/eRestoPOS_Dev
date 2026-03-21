@@ -65,12 +65,9 @@
             <div class="license-actions">
                 @if (Model.Status == LicenseGateStatus.HardwareMismatch)
                 {
-                    <form asp-action="ReRegister" method="post" class="d-inline">
-                        @Html.AntiForgeryToken()
-                        <button type="submit" class="btn btn-warning">
-                            <i class="fas fa-plus-circle me-2"></i>Register New License
-                        </button>
-                    </form>
+                    <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#licenseRenewalModal">
+                        <i class="fas fa-key me-2"></i>Re-New License
+                    </button>
                 }
                 @if (Model.ShowRetryAction)
                 {
@@ -106,12 +103,9 @@
             <div class="modal-footer">
                 @if (Model.Status == LicenseGateStatus.HardwareMismatch)
                 {
-                    <form asp-action="ReRegister" method="post" class="me-auto">
-                        @Html.AntiForgeryToken()
-                        <button type="submit" class="btn btn-warning">
-                            <i class="fas fa-plus-circle me-2"></i>Register New License
-                        </button>
-                    </form>
+                    <button type="button" class="btn btn-warning me-auto" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#licenseRenewalModal">
+                        <i class="fas fa-key me-2"></i>Re-New License
+                    </button>
                 }
                 else if (Model.ShowRetryAction)
                 {
@@ -129,20 +123,273 @@
     </div>
 </div>
 
+@if (Model.Status == LicenseGateStatus.HardwareMismatch)
+{
+<div class="modal fade" id="licenseRenewalModal" tabindex="-1" aria-labelledby="licenseRenewalModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#c2410c;font-weight:700;">Hardware Renewal</div>
+                    <h5 class="modal-title mb-0" id="licenseRenewalModalLabel">Re-New License</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="renewalModalCloseBtn"></button>
+            </div>
+
+            <div class="modal-body">
+                @Html.AntiForgeryToken()
+                <div id="renewalStatus" class="alert d-none" role="alert"></div>
+
+                @* Step 1: License Key input *@
+                <div id="renewalStep1">
+                    <p class="text-muted small mb-3">Enter the existing license key for this server to begin hardware re-association. An OTP will be sent to the authorized approvers for confirmation.</p>
+                    <div class="mb-3">
+                        <label for="renewalLicenseKeyInput" class="form-label fw-semibold">License Key</label>
+                        <input type="text" class="form-control font-monospace" id="renewalLicenseKeyInput"
+                               placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                               maxlength="100" autocomplete="off" spellcheck="false" />
+                    </div>
+                </div>
+
+                @* Step 2: OTP input (revealed after license key is validated) *@
+                <div id="renewalStep2" class="d-none">
+                    <p class="text-muted small mb-3">Enter the 6-digit OTP sent to the approved email address. The OTP is valid for <span id="renewalOtpSeconds">120</span> seconds.</p>
+                    <div class="mb-0">
+                        <label for="renewalOtpInput" class="form-label fw-semibold">6-Digit OTP</label>
+                        <input type="text" class="form-control text-center fs-5 font-monospace letter-spacing-wide"
+                               id="renewalOtpInput" placeholder="······" maxlength="6"
+                               inputmode="numeric" autocomplete="one-time-code" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="renewalSendOtpBtn">
+                    <span id="renewalSendOtpLabel"><i class="fas fa-paper-plane me-2"></i>Send OTP</span>
+                    <span id="renewalSendOtpSpinner" class="d-none spinner-border spinner-border-sm me-2" role="status"></span>
+                </button>
+                <button type="button" class="btn btn-primary d-none" id="renewalVerifyOtpBtn">
+                    <span id="renewalVerifyOtpLabel"><i class="fas fa-check me-2"></i>Verify OTP</span>
+                    <span id="renewalVerifyOtpSpinner" class="d-none spinner-border spinner-border-sm me-2" role="status"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+}
+
 @section Scripts {
     <script>
-        $(function () {
-            const modalElement = document.getElementById('licenseAlertModal');
-            if (!modalElement) {
-                return;
+        (function () {
+            // Show the alert modal on page load
+            var alertModalEl = document.getElementById('licenseAlertModal');
+            if (alertModalEl) {
+                var alertModal = new bootstrap.Modal(alertModalEl, { backdrop: 'static', keyboard: false });
+                alertModal.show();
             }
 
-            const modal = new bootstrap.Modal(modalElement, {
-                backdrop: 'static',
-                keyboard: false
+            // ── Hardware Renewal Modal Logic ─────────────────────────────────────────────
+            // Elements only exist in the DOM when status == HardwareMismatch, so all
+            // references are guarded with null checks.
+            var renewalModalEl   = document.getElementById('licenseRenewalModal');
+            if (!renewalModalEl) { return; }
+
+            var antiForgeryToken    = renewalModalEl.querySelector('input[name="__RequestVerificationToken"]')
+                                      || document.querySelector('input[name="__RequestVerificationToken"]');
+            var startRenewalOtpUrl  = '@Url.Action("StartRenewalOtp", "License")';
+            var verifyRenewalOtpUrl = '@Url.Action("VerifyRenewalOtp", "License")';
+            var loginUrl            = '@Url.Action("Login", "Account")';
+
+            var statusEl        = document.getElementById('renewalStatus');
+            var step1El         = document.getElementById('renewalStep1');
+            var step2El         = document.getElementById('renewalStep2');
+            var licenseKeyInput = document.getElementById('renewalLicenseKeyInput');
+            var otpInput        = document.getElementById('renewalOtpInput');
+            var sendOtpBtn      = document.getElementById('renewalSendOtpBtn');
+            var sendOtpLabel    = document.getElementById('renewalSendOtpLabel');
+            var sendOtpSpinner  = document.getElementById('renewalSendOtpSpinner');
+            var verifyOtpBtn    = document.getElementById('renewalVerifyOtpBtn');
+            var verifyOtpLabel  = document.getElementById('renewalVerifyOtpLabel');
+            var verifyOtpSpinner = document.getElementById('renewalVerifyOtpSpinner');
+            var otpSecondsEl    = document.getElementById('renewalOtpSeconds');
+            var closeBtn        = document.getElementById('renewalModalCloseBtn');
+
+            var countdownTimer  = null;
+            var isSendingOtp    = false;
+            var isVerifyingOtp  = false;
+
+            function setStatus(type, text) {
+                statusEl.className = 'alert alert-' + type;
+                statusEl.textContent = text;
+                statusEl.classList.remove('d-none');
+            }
+
+            function clearStatus() {
+                statusEl.className = 'alert d-none';
+                statusEl.textContent = '';
+            }
+
+            function setBusy(btn, labelEl, spinnerEl, busy, label) {
+                btn.disabled = busy;
+                if (busy) {
+                    spinnerEl.classList.remove('d-none');
+                    if (label !== undefined) labelEl.textContent = label;
+                } else {
+                    spinnerEl.classList.add('d-none');
+                }
+            }
+
+            function startCountdown(seconds) {
+                clearCountdown();
+                var remaining = seconds;
+                if (otpSecondsEl) otpSecondsEl.textContent = remaining;
+                countdownTimer = setInterval(function () {
+                    remaining--;
+                    if (otpSecondsEl) otpSecondsEl.textContent = remaining > 0 ? remaining : 0;
+                    if (remaining <= 0) {
+                        clearCountdown();
+                        setStatus('warning', 'OTP expired. Enter your license key again to request a new OTP.');
+                        showStep1();
+                    }
+                }, 1000);
+            }
+
+            function clearCountdown() {
+                if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+            }
+
+            function showStep1() {
+                clearCountdown();
+                step2El.classList.add('d-none');
+                step1El.classList.remove('d-none');
+                sendOtpBtn.classList.remove('d-none');
+                verifyOtpBtn.classList.add('d-none');
+                if (otpInput) otpInput.value = '';
+            }
+
+            function showStep2(expiresInSeconds) {
+                step1El.classList.add('d-none');
+                step2El.classList.remove('d-none');
+                sendOtpBtn.classList.add('d-none');
+                verifyOtpBtn.classList.remove('d-none');
+                startCountdown(expiresInSeconds || 120);
+                if (otpInput) otpInput.focus();
+            }
+
+            renewalModalEl.addEventListener('show.bs.modal', function () {
+                clearCountdown();
+                clearStatus();
+                showStep1();
+                if (licenseKeyInput) licenseKeyInput.value = '';
+                if (otpInput) otpInput.value = '';
             });
 
-            modal.show();
-        });
+            renewalModalEl.addEventListener('hidden.bs.modal', function () {
+                clearCountdown();
+            });
+
+            function postForm(url, body) {
+                return fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body.toString()
+                }).then(function (r) { return r.json(); });
+            }
+
+            if (sendOtpBtn) {
+                sendOtpBtn.addEventListener('click', function () {
+                    if (isSendingOtp) return;
+                    var key = licenseKeyInput ? licenseKeyInput.value.trim() : '';
+                    if (!key) {
+                        setStatus('danger', 'Please enter the license key.');
+                        if (licenseKeyInput) licenseKeyInput.focus();
+                        return;
+                    }
+
+                    isSendingOtp = true;
+                    clearStatus();
+                    setBusy(sendOtpBtn, sendOtpLabel, sendOtpSpinner, true, 'Sending\u2026');
+
+                    var body = new URLSearchParams();
+                    body.append('__RequestVerificationToken', antiForgeryToken ? antiForgeryToken.value : '');
+                    body.append('licenseKey', key);
+
+                    postForm(startRenewalOtpUrl, body).then(function (result) {
+                        if (result.redirectUrl) { window.location.href = result.redirectUrl; return; }
+                        if (!result.success) {
+                            setStatus('danger', result.message || 'Failed to send OTP.');
+                        } else {
+                            setStatus('success', result.message || 'OTP sent to authorized approvers.');
+                            showStep2(result.expiresInSeconds);
+                        }
+                    }).catch(function () {
+                        setStatus('danger', 'A network error occurred. Please try again.');
+                    }).finally(function () {
+                        setBusy(sendOtpBtn, sendOtpLabel, sendOtpSpinner, false);
+                        sendOtpLabel.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send OTP';
+                        isSendingOtp = false;
+                    });
+                });
+            }
+
+            if (verifyOtpBtn) {
+                verifyOtpBtn.addEventListener('click', function () {
+                    if (isVerifyingOtp) return;
+                    var otp = otpInput ? otpInput.value.trim() : '';
+                    if (!/^\d{6}$/.test(otp)) {
+                        setStatus('danger', 'Enter the 6-digit OTP.');
+                        if (otpInput) otpInput.focus();
+                        return;
+                    }
+
+                    isVerifyingOtp = true;
+                    clearStatus();
+                    setBusy(verifyOtpBtn, verifyOtpLabel, verifyOtpSpinner, true, 'Verifying\u2026');
+                    if (closeBtn) closeBtn.disabled = true;
+
+                    var body = new URLSearchParams();
+                    body.append('__RequestVerificationToken', antiForgeryToken ? antiForgeryToken.value : '');
+                    body.append('otpCode', otp);
+
+                    postForm(verifyRenewalOtpUrl, body).then(function (result) {
+                        if (!result.success) {
+                            setStatus('danger', result.message || 'OTP verification failed.');
+                            if (closeBtn) closeBtn.disabled = false;
+                        } else {
+                            clearCountdown();
+                            setStatus('success', (result.message || 'Hardware updated.') + ' Redirecting\u2026');
+                            verifyOtpBtn.disabled = true;
+                            window.setTimeout(function () {
+                                window.location.href = result.redirectUrl || loginUrl;
+                            }, 1500);
+                        }
+                    }).catch(function () {
+                        setStatus('danger', 'A network error occurred. Please try again.');
+                        if (closeBtn) closeBtn.disabled = false;
+                    }).finally(function () {
+                        setBusy(verifyOtpBtn, verifyOtpLabel, verifyOtpSpinner, false);
+                        verifyOtpLabel.innerHTML = '<i class="fas fa-check me-2"></i>Verify OTP';
+                        isVerifyingOtp = false;
+                    });
+                });
+            }
+
+            if (otpInput) {
+                otpInput.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter' && verifyOtpBtn && !verifyOtpBtn.classList.contains('d-none')) {
+                        verifyOtpBtn.click();
+                    }
+                });
+            }
+
+            if (licenseKeyInput) {
+                licenseKeyInput.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter' && sendOtpBtn && !sendOtpBtn.classList.contains('d-none')) {
+                        sendOtpBtn.click();
+                    }
+                });
+            }
+        }());
     </script>
 }

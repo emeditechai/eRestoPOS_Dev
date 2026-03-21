@@ -46,6 +46,11 @@ namespace RestaurantManagementSystem.ViewModels
         [Display(Name = "AMC Expiry Date")]
         [DataType(DataType.Date)]
         public DateTime? AmcExpiryDate { get; set; }
+
+        [Required(ErrorMessage = "Product type is required")]
+        [Display(Name = "Product Type")]
+        [StringLength(100, ErrorMessage = "Product type cannot exceed {1} characters")]
+        public string ProductType { get; set; } = "eRestoPOS";
     }
 
     public class LicenseBlockedViewModel

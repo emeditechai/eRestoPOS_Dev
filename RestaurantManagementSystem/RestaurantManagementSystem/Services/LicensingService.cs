@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace RestaurantManagementSystem.Services
 {
@@ -20,15 +21,19 @@ namespace RestaurantManagementSystem.Services
         private const string DefaultCentralLicenseRemotePassword = "asdf@1234";
         private const string DefaultCentralLicenseRemoteDatabase = "Central_Lic_DB";
         private const string RegistrationOtpSessionKey = "Licensing:PendingRegistrationOtp";
+        private const string HardwareRenewalOtpSessionKey = "Licensing:PendingHardwareRenewalOtp";
         private const int RegistrationOtpLength = 6;
         private const int RegistrationOtpLifetimeSeconds = 120;
+        private const string DailyGateCacheKeyPrefix = "LicenseGate:Daily:";
         private static readonly SemaphoreSlim LocalSchemaLock = new(1, 1);
+        private static readonly SemaphoreSlim FingerprintLock = new(1, 1);
         private static readonly HashSet<string> ApprovedRegistrationOtpEmails = new(StringComparer.OrdinalIgnoreCase)
         {
             "ap.porel27@gmail.com",
             "purojit2010@gmail.com"
         };
         private static bool _localSchemaEnsured;
+        private static LicenseMachineFingerprint? _cachedMachineFingerprint;
 
         private readonly IConfiguration _configuration;
         private readonly string _localConnectionString;
@@ -36,6 +41,7 @@ namespace RestaurantManagementSystem.Services
         private readonly UrlEncryptionService _urlEncryptionService;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IMemoryCache _memoryCache;
         private readonly int _remoteConnectionTimeoutSeconds;
 
         public LicensingService(
@@ -43,7 +49,8 @@ namespace RestaurantManagementSystem.Services
             ILogger<LicensingService> logger,
             UrlEncryptionService urlEncryptionService,
             IHttpClientFactory httpClientFactory,
-            IHttpContextAccessor httpContextAccessor)
+            IHttpContextAccessor httpContextAccessor,
+            IMemoryCache memoryCache)
         {
             _configuration = configuration;
             _localConnectionString = configuration.GetConnectionString("DefaultConnection")
@@ -52,6 +59,7 @@ namespace RestaurantManagementSystem.Services
             _urlEncryptionService = urlEncryptionService;
             _httpClientFactory = httpClientFactory;
             _httpContextAccessor = httpContextAccessor;
+            _memoryCache = memoryCache;
 
             if (!int.TryParse(configuration["Licensing:RemoteConnectionTimeoutSeconds"], out _remoteConnectionTimeoutSeconds) || _remoteConnectionTimeoutSeconds <= 0)
             {
@@ -400,7 +408,8 @@ namespace RestaurantManagementSystem.Services
                             CreatedAt = DateTime.Now,
                             OTP_Verified = true,
                             AMC_Expireddate = model.AmcExpiryDate,
-                            AppUrl = GetCurrentAppUrl()
+                            AppUrl = GetCurrentAppUrl(),
+                            ProductType = string.IsNullOrWhiteSpace(model.ProductType) ? null : model.ProductType.Trim()
                         };
 
                         remoteLicense.Id = await InsertLicenseAsync(remoteConnection, transaction, remoteLicense);
@@ -459,22 +468,37 @@ namespace RestaurantManagementSystem.Services
                 }
 
                 var machine = GetCurrentMachineFingerprint();
+                var publicIpForUrl = await ResolvePublicIpAddressAsync(requestIp);
+
                 if (FingerprintsMatch(machine, remoteLicense))
                 {
                     // Hardware matches the remote record — sync locally and allow access.
-                    var publicIp = await ResolvePublicIpAddressAsync(requestIp);
-                    remoteLicense.PublicIPAddress = publicIp;
+                    remoteLicense.PublicIPAddress = publicIpForUrl;
                     await UpsertLocalLicenseAsync(remoteLicense);
+
+                    // Always log every remote hit so the history table is complete.
+                    await InsertRemoteValidationHistoryAsync(
+                        remoteConnection,
+                        null,
+                        CreateRemoteValidationHistory(remoteLicense, machine, true, null, publicIpForUrl, GetCurrentAppUrl()));
+
                     return null;
                 }
 
                 // Same URL but different hardware — hardware was changed on this server.
+                var mismatchReason = BuildHardwareMismatchReason(machine, remoteLicense);
+
+                await InsertRemoteValidationHistoryAsync(
+                    remoteConnection,
+                    null,
+                    CreateRemoteValidationHistory(remoteLicense, machine, false, mismatchReason, publicIpForUrl, GetCurrentAppUrl()));
+
                 return CreateGateResult(
                     LicenseGateStatus.HardwareMismatch,
                     remoteLicense,
                     string.Empty,
                     string.Empty,
-                    BuildHardwareMismatchReason(machine, remoteLicense));
+                    mismatchReason);
             }
             catch (Exception ex)
             {
@@ -486,6 +510,15 @@ namespace RestaurantManagementSystem.Services
         public async Task ClearLocalLicenseAsync()
         {
             await EnsureLocalSchemaAsync();
+
+            // Evict the daily in-process cache so the next request performs a fresh
+            // validation rather than serving a stale "valid" result.
+            var dailyCacheKey = DailyGateCacheKeyPrefix + DateTime.Today.ToString("yyyyMMdd");
+            _memoryCache.Remove(dailyCacheKey);
+
+            // Also clear the cached hardware fingerprint so registration from new hardware
+            // computes the correct values.
+            _cachedMachineFingerprint = null;
 
             // Only delete THIS machine's license record — other servers sharing the same DB
             // must keep their own records intact.
@@ -505,9 +538,258 @@ namespace RestaurantManagementSystem.Services
             _logger.LogInformation("Local license record Id={Id} (ClientCode={ClientCode}) cleared to allow re-registration on new hardware.", license.Id, license.ClientCode);
         }
 
+        // ── Hardware Renewal via OTP ──────────────────────────────────────────────────
+        // Allows a server with changed hardware to re-associate the existing remote
+        // license to the new hardware identifiers, gated by a 6-digit OTP sent to
+        // approved internal email addresses. The existing ClientCode and LicenseKey
+        // are preserved; only HardDiskNumber, ServerMacID, and MotherboardNumber change.
+
+        public async Task<(bool Success, string Message, int ExpiresInSeconds)> SendHardwareRenewalOtpAsync(string licenseKey, string? requestIp = null)
+        {
+            await EnsureLocalSchemaAsync();
+
+            if (string.IsNullOrWhiteSpace(licenseKey))
+            {
+                return (false, "License key is required.", 0);
+            }
+
+            // Sanitize: license keys are plain ASCII GUIDs without HTML chars
+            var normalizedKey = licenseKey.Trim();
+            if (normalizedKey.Length > 100)
+            {
+                return (false, "Invalid license key format.", 0);
+            }
+
+            var session = GetSession();
+            if (session == null)
+            {
+                return (false, "OTP session storage is unavailable for the current request.", 0);
+            }
+
+            if (!TryGetCentralLicenseConnection(out var centralConnection, out var configurationErrorMessage))
+            {
+                return (false, configurationErrorMessage, 0);
+            }
+
+            var databaseName = NormalizeDatabaseName(centralConnection.RemoteDatabase);
+            var publicIpAddress = await ResolvePublicIpAddressAsync(requestIp);
+
+            try
+            {
+                await EnsureRemoteDatabaseAndSchemaAsync(
+                    centralConnection.RemoteServer,
+                    centralConnection.RemoteUsername,
+                    centralConnection.RemotePassword,
+                    databaseName);
+
+                var remoteConnectionString = BuildConnectionString(
+                    centralConnection.RemoteServer,
+                    databaseName,
+                    centralConnection.RemoteUsername,
+                    centralConnection.RemotePassword);
+
+                await using var remoteConnection = new SqlConnection(remoteConnectionString);
+                await remoteConnection.OpenAsync();
+
+                // Validate the license key against the remote table
+                var remoteLicense = await GetRemoteLicenseByKeyAsync(remoteConnection, null, normalizedKey);
+                if (remoteLicense == null || !remoteLicense.IsActive)
+                {
+                    _logger.LogWarning("Hardware renewal OTP requested for unknown or inactive license key from IP {Ip}.", publicIpAddress);
+                    // Return a generic error to avoid enumeration of license keys
+                    return (false, "License key not found or inactive. Verify the key and try again.", 0);
+                }
+
+                var mailConfiguration = await GetCentralMailConfigurationAsync(remoteConnection, null);
+                if (mailConfiguration == null || !mailConfiguration.IsActive)
+                {
+                    return (false, "Central mail configuration is missing or inactive.", 0);
+                }
+
+                var otpCode = GenerateOtpCode();
+                var generatedAt = DateTime.Now;
+                var pendingRenewal = new PendingHardwareRenewalOtp
+                {
+                    ChallengeId = Guid.NewGuid(),
+                    LicenseKey = remoteLicense.LicenseKey,
+                    ClientCode = remoteLicense.ClientCode,
+                    OtpCode = otpCode,
+                    GeneratedAt = generatedAt,
+                    ExpiresAt = generatedAt.AddSeconds(RegistrationOtpLifetimeSeconds),
+                    RequestIp = publicIpAddress,
+                    FailedAttempts = 0
+                };
+
+                await InsertHardwareRenewalOtpHistoryAsync(remoteConnection, null, pendingRenewal, ComputeOtpHash(otpCode), remoteLicense);
+
+                var emailErrors = new List<string>();
+                foreach (var approverEmail in ApprovedRegistrationOtpEmails)
+                {
+                    var emailResult = await SendHardwareRenewalOtpEmailAsync(mailConfiguration, pendingRenewal, remoteLicense, approverEmail, otpCode, pendingRenewal.ExpiresAt);
+                    if (!emailResult.Success)
+                    {
+                        emailErrors.Add($"{approverEmail}: {emailResult.Message}");
+                        _logger.LogWarning("Hardware renewal OTP email to approver {ApproverEmail} failed: {Message}", approverEmail, emailResult.Message);
+                    }
+                }
+
+                if (emailErrors.Count == ApprovedRegistrationOtpEmails.Count)
+                {
+                    var combinedError = string.Join("; ", emailErrors);
+                    await UpdateHardwareRenewalOtpHistoryAsync(remoteConnection, null, pendingRenewal.ChallengeId, false, null, combinedError);
+                    ClearPendingHardwareRenewalOtp(session);
+                    return (false, "OTP email delivery failed. " + combinedError, 0);
+                }
+
+                SavePendingHardwareRenewalOtp(session, pendingRenewal);
+                return (true, $"OTP sent. Enter the 6-digit code within {RegistrationOtpLifetimeSeconds} seconds.", RegistrationOtpLifetimeSeconds);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send hardware renewal OTP for license key (redacted)");
+                return (false, ex.Message, 0);
+            }
+        }
+
+        public async Task<(bool Success, string Message)> VerifyHardwareRenewalOtpAsync(string otpCode, string? requestIp = null)
+        {
+            await EnsureLocalSchemaAsync();
+
+            var session = GetSession();
+            if (session == null)
+            {
+                return (false, "OTP session storage is unavailable for the current request.");
+            }
+
+            var pendingRenewal = GetPendingHardwareRenewalOtp(session);
+            if (pendingRenewal == null)
+            {
+                return (false, "OTP session expired. Click Re-New License again to request a new OTP.");
+            }
+
+            if (!TryGetCentralLicenseConnection(out var centralConnection, out var configurationErrorMessage))
+            {
+                return (false, configurationErrorMessage);
+            }
+
+            var databaseName = NormalizeDatabaseName(centralConnection.RemoteDatabase);
+
+            try
+            {
+                await EnsureRemoteDatabaseAndSchemaAsync(
+                    centralConnection.RemoteServer,
+                    centralConnection.RemoteUsername,
+                    centralConnection.RemotePassword,
+                    databaseName);
+
+                var remoteConnectionString = BuildConnectionString(
+                    centralConnection.RemoteServer,
+                    databaseName,
+                    centralConnection.RemoteUsername,
+                    centralConnection.RemotePassword);
+
+                await using var remoteConnection = new SqlConnection(remoteConnectionString);
+                await remoteConnection.OpenAsync();
+
+                if (!pendingRenewal.IsVerified)
+                {
+                    if (pendingRenewal.ExpiresAt <= DateTime.Now)
+                    {
+                        await UpdateHardwareRenewalOtpHistoryAsync(remoteConnection, null, pendingRenewal.ChallengeId, false, null, "OTP expired.");
+                        ClearPendingHardwareRenewalOtp(session);
+                        return (false, "OTP expired. Click Re-New License again to request a new OTP.");
+                    }
+
+                    var normalizedOtp = NormalizeOtpCode(otpCode);
+                    if (normalizedOtp == null)
+                    {
+                        return (false, "Enter the 6-digit OTP sent to the approved email address.");
+                    }
+
+                    if (!OtpCodesMatch(pendingRenewal.OtpCode, normalizedOtp))
+                    {
+                        pendingRenewal.FailedAttempts++;
+                        SavePendingHardwareRenewalOtp(session, pendingRenewal);
+                        await UpdateHardwareRenewalOtpHistoryAsync(remoteConnection, null, pendingRenewal.ChallengeId, false, null, "Invalid OTP entered.");
+                        return (false, "Invalid OTP. Enter the correct 6-digit OTP.");
+                    }
+
+                    pendingRenewal.IsVerified = true;
+                    pendingRenewal.VerifiedAt = DateTime.Now;
+                    SavePendingHardwareRenewalOtp(session, pendingRenewal);
+                    await UpdateHardwareRenewalOtpHistoryAsync(remoteConnection, null, pendingRenewal.ChallengeId, true, pendingRenewal.VerifiedAt, null);
+                }
+
+                // Update remote hardware to current machine identifiers
+                var machine = GetCurrentMachineFingerprint();
+                await UpdateRemoteHardwareAsync(remoteConnection, null, pendingRenewal.LicenseKey, pendingRenewal.ClientCode, machine);
+
+                // Fetch the updated remote license and sync locally
+                var updatedRemoteLicense = await GetRemoteLicenseByKeyAsync(remoteConnection, null, pendingRenewal.LicenseKey);
+                if (updatedRemoteLicense != null)
+                {
+                    var publicIp = await ResolvePublicIpAddressAsync(requestIp);
+                    updatedRemoteLicense.PublicIPAddress = publicIp;
+                    await UpdateRemoteLicenseTrackingAsync(remoteConnection, null, updatedRemoteLicense, updateLastLoginDate: false);
+                    await UpsertLocalLicenseAsync(updatedRemoteLicense);
+
+                    // Log the hardware renewal as a successful validation event so history
+                    // reflects every remote contact, including hardware re-association.
+                    await InsertRemoteValidationHistoryAsync(
+                        remoteConnection,
+                        null,
+                        CreateRemoteValidationHistory(updatedRemoteLicense, machine, true, null, publicIp, GetCurrentAppUrl()));
+                }
+
+                // Invalidate caches so the next EvaluateAccessAsync does a clean check
+                var dailyCacheKey = DailyGateCacheKeyPrefix + DateTime.Today.ToString("yyyyMMdd");
+                _memoryCache.Remove(dailyCacheKey);
+                _cachedMachineFingerprint = null;
+
+                await UpdateHardwareRenewalOtpHistoryAsync(remoteConnection, null, pendingRenewal.ChallengeId, true, pendingRenewal.VerifiedAt ?? DateTime.Now, null);
+                ClearPendingHardwareRenewalOtp(session);
+
+                _logger.LogInformation("Hardware renewal completed for ClientCode={ClientCode}.", pendingRenewal.ClientCode);
+                return (true, "Hardware updated successfully. The license has been re-associated with this server.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to verify hardware renewal OTP for ChallengeId={ChallengeId}", pendingRenewal.ChallengeId);
+                return (false, ex.Message);
+            }
+        }
+
         public async Task<LicenseGateResult> EvaluateAccessAsync(bool forceRemoteValidation = false, string? requestIp = null)
         {
             await EnsureLocalSchemaAsync();
+
+            var dailyCacheKey = DailyGateCacheKeyPrefix + DateTime.Today.ToString("yyyyMMdd");
+
+            // If a forced re-validation is requested (e.g. RetryValidation action), remove
+            // any cached result so the full remote check runs below.
+            if (forceRemoteValidation)
+            {
+                _memoryCache.Remove(dailyCacheKey);
+            }
+            else if (_memoryCache.TryGetValue(dailyCacheKey, out LicenseGateResult? cachedResult) && cachedResult != null)
+            {
+                // Even on a cache hit, do a quick local existence check so that a manual
+                // deletion of the ClientAppLicense row (from either DB tool or admin action)
+                // is detected immediately — evict the stale "Valid" entry and fall through
+                // to full re-evaluation rather than serving a cached grant indefinitely.
+                var localCheck = await GetLocalLicenseAsync();
+                if (localCheck != null)
+                {
+                    _logger.LogDebug("License gate served from daily in-process cache.");
+                    return cachedResult;
+                }
+
+                // Local record no longer exists — purge the cache and the fingerprint
+                // cache so the system re-evaluates cleanly from scratch.
+                _memoryCache.Remove(dailyCacheKey);
+                _cachedMachineFingerprint = null;
+                _logger.LogInformation("Local license record no longer exists; evicting daily cache and re-evaluating.");
+            }
 
             var localLicense = await GetLocalLicenseAsync();
             if (localLicense == null)
@@ -537,15 +819,20 @@ namespace RestaurantManagementSystem.Services
             var machine = GetCurrentMachineFingerprint();
             var localHardwareMatchesLiveMachine = FingerprintsMatch(machine, localLicense);
 
-            if (!forceRemoteValidation && localLicense.LastLoginDate.HasValue && localLicense.LastLoginDate.Value.Date == DateTime.Today)
+            if (localLicense.LastLoginDate.HasValue && localLicense.LastLoginDate.Value.Date == DateTime.Today)
             {
                 if (localHardwareMatchesLiveMachine)
                 {
-                    return CreateGateResult(
+                    var localCacheResult = CreateGateResult(
                         LicenseGateStatus.Valid,
                         localLicense,
                         "License Valid",
                         "License already validated for today from local cache.");
+
+                    // Store in fast in-process cache until midnight so subsequent requests
+                    // within the same day never reach the DB or shell commands.
+                    CacheDailyGateResult(dailyCacheKey, localCacheResult);
+                    return localCacheResult;
                 }
             }
 
@@ -664,6 +951,14 @@ namespace RestaurantManagementSystem.Services
                     requestIp: publicIpAddress,
                     appUrl: GetCurrentAppUrl()));
 
+                // After a successful remote validation, store the result in the fast
+                // in-process daily cache so every subsequent request within the same day
+                // is served instantly without any DB query or hardware fingerprint work.
+                if (gateResult.IsAllowed)
+                {
+                    CacheDailyGateResult(dailyCacheKey, gateResult);
+                }
+
                 return gateResult;
             }
             catch (Exception ex)
@@ -688,6 +983,27 @@ namespace RestaurantManagementSystem.Services
                     string.Empty,
                     ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Stores a valid gate result in the in-process memory cache until midnight so
+        /// subsequent requests within the same day are served instantly.
+        /// </summary>
+        private void CacheDailyGateResult(string cacheKey, LicenseGateResult result)
+        {
+            var midnight = DateTime.Today.AddDays(1);
+            var ttl = midnight - DateTime.Now;
+            if (ttl <= TimeSpan.Zero)
+            {
+                ttl = TimeSpan.FromMinutes(1);
+            }
+
+            var options = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpiration = DateTimeOffset.Now.Add(ttl),
+                Priority = CacheItemPriority.High
+            };
+            _memoryCache.Set(cacheKey, result, options);
         }
 
         public async Task<LicenseBlockedViewModel> BuildBlockedViewModelAsync(LicenseGateStatus? statusOverride = null)
@@ -760,7 +1076,8 @@ BEGIN
         [CreatedAt] DATETIME NOT NULL CONSTRAINT [DF_ClientAppLicense_CreatedAt] DEFAULT (GETDATE()),
         [OTP_Verified] BIT NOT NULL CONSTRAINT [DF_ClientAppLicense_OTP_Verified] DEFAULT ((1)),
         [AMC_Expireddate] DATETIME NULL,
-        [AppUrl] NVARCHAR(500) NULL
+        [AppUrl] NVARCHAR(500) NULL,
+        [ProductType] NVARCHAR(100) NULL
     );
 END;
 
@@ -825,6 +1142,11 @@ END;
 IF COL_LENGTH('dbo.ClientAppLicense', 'AppUrl') IS NULL
 BEGIN
     ALTER TABLE [dbo].[ClientAppLicense] ADD [AppUrl] NVARCHAR(500) NULL;
+END;
+
+IF COL_LENGTH('dbo.ClientAppLicense', 'ProductType') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ClientAppLicense] ADD [ProductType] NVARCHAR(100) NULL;
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_ClientAppLicense_ClientCode' AND object_id = OBJECT_ID('dbo.ClientAppLicense'))
@@ -928,7 +1250,8 @@ BEGIN
         [CreatedAt] DATETIME NOT NULL CONSTRAINT [DF_RemoteClientAppLicense_CreatedAt] DEFAULT (GETDATE()),
         [OTP_Verified] BIT NOT NULL CONSTRAINT [DF_RemoteClientAppLicense_OTP_Verified] DEFAULT ((1)),
         [AMC_Expireddate] DATETIME NULL,
-        [AppUrl] NVARCHAR(500) NULL
+        [AppUrl] NVARCHAR(500) NULL,
+        [ProductType] NVARCHAR(100) NULL
     );
 END;
 
@@ -960,6 +1283,11 @@ END;
 IF COL_LENGTH('dbo.ClientAppLicense', 'AppUrl') IS NULL
 BEGIN
     ALTER TABLE [dbo].[ClientAppLicense] ADD [AppUrl] NVARCHAR(500) NULL;
+END;
+
+IF COL_LENGTH('dbo.ClientAppLicense', 'ProductType') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ClientAppLicense] ADD [ProductType] NVARCHAR(100) NULL;
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_RemoteClientAppLicense_ClientCode' AND object_id = OBJECT_ID('dbo.ClientAppLicense'))
@@ -1161,7 +1489,8 @@ SELECT
     CreatedAt,
     OTP_Verified,
     AMC_Expireddate,
-    AppUrl
+    AppUrl,
+    ProductType
 FROM dbo.ClientAppLicense
 ORDER BY CreatedAt DESC, Id DESC;";
 
@@ -1645,7 +1974,8 @@ SELECT TOP 1
     CreatedAt,
     OTP_Verified,
     AMC_Expireddate,
-    AppUrl
+    AppUrl,
+    ProductType
 FROM dbo.ClientAppLicense
 WHERE ClientCode = @ClientCode
   AND LicenseKey = @LicenseKey
@@ -1679,7 +2009,8 @@ SELECT TOP 1
     CreatedAt,
     OTP_Verified,
     AMC_Expireddate,
-    AppUrl
+    AppUrl,
+    ProductType
 FROM dbo.ClientAppLicense
 WHERE ServerMacID = @ServerMacID
   AND HardDiskNumber = @HardDiskNumber
@@ -1721,7 +2052,8 @@ SELECT TOP 1
     CreatedAt,
     OTP_Verified,
     AMC_Expireddate,
-    AppUrl
+    AppUrl,
+    ProductType
 FROM dbo.ClientAppLicense
 WHERE AppUrl = @AppUrl
 ORDER BY CreatedAt DESC, Id DESC;";
@@ -1753,7 +2085,8 @@ INSERT INTO dbo.ClientAppLicense
     CreatedAt,
     OTP_Verified,
     AMC_Expireddate,
-    AppUrl
+    AppUrl,
+    ProductType
 )
 VALUES
 (
@@ -1773,7 +2106,8 @@ VALUES
     @CreatedAt,
     @OTP_Verified,
     @AMC_Expireddate,
-    @AppUrl
+    @AppUrl,
+    @ProductType
 );
 SELECT CAST(SCOPE_IDENTITY() AS BIGINT);";
 
@@ -1829,7 +2163,8 @@ BEGIN
         CreatedAt = @CreatedAt,
         OTP_Verified = @OTP_Verified,
         AMC_Expireddate = @AMC_Expireddate,
-        AppUrl = @AppUrl
+        AppUrl = @AppUrl,
+        ProductType = @ProductType
     WHERE ClientCode = @ClientCode OR LicenseKey = @LicenseKey;
 END
 ELSE
@@ -1852,7 +2187,8 @@ BEGIN
         CreatedAt,
         OTP_Verified,
         AMC_Expireddate,
-        AppUrl
+        AppUrl,
+        ProductType
     )
     VALUES
     (
@@ -1872,7 +2208,8 @@ BEGIN
         @CreatedAt,
         @OTP_Verified,
         @AMC_Expireddate,
-        @AppUrl
+        @AppUrl,
+        @ProductType
     );
 END;";
 
@@ -2026,31 +2363,54 @@ ORDER BY ValidatedAt DESC, Id DESC;";
 
         private LicenseMachineFingerprint GetCurrentMachineFingerprint()
         {
-            LicenseMachineFingerprint fingerprint;
-
-            if (OperatingSystem.IsWindows())
+            // Hardware does not change while the application is running.
+            // Computing the fingerprint requires spawning external processes (diskutil,
+            // ioreg, powershell, etc.) which is expensive. Cache the result for the
+            // lifetime of the application process so every request does not pay that cost.
+            if (_cachedMachineFingerprint != null)
             {
-                fingerprint = GetWindowsMachineFingerprint();
-            }
-            else if (OperatingSystem.IsMacOS())
-            {
-                fingerprint = GetMacMachineFingerprint();
-            }
-            else if (OperatingSystem.IsLinux())
-            {
-                fingerprint = GetLinuxMachineFingerprint();
-            }
-            else
-            {
-                fingerprint = new LicenseMachineFingerprint();
+                return _cachedMachineFingerprint;
             }
 
-            fingerprint.ServerMacID = NormalizeHardwareValue(string.IsNullOrWhiteSpace(fingerprint.ServerMacID) ? GetPrimaryMacAddress() : fingerprint.ServerMacID);
-            fingerprint.HardDiskNumber = NormalizeHardwareValue(fingerprint.HardDiskNumber);
-            fingerprint.MotherboardNumber = NormalizeHardwareValue(fingerprint.MotherboardNumber);
-            fingerprint.CapturedAt = DateTime.Now;
+            FingerprintLock.Wait();
+            try
+            {
+                if (_cachedMachineFingerprint != null)
+                {
+                    return _cachedMachineFingerprint;
+                }
 
-            return fingerprint;
+                LicenseMachineFingerprint fingerprint;
+
+                if (OperatingSystem.IsWindows())
+                {
+                    fingerprint = GetWindowsMachineFingerprint();
+                }
+                else if (OperatingSystem.IsMacOS())
+                {
+                    fingerprint = GetMacMachineFingerprint();
+                }
+                else if (OperatingSystem.IsLinux())
+                {
+                    fingerprint = GetLinuxMachineFingerprint();
+                }
+                else
+                {
+                    fingerprint = new LicenseMachineFingerprint();
+                }
+
+                fingerprint.ServerMacID = NormalizeHardwareValue(string.IsNullOrWhiteSpace(fingerprint.ServerMacID) ? GetPrimaryMacAddress() : fingerprint.ServerMacID);
+                fingerprint.HardDiskNumber = NormalizeHardwareValue(fingerprint.HardDiskNumber);
+                fingerprint.MotherboardNumber = NormalizeHardwareValue(fingerprint.MotherboardNumber);
+                fingerprint.CapturedAt = DateTime.Now;
+
+                _cachedMachineFingerprint = fingerprint;
+                return fingerprint;
+            }
+            finally
+            {
+                FingerprintLock.Release();
+            }
         }
 
         [System.Runtime.Versioning.SupportedOSPlatform("windows")]
@@ -2680,6 +3040,7 @@ ORDER BY ValidatedAt DESC, Id DESC;";
             command.Parameters.AddWithValue("@OTP_Verified", license.OTP_Verified);
             command.Parameters.AddWithValue("@AMC_Expireddate", (object?)license.AMC_Expireddate ?? DBNull.Value);
             command.Parameters.AddWithValue("@AppUrl", (object?)license.AppUrl ?? DBNull.Value);
+            command.Parameters.AddWithValue("@ProductType", (object?)license.ProductType ?? DBNull.Value);
         }
 
         private static void AddRemoteLicenseParameters(SqlCommand command, ClientAppLicense license)
@@ -2701,6 +3062,7 @@ ORDER BY ValidatedAt DESC, Id DESC;";
             command.Parameters.AddWithValue("@OTP_Verified", license.OTP_Verified);
             command.Parameters.AddWithValue("@AMC_Expireddate", (object?)license.AMC_Expireddate ?? DBNull.Value);
             command.Parameters.AddWithValue("@AppUrl", (object?)license.AppUrl ?? DBNull.Value);
+            command.Parameters.AddWithValue("@ProductType", (object?)license.ProductType ?? DBNull.Value);
         }
 
         private ClientAppLicense MapLocalLicense(SqlDataReader reader)
@@ -2733,7 +3095,8 @@ ORDER BY ValidatedAt DESC, Id DESC;";
                 CreatedAt = reader.IsDBNull(14) ? DateTime.Now : reader.GetDateTime(14),
                 OTP_Verified = !reader.IsDBNull(15) && reader.GetBoolean(15),
                 AMC_Expireddate = reader.IsDBNull(16) ? null : reader.GetDateTime(16),
-                AppUrl = reader.IsDBNull(17) ? null : reader.GetString(17)
+                AppUrl = reader.IsDBNull(17) ? null : reader.GetString(17),
+                ProductType = reader.IsDBNull(18) ? null : reader.GetString(18)
             };
         }
 
@@ -2853,7 +3216,8 @@ ORDER BY ValidatedAt DESC, Id DESC;";
                 MotherboardNumber = model.MotherboardNumber,
                 StartDate = model.StartDate,
                 ExpiryDate = model.ExpiryDate,
-                AmcExpiryDate = model.AmcExpiryDate
+                AmcExpiryDate = model.AmcExpiryDate,
+                ProductType = model.ProductType
             };
         }
 
@@ -3137,6 +3501,250 @@ ORDER BY ValidatedAt DESC, Id DESC;";
             public string? RequestIp { get; set; }
 
             public int FailedAttempts { get; set; }
+        }
+
+        private sealed class PendingHardwareRenewalOtp
+        {
+            public Guid ChallengeId { get; set; }
+
+            public string LicenseKey { get; set; } = string.Empty;
+
+            public string ClientCode { get; set; } = string.Empty;
+
+            public string OtpCode { get; set; } = string.Empty;
+
+            public DateTime GeneratedAt { get; set; }
+
+            public DateTime ExpiresAt { get; set; }
+
+            public bool IsVerified { get; set; }
+
+            public DateTime? VerifiedAt { get; set; }
+
+            public string? RequestIp { get; set; }
+
+            public int FailedAttempts { get; set; }
+        }
+
+        // ── Hardware Renewal OTP session helpers ──────────────────────────────────────
+
+        private static void SavePendingHardwareRenewalOtp(ISession session, PendingHardwareRenewalOtp pending)
+        {
+            session.SetString(HardwareRenewalOtpSessionKey, JsonSerializer.Serialize(pending));
+        }
+
+        private PendingHardwareRenewalOtp? GetPendingHardwareRenewalOtp(ISession session)
+        {
+            var payload = session.GetString(HardwareRenewalOtpSessionKey);
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                return null;
+            }
+
+            try
+            {
+                return JsonSerializer.Deserialize<PendingHardwareRenewalOtp>(payload);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to deserialize pending hardware renewal OTP state.");
+                ClearPendingHardwareRenewalOtp(session);
+                return null;
+            }
+        }
+
+        private static void ClearPendingHardwareRenewalOtp(ISession session)
+        {
+            session.Remove(HardwareRenewalOtpSessionKey);
+        }
+
+        // ── Remote DB helpers for hardware renewal ────────────────────────────────────
+
+        private async Task<ClientAppLicense?> GetRemoteLicenseByKeyAsync(SqlConnection connection, SqlTransaction? transaction, string licenseKey)
+        {
+            const string sql = @"
+SELECT TOP 1
+    Id,
+    ClientCode,
+    ClientName,
+    ContactNumber,
+    EmailID,
+    LicenseKey,
+    HardDiskNumber,
+    ServerMacID,
+    MotherboardNumber,
+    PublicIPAddress,
+    StartDate,
+    ExpiryDate,
+    LastLoginDate,
+    IsActive,
+    CreatedAt,
+    OTP_Verified,
+    AMC_Expireddate,
+    AppUrl,
+    ProductType
+FROM dbo.ClientAppLicense
+WHERE LicenseKey = @LicenseKey
+ORDER BY CreatedAt DESC, Id DESC;";
+
+            await using var command = new SqlCommand(sql, connection, transaction);
+            command.Parameters.AddWithValue("@LicenseKey", licenseKey);
+            await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow);
+            return await reader.ReadAsync() ? MapLicense(reader) : null;
+        }
+
+        private async Task UpdateRemoteHardwareAsync(SqlConnection connection, SqlTransaction? transaction, string licenseKey, string clientCode, LicenseMachineFingerprint machine)
+        {
+            const string sql = @"
+UPDATE dbo.ClientAppLicense
+SET HardDiskNumber = @HardDiskNumber,
+    ServerMacID    = @ServerMacID,
+    MotherboardNumber = @MotherboardNumber
+WHERE LicenseKey = @LicenseKey
+  AND ClientCode = @ClientCode;";
+
+            await using var command = new SqlCommand(sql, connection, transaction);
+            command.Parameters.AddWithValue("@HardDiskNumber", machine.HardDiskNumber);
+            command.Parameters.AddWithValue("@ServerMacID", machine.ServerMacID);
+            command.Parameters.AddWithValue("@MotherboardNumber", machine.MotherboardNumber);
+            command.Parameters.AddWithValue("@LicenseKey", licenseKey);
+            command.Parameters.AddWithValue("@ClientCode", clientCode);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        private async Task InsertHardwareRenewalOtpHistoryAsync(SqlConnection connection, SqlTransaction? transaction, PendingHardwareRenewalOtp pending, string otpCodeHash, ClientAppLicense remoteLicense)
+        {
+            var sql = $@"
+INSERT INTO {RemoteOtpValidationHistoryTableName}
+(
+    ChallengeId,
+    ClientName,
+    ContactNumber,
+    EmailID,
+    OTPCodeHash,
+    ClientCode,
+    LicenseKey,
+    IsValidated,
+    GeneratedAt,
+    ExpiresAt,
+    ValidatedAt,
+    RequestIp,
+    FailureReason,
+    CreatedAt
+)
+VALUES
+(
+    @ChallengeId,
+    @ClientName,
+    @ContactNumber,
+    @EmailID,
+    @OTPCodeHash,
+    @ClientCode,
+    @LicenseKey,
+    @IsValidated,
+    @GeneratedAt,
+    @ExpiresAt,
+    @ValidatedAt,
+    @RequestIp,
+    @FailureReason,
+    @CreatedAt
+);";
+
+            await using var command = new SqlCommand(sql, connection, transaction);
+            command.Parameters.AddWithValue("@ChallengeId", pending.ChallengeId);
+            command.Parameters.AddWithValue("@ClientName", remoteLicense.ClientName ?? string.Empty);
+            command.Parameters.AddWithValue("@ContactNumber", (object?)remoteLicense.ContactNumber ?? DBNull.Value);
+            command.Parameters.AddWithValue("@EmailID", (object?)remoteLicense.EmailID ?? DBNull.Value);
+            command.Parameters.AddWithValue("@OTPCodeHash", otpCodeHash);
+            command.Parameters.AddWithValue("@ClientCode", pending.ClientCode);
+            command.Parameters.AddWithValue("@LicenseKey", pending.LicenseKey);
+            command.Parameters.AddWithValue("@IsValidated", pending.IsVerified);
+            command.Parameters.AddWithValue("@GeneratedAt", pending.GeneratedAt);
+            command.Parameters.AddWithValue("@ExpiresAt", pending.ExpiresAt);
+            command.Parameters.AddWithValue("@ValidatedAt", DBNull.Value);
+            command.Parameters.AddWithValue("@RequestIp", (object?)pending.RequestIp ?? DBNull.Value);
+            command.Parameters.AddWithValue("@FailureReason", DBNull.Value);
+            command.Parameters.AddWithValue("@CreatedAt", pending.GeneratedAt);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        private async Task UpdateHardwareRenewalOtpHistoryAsync(SqlConnection connection, SqlTransaction? transaction, Guid challengeId, bool isValidated, DateTime? validatedAt, string? failureReason)
+        {
+            var sql = $@"
+UPDATE {RemoteOtpValidationHistoryTableName}
+SET IsValidated   = @IsValidated,
+    ValidatedAt   = @ValidatedAt,
+    FailureReason = @FailureReason
+WHERE ChallengeId = @ChallengeId;";
+
+            await using var command = new SqlCommand(sql, connection, transaction);
+            command.Parameters.AddWithValue("@ChallengeId", challengeId);
+            command.Parameters.AddWithValue("@IsValidated", isValidated);
+            command.Parameters.AddWithValue("@ValidatedAt", (object?)validatedAt ?? DBNull.Value);
+            command.Parameters.AddWithValue("@FailureReason", (object?)failureReason ?? DBNull.Value);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        private async Task<(bool Success, string Message)> SendHardwareRenewalOtpEmailAsync(CentralMailConfiguration configuration, PendingHardwareRenewalOtp pending, ClientAppLicense remoteLicense, string toEmail, string otpCode, DateTime expiresAt)
+        {
+            try
+            {
+                var smtpServer = NormalizeSmtpServer(configuration.SmtpServer);
+
+                using var client = new SmtpClient(smtpServer, configuration.SmtpPort)
+                {
+                    EnableSsl = configuration.EnableSsl,
+                    UseDefaultCredentials = false,
+                    Credentials = new NetworkCredential(configuration.SmtpUsername, configuration.SmtpPassword),
+                    DeliveryMethod = SmtpDeliveryMethod.Network,
+                    Timeout = 30000
+                };
+
+                using var message = new MailMessage
+                {
+                    From = new MailAddress(configuration.FromEmail, configuration.FromName),
+                    Subject = $"eRestoPOS Hardware Renewal OTP - {otpCode}",
+                    Body = BuildHardwareRenewalOtpEmailBody(remoteLicense, otpCode, expiresAt),
+                    IsBodyHtml = true,
+                    Priority = MailPriority.High
+                };
+
+                message.To.Add(toEmail.Trim());
+                await client.SendMailAsync(message);
+                return (true, "OTP sent successfully.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send hardware renewal OTP email to {ToEmail}", toEmail);
+                return (false, $"Unable to send OTP email. {ex.Message}");
+            }
+        }
+
+        private static string BuildHardwareRenewalOtpEmailBody(ClientAppLicense license, string otpCode, DateTime expiresAt)
+        {
+            var clientName = WebUtility.HtmlEncode(license.ClientName ?? string.Empty);
+            var clientCode = WebUtility.HtmlEncode(license.ClientCode ?? string.Empty);
+
+            return $$"""
+<div style="font-family:Segoe UI,Arial,sans-serif;background:#f5f7fb;padding:24px;color:#111827;">
+    <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden;box-shadow:0 18px 40px rgba(15,23,42,0.08);">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#111827 0%,#991b1b 58%,#ea580c 100%);color:#ffffff;">
+            <div style="font-size:14px;letter-spacing:0.14em;text-transform:uppercase;opacity:0.9;">eRestoPOS Licensing</div>
+            <h2 style="margin:10px 0 6px;font-size:24px;line-height:1.2;">Hardware Renewal OTP</h2>
+            <p style="margin:0;font-size:14px;line-height:1.6;opacity:0.9;">Use the OTP below to authorize hardware re-association for client <strong>{{WebUtility.HtmlEncode(clientName)}}</strong> ({{WebUtility.HtmlEncode(clientCode)}}).</p>
+        </div>
+        <div style="padding:28px;">
+            <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151;">An OTP was requested to update the server hardware identifiers for client {{WebUtility.HtmlEncode(clientName)}}. This code is valid for {{RegistrationOtpLifetimeSeconds}} seconds only.</p>
+            <div style="margin:0 0 18px;padding:18px 20px;border-radius:14px;border:1px solid #fed7aa;background:#fff7ed;text-align:center;">
+                <div style="font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#c2410c;margin-bottom:8px;">One Time Password</div>
+                <div style="font-size:34px;font-weight:800;letter-spacing:0.32em;color:#7c2d12;">{{WebUtility.HtmlEncode(otpCode)}}</div>
+            </div>
+            <p style="margin:0 0 8px;font-size:14px;color:#4b5563;">Expiry time: <strong>{{expiresAt:dd-MMM-yyyy HH:mm:ss}}</strong></p>
+            <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.6;">If you did not request this OTP, ignore this email. No hardware change will occur unless the correct OTP is entered.</p>
+        </div>
+    </div>
+</div>
+""";
         }
 
         private sealed class CentralMailConfiguration
