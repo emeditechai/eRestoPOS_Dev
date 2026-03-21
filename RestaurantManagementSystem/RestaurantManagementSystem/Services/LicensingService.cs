@@ -422,6 +422,67 @@ namespace RestaurantManagementSystem.Services
             }
         }
 
+        /// <summary>
+        /// When no local license matches the current machine's hardware, checks the remote DB
+        /// for a license registered with the current AppUrl. If found and hardware differs,
+        /// returns a HardwareMismatch gate result to block re-registration from the same URL.
+        /// Returns null if no such remote record exists (safe to allow fresh registration).
+        /// </summary>
+        private async Task<LicenseGateResult?> TryGetHardwareMismatchForCurrentUrlAsync(string? requestIp)
+        {
+            var currentUrl = GetCurrentAppUrl();
+            if (string.IsNullOrWhiteSpace(currentUrl))
+            {
+                return null;
+            }
+
+            if (!TryGetCentralLicenseConnection(out var centralConnection, out _))
+            {
+                return null;
+            }
+
+            try
+            {
+                var remoteConnectionString = BuildConnectionString(
+                    centralConnection.RemoteServer,
+                    NormalizeDatabaseName(centralConnection.RemoteDatabase),
+                    centralConnection.RemoteUsername,
+                    centralConnection.RemotePassword);
+
+                await using var remoteConnection = new SqlConnection(remoteConnectionString);
+                await remoteConnection.OpenAsync();
+
+                var remoteLicense = await GetRemoteLicenseByAppUrlAsync(remoteConnection, null, currentUrl);
+                if (remoteLicense == null)
+                {
+                    return null;
+                }
+
+                var machine = GetCurrentMachineFingerprint();
+                if (FingerprintsMatch(machine, remoteLicense))
+                {
+                    // Hardware matches the remote record — sync locally and allow access.
+                    var publicIp = await ResolvePublicIpAddressAsync(requestIp);
+                    remoteLicense.PublicIPAddress = publicIp;
+                    await UpsertLocalLicenseAsync(remoteLicense);
+                    return null;
+                }
+
+                // Same URL but different hardware — hardware was changed on this server.
+                return CreateGateResult(
+                    LicenseGateStatus.HardwareMismatch,
+                    remoteLicense,
+                    string.Empty,
+                    string.Empty,
+                    BuildHardwareMismatchReason(machine, remoteLicense));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not check remote for AppUrl hardware mismatch.");
+                return null;
+            }
+        }
+
         public async Task ClearLocalLicenseAsync()
         {
             await EnsureLocalSchemaAsync();
@@ -451,6 +512,17 @@ namespace RestaurantManagementSystem.Services
             var localLicense = await GetLocalLicenseAsync();
             if (localLicense == null)
             {
+                // No local record matches the current machine's hardware fingerprint.
+                // Before allowing fresh registration, check the remote DB for a license
+                // registered against the same AppUrl. If found with different hardware,
+                // that means the hardware on this server changed — show HardwareMismatch
+                // instead of the registration form (prevents unauthorized re-registration).
+                var urlMismatchResult = await TryGetHardwareMismatchForCurrentUrlAsync(requestIp);
+                if (urlMismatchResult != null)
+                {
+                    return urlMismatchResult;
+                }
+
                 return CreateGateResult(
                     LicenseGateStatus.Unregistered,
                     null,
@@ -458,25 +530,9 @@ namespace RestaurantManagementSystem.Services
                     "This application has not been registered yet. Complete the license registration before login.");
             }
 
-            if (!forceRemoteValidation && localLicense.ExpiryDate <= DateTime.Now)
-            {
-                return CreateGateResult(
-                    LicenseGateStatus.Expired,
-                    localLicense,
-                    string.Empty,
-                    string.Empty,
-                    $"Remote expiry date {localLicense.ExpiryDate:dd-MMM-yyyy HH:mm:ss} has already passed.");
-            }
-
-            if (!forceRemoteValidation && !localLicense.IsActive)
-            {
-                return CreateGateResult(
-                    LicenseGateStatus.Inactive,
-                    localLicense,
-                    string.Empty,
-                    string.Empty,
-                    "Client Deactivated for activate contact vendor 8617280732");
-            }
+            // Do NOT short-circuit on Expired or Inactive from local cache.
+            // Always go to remote so that a renewed/reactivated license is detected,
+            // local is updated, and the user can log in without manual intervention.
 
             var machine = GetCurrentMachineFingerprint();
             var localHardwareMatchesLiveMachine = FingerprintsMatch(machine, localLicense);
@@ -1618,6 +1674,38 @@ ORDER BY CreatedAt DESC, Id DESC;";
             return await reader.ReadAsync() ? MapLicense(reader) : null;
         }
 
+        private async Task<ClientAppLicense?> GetRemoteLicenseByAppUrlAsync(SqlConnection connection, SqlTransaction? transaction, string appUrl)
+        {
+            const string sql = @"
+SELECT TOP 1
+    Id,
+    ClientCode,
+    ClientName,
+    ContactNumber,
+    EmailID,
+    LicenseKey,
+    HardDiskNumber,
+    ServerMacID,
+    MotherboardNumber,
+    PublicIPAddress,
+    StartDate,
+    ExpiryDate,
+    LastLoginDate,
+    IsActive,
+    CreatedAt,
+    OTP_Verified,
+    AMC_Expireddate,
+    AppUrl
+FROM dbo.ClientAppLicense
+WHERE AppUrl = @AppUrl
+ORDER BY CreatedAt DESC, Id DESC;";
+
+            await using var command = new SqlCommand(sql, connection, transaction);
+            command.Parameters.AddWithValue("@AppUrl", appUrl);
+            await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow);
+            return await reader.ReadAsync() ? MapLicense(reader) : null;
+        }
+
         private async Task<long> InsertLicenseAsync(SqlConnection connection, SqlTransaction transaction, ClientAppLicense license)
         {
             const string sql = @"
@@ -2359,15 +2447,10 @@ ORDER BY ValidatedAt DESC, Id DESC;";
                 mismatches.Add("Client name does not match the remote license record");
             }
 
-            if (localLicense.ExpiryDate != remoteLicense.ExpiryDate)
-            {
-                mismatches.Add("Expiry date does not match the remote license record");
-            }
-
-            if (localLicense.IsActive != remoteLicense.IsActive)
-            {
-                mismatches.Add("Activation status does not match the remote license record");
-            }
+            // ExpiryDate and IsActive are intentionally excluded: the remote DB is the
+            // authoritative source for both fields (admins extend expiry / reactivate
+            // remotely). A stale local copy is normal and is always refreshed by
+            // UpsertLocalLicenseAsync after every successful remote validation.
 
             return mismatches.Count == 0 ? null : string.Join("; ", mismatches);
         }
