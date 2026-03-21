@@ -13,5 +13,7 @@ namespace RestaurantManagementSystem.Services
         Task<LicenseGateResult> EvaluateAccessAsync(bool forceRemoteValidation = false, string? requestIp = null);
 
         Task<LicenseBlockedViewModel> BuildBlockedViewModelAsync(LicenseGateStatus? statusOverride = null);
+
+        Task ClearLocalLicenseAsync();
     }
 }

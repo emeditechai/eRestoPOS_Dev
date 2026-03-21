@@ -59,6 +59,18 @@ namespace RestaurantManagementSystem.Services
             }
         }
 
+        private string GetCurrentAppUrl()
+        {
+            var context = _httpContextAccessor.HttpContext;
+            if (context == null)
+            {
+                return string.Empty;
+            }
+
+            var request = context.Request;
+            return $"{request.Scheme}://{request.Host}";
+        }
+
         public async Task<LicenseRegistrationViewModel> BuildRegistrationViewModelAsync(LicenseRegistrationViewModel? source = null)
         {
             await EnsureLocalSchemaAsync();
@@ -387,7 +399,8 @@ namespace RestaurantManagementSystem.Services
                             IsActive = true,
                             CreatedAt = DateTime.Now,
                             OTP_Verified = true,
-                            AMC_Expireddate = model.AmcExpiryDate
+                            AMC_Expireddate = model.AmcExpiryDate,
+                            AppUrl = GetCurrentAppUrl()
                         };
 
                         remoteLicense.Id = await InsertLicenseAsync(remoteConnection, transaction, remoteLicense);
@@ -407,6 +420,28 @@ namespace RestaurantManagementSystem.Services
                 _logger.LogError(ex, "License registration failed");
                 return (false, ex.Message, null);
             }
+        }
+
+        public async Task ClearLocalLicenseAsync()
+        {
+            await EnsureLocalSchemaAsync();
+
+            // Only delete THIS machine's license record — other servers sharing the same DB
+            // must keep their own records intact.
+            var license = await GetLocalLicenseAsync();
+            if (license == null)
+            {
+                _logger.LogInformation("No local license found for current machine hardware — nothing to clear.");
+                return;
+            }
+
+            await using var connection = new SqlConnection(_localConnectionString);
+            await connection.OpenAsync();
+            const string sql = "DELETE FROM dbo.ClientAppLicense WHERE Id = @Id;";
+            await using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@Id", license.Id);
+            await command.ExecuteNonQueryAsync();
+            _logger.LogInformation("Local license record Id={Id} (ClientCode={ClientCode}) cleared to allow re-registration on new hardware.", license.Id, license.ClientCode);
         }
 
         public async Task<LicenseGateResult> EvaluateAccessAsync(bool forceRemoteValidation = false, string? requestIp = null)
@@ -665,7 +700,8 @@ BEGIN
         [IsActive] BIT NOT NULL CONSTRAINT [DF_ClientAppLicense_IsActive] DEFAULT ((1)),
         [CreatedAt] DATETIME NOT NULL CONSTRAINT [DF_ClientAppLicense_CreatedAt] DEFAULT (GETDATE()),
         [OTP_Verified] BIT NOT NULL CONSTRAINT [DF_ClientAppLicense_OTP_Verified] DEFAULT ((1)),
-        [AMC_Expireddate] DATETIME NULL
+        [AMC_Expireddate] DATETIME NULL,
+        [AppUrl] NVARCHAR(500) NULL
     );
 END;
 
@@ -725,6 +761,11 @@ END;
 IF COL_LENGTH('dbo.ClientAppLicense', 'AMC_Expireddate') IS NULL
 BEGIN
     ALTER TABLE [dbo].[ClientAppLicense] ADD [AMC_Expireddate] DATETIME NULL;
+END;
+
+IF COL_LENGTH('dbo.ClientAppLicense', 'AppUrl') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ClientAppLicense] ADD [AppUrl] NVARCHAR(500) NULL;
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_ClientAppLicense_ClientCode' AND object_id = OBJECT_ID('dbo.ClientAppLicense'))
@@ -821,7 +862,8 @@ BEGIN
         [IsActive] BIT NOT NULL CONSTRAINT [DF_RemoteClientAppLicense_IsActive] DEFAULT ((1)),
         [CreatedAt] DATETIME NOT NULL CONSTRAINT [DF_RemoteClientAppLicense_CreatedAt] DEFAULT (GETDATE()),
         [OTP_Verified] BIT NOT NULL CONSTRAINT [DF_RemoteClientAppLicense_OTP_Verified] DEFAULT ((1)),
-        [AMC_Expireddate] DATETIME NULL
+        [AMC_Expireddate] DATETIME NULL,
+        [AppUrl] NVARCHAR(500) NULL
     );
 END;
 
@@ -848,6 +890,11 @@ END;
 IF COL_LENGTH('dbo.ClientAppLicense', 'AMC_Expireddate') IS NULL
 BEGIN
     ALTER TABLE [dbo].[ClientAppLicense] ADD [AMC_Expireddate] DATETIME NULL;
+END;
+
+IF COL_LENGTH('dbo.ClientAppLicense', 'AppUrl') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ClientAppLicense] ADD [AppUrl] NVARCHAR(500) NULL;
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_RemoteClientAppLicense_ClientCode' AND object_id = OBJECT_ID('dbo.ClientAppLicense'))
@@ -1019,11 +1066,13 @@ END;";
 
         private async Task<ClientAppLicense?> GetLocalLicenseAsync()
         {
+            var machine = GetCurrentMachineFingerprint();
+
             await using var connection = new SqlConnection(_localConnectionString);
             await connection.OpenAsync();
 
             const string sql = @"
-SELECT TOP 1
+SELECT
     Id,
     ClientCode,
     ClientName,
@@ -1040,13 +1089,23 @@ SELECT TOP 1
     IsActive,
     CreatedAt,
     OTP_Verified,
-    AMC_Expireddate
+    AMC_Expireddate,
+    AppUrl
 FROM dbo.ClientAppLicense
 ORDER BY CreatedAt DESC, Id DESC;";
 
             await using var command = new SqlCommand(sql, connection);
-            await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow);
-            return await reader.ReadAsync() ? MapLocalLicense(reader) : null;
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var license = MapLocalLicense(reader);
+                if (FingerprintsMatch(machine, license))
+                {
+                    return license;
+                }
+            }
+
+            return null;
         }
 
         private async Task<LicenseValidationHistoryEntry?> GetLatestRemoteValidationHistoryForTodayAsync(SqlConnection connection, SqlTransaction? transaction, string clientCode, string licenseKey)
@@ -1509,7 +1568,8 @@ SELECT TOP 1
     IsActive,
     CreatedAt,
     OTP_Verified,
-    AMC_Expireddate
+    AMC_Expireddate,
+    AppUrl
 FROM dbo.ClientAppLicense
 WHERE ClientCode = @ClientCode
   AND LicenseKey = @LicenseKey
@@ -1542,7 +1602,8 @@ SELECT TOP 1
     IsActive,
     CreatedAt,
     OTP_Verified,
-    AMC_Expireddate
+    AMC_Expireddate,
+    AppUrl
 FROM dbo.ClientAppLicense
 WHERE ServerMacID = @ServerMacID
   AND HardDiskNumber = @HardDiskNumber
@@ -1577,7 +1638,8 @@ INSERT INTO dbo.ClientAppLicense
     IsActive,
     CreatedAt,
     OTP_Verified,
-    AMC_Expireddate
+    AMC_Expireddate,
+    AppUrl
 )
 VALUES
 (
@@ -1596,7 +1658,8 @@ VALUES
     @IsActive,
     @CreatedAt,
     @OTP_Verified,
-    @AMC_Expireddate
+    @AMC_Expireddate,
+    @AppUrl
 );
 SELECT CAST(SCOPE_IDENTITY() AS BIGINT);";
 
@@ -1651,7 +1714,8 @@ BEGIN
         IsActive = @IsActive,
         CreatedAt = @CreatedAt,
         OTP_Verified = @OTP_Verified,
-        AMC_Expireddate = @AMC_Expireddate
+        AMC_Expireddate = @AMC_Expireddate,
+        AppUrl = @AppUrl
     WHERE ClientCode = @ClientCode OR LicenseKey = @LicenseKey;
 END
 ELSE
@@ -1673,7 +1737,8 @@ BEGIN
         IsActive,
         CreatedAt,
         OTP_Verified,
-        AMC_Expireddate
+        AMC_Expireddate,
+        AppUrl
     )
     VALUES
     (
@@ -1692,7 +1757,8 @@ BEGIN
         @IsActive,
         @CreatedAt,
         @OTP_Verified,
-        @AMC_Expireddate
+        @AMC_Expireddate,
+        @AppUrl
     );
 END;";
 
@@ -1870,22 +1936,87 @@ ORDER BY ValidatedAt DESC, Id DESC;";
             return fingerprint;
         }
 
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
         private static LicenseMachineFingerprint GetWindowsMachineFingerprint()
         {
-            return new LicenseMachineFingerprint
+            // Hard disk serial — try multiple approaches to handle restricted IIS app pool identities
+            var hardDiskNumber = ExecuteProcess("powershell.exe",
+                "-NoProfile -NonInteractive -Command \"try { (Get-CimInstance Win32_DiskDrive | Where-Object { $_.SerialNumber } | Select-Object -First 1 -ExpandProperty SerialNumber).Trim() } catch {}\"");
+
+            if (string.IsNullOrWhiteSpace(hardDiskNumber))
             {
-                ServerMacID = GetPrimaryMacAddress(),
-                HardDiskNumber = GetWindowsHardwareIdentifier(
+                hardDiskNumber = ExecuteProcess("powershell.exe",
+                    "-NoProfile -NonInteractive -Command \"try { (Get-CimInstance Win32_PhysicalMedia | Where-Object { $_.SerialNumber } | Select-Object -First 1 -ExpandProperty SerialNumber).Trim() } catch {}\"");
+            }
+
+            if (string.IsNullOrWhiteSpace(hardDiskNumber))
+            {
+                hardDiskNumber = GetWindowsHardwareIdentifier(
                     "powershell.exe",
                     "-NoProfile -Command \"(Get-CimInstance Win32_PhysicalMedia | Where-Object { $_.SerialNumber } | Select-Object -First 1 -ExpandProperty SerialNumber)\"",
                     "wmic",
-                    "diskdrive get serialnumber"),
-                MotherboardNumber = GetWindowsHardwareIdentifier(
+                    "diskdrive get serialnumber");
+            }
+
+            // Fallback: use Windows Machine GUID which is always readable by any IIS process
+            if (string.IsNullOrWhiteSpace(hardDiskNumber))
+            {
+                hardDiskNumber = GetWindowsMachineGuid();
+            }
+
+            // Motherboard serial — try multiple approaches
+            var motherboardNumber = ExecuteProcess("powershell.exe",
+                "-NoProfile -NonInteractive -Command \"try { (Get-CimInstance Win32_BaseBoard | Select-Object -First 1 -ExpandProperty SerialNumber).Trim() } catch {}\"");
+
+            if (string.IsNullOrWhiteSpace(motherboardNumber))
+            {
+                motherboardNumber = GetWindowsHardwareIdentifier(
                     "powershell.exe",
                     "-NoProfile -Command \"(Get-CimInstance Win32_BaseBoard | Select-Object -First 1 -ExpandProperty SerialNumber)\"",
                     "wmic",
-                    "baseboard get serialnumber")
+                    "baseboard get serialnumber");
+            }
+
+            // Fallback: Machine GUID (unique per Windows install, always readable)
+            if (string.IsNullOrWhiteSpace(motherboardNumber))
+            {
+                motherboardNumber = GetWindowsMachineGuid();
+            }
+
+            return new LicenseMachineFingerprint
+            {
+                ServerMacID = GetPrimaryMacAddress(),
+                HardDiskNumber = hardDiskNumber,
+                MotherboardNumber = motherboardNumber
             };
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        private static string GetWindowsMachineGuid()
+        {
+            try
+            {
+                var output = ExecuteProcessRaw("reg",
+                    @"query ""HKLM\SOFTWARE\Microsoft\Cryptography"" /v MachineGuid");
+                foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var trimmed = line.Trim();
+                    var regSzIdx = trimmed.IndexOf("REG_SZ", StringComparison.OrdinalIgnoreCase);
+                    if (regSzIdx >= 0)
+                    {
+                        var guid = trimmed.Substring(regSzIdx + "REG_SZ".Length).Trim().Trim('{', '}');
+                        if (!string.IsNullOrWhiteSpace(guid))
+                        {
+                            return guid;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return string.Empty;
         }
 
         private static LicenseMachineFingerprint GetMacMachineFingerprint()
@@ -2432,6 +2563,7 @@ ORDER BY ValidatedAt DESC, Id DESC;";
             command.Parameters.AddWithValue("@CreatedAt", license.CreatedAt);
             command.Parameters.AddWithValue("@OTP_Verified", license.OTP_Verified);
             command.Parameters.AddWithValue("@AMC_Expireddate", (object?)license.AMC_Expireddate ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AppUrl", (object?)license.AppUrl ?? DBNull.Value);
         }
 
         private static void AddRemoteLicenseParameters(SqlCommand command, ClientAppLicense license)
@@ -2452,6 +2584,7 @@ ORDER BY ValidatedAt DESC, Id DESC;";
             command.Parameters.AddWithValue("@CreatedAt", license.CreatedAt);
             command.Parameters.AddWithValue("@OTP_Verified", license.OTP_Verified);
             command.Parameters.AddWithValue("@AMC_Expireddate", (object?)license.AMC_Expireddate ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AppUrl", (object?)license.AppUrl ?? DBNull.Value);
         }
 
         private ClientAppLicense MapLocalLicense(SqlDataReader reader)
@@ -2483,7 +2616,8 @@ ORDER BY ValidatedAt DESC, Id DESC;";
                 IsActive = !reader.IsDBNull(13) && reader.GetBoolean(13),
                 CreatedAt = reader.IsDBNull(14) ? DateTime.Now : reader.GetDateTime(14),
                 OTP_Verified = !reader.IsDBNull(15) && reader.GetBoolean(15),
-                AMC_Expireddate = reader.IsDBNull(16) ? null : reader.GetDateTime(16)
+                AMC_Expireddate = reader.IsDBNull(16) ? null : reader.GetDateTime(16),
+                AppUrl = reader.IsDBNull(17) ? null : reader.GetString(17)
             };
         }
 

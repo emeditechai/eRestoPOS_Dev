@@ -174,6 +174,20 @@ namespace RestaurantManagementSystem.Controllers
             return RedirectToAction(nameof(Blocked), new { status = gateResult.Status.ToString() });
         }
 
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ReRegister()
+        {
+            var gateResult = await _licensingService.EvaluateAccessAsync(false, ResolveRequestIp());
+            if (gateResult.Status != LicenseGateStatus.HardwareMismatch)
+            {
+                return RedirectToAction(nameof(Blocked), new { status = gateResult.Status.ToString() });
+            }
+
+            await _licensingService.ClearLocalLicenseAsync();
+            return RedirectToAction(nameof(Register));
+        }
+
         private IActionResult RedirectToPostLicenseDestination()
         {
             return User.Identity?.IsAuthenticated == true

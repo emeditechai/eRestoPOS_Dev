@@ -53,9 +53,25 @@
                 </div>
             </div>
 
-            <p class="text-muted mb-0">If this server was rebuilt or hardware changed, update the remote license record before retrying validation.</p>
+            @if (Model.Status == LicenseGateStatus.HardwareMismatch)
+            {
+                <p class="text-muted mb-0">This server's hardware does not match the registered license. If this is a new or rebuilt server sharing the same database, register a new license for this server.</p>
+            }
+            else
+            {
+                <p class="text-muted mb-0">If this server was rebuilt or hardware changed, update the remote license record before retrying validation.</p>
+            }
 
             <div class="license-actions">
+                @if (Model.Status == LicenseGateStatus.HardwareMismatch)
+                {
+                    <form asp-action="ReRegister" method="post" class="d-inline">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-warning">
+                            <i class="fas fa-plus-circle me-2"></i>Register New License
+                        </button>
+                    </form>
+                }
                 @if (Model.ShowRetryAction)
                 {
                     <form asp-action="RetryValidation" method="post" class="d-inline">
@@ -88,7 +104,16 @@
             </div>
 
             <div class="modal-footer">
-                @if (Model.ShowRetryAction)
+                @if (Model.Status == LicenseGateStatus.HardwareMismatch)
+                {
+                    <form asp-action="ReRegister" method="post" class="me-auto">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-warning">
+                            <i class="fas fa-plus-circle me-2"></i>Register New License
+                        </button>
+                    </form>
+                }
+                else if (Model.ShowRetryAction)
                 {
                     <form asp-action="RetryValidation" method="post" class="me-auto">
                         @Html.AntiForgeryToken()

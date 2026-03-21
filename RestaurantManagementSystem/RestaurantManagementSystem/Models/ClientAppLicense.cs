@@ -52,5 +52,8 @@ namespace RestaurantManagementSystem.Models
 
         [Column("AMC_Expireddate")]
         public DateTime? AMC_Expireddate { get; set; }
+
+        [Column("AppUrl")]
+        public string? AppUrl { get; set; }
     }
 }
