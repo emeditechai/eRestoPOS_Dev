@@ -584,7 +584,7 @@ namespace RestaurantManagementSystem.Services
                     await InsertRemoteValidationHistoryAsync(
                         remoteConnection,
                         null,
-                        CreateRemoteValidationHistory(localLicense, machine, false, remoteNotFoundResult.Message, publicIpAddress));
+                        CreateRemoteValidationHistory(localLicense, machine, false, remoteNotFoundResult.Message, publicIpAddress, GetCurrentAppUrl()));
 
                     await TryInsertLocalValidationLogAsync(CreateValidationLog(
                         localLicense,
@@ -594,7 +594,8 @@ namespace RestaurantManagementSystem.Services
                         isExpired: false,
                         isRemoteReachable: true,
                         failureReason: remoteNotFoundResult.Message,
-                        requestIp: publicIpAddress));
+                        requestIp: publicIpAddress,
+                        appUrl: GetCurrentAppUrl()));
 
                     return remoteNotFoundResult;
                 }
@@ -650,7 +651,7 @@ namespace RestaurantManagementSystem.Services
                 await InsertRemoteValidationHistoryAsync(
                     remoteConnection,
                     null,
-                    CreateRemoteValidationHistory(remoteLicense, machine, gateResult.IsAllowed, gateResult.IsAllowed ? null : gateResult.Message, publicIpAddress));
+                    CreateRemoteValidationHistory(remoteLicense, machine, gateResult.IsAllowed, gateResult.IsAllowed ? null : gateResult.Message, publicIpAddress, GetCurrentAppUrl()));
 
                 await TryInsertLocalValidationLogAsync(CreateValidationLog(
                     remoteLicense,
@@ -660,7 +661,8 @@ namespace RestaurantManagementSystem.Services
                     isExpired,
                     isRemoteReachable: true,
                     failureReason: gateResult.IsAllowed ? null : gateResult.Message,
-                    requestIp: publicIpAddress));
+                    requestIp: publicIpAddress,
+                    appUrl: GetCurrentAppUrl()));
 
                 return gateResult;
             }
@@ -676,7 +678,8 @@ namespace RestaurantManagementSystem.Services
                     isExpired: localLicense.ExpiryDate <= DateTime.Now,
                     isRemoteReachable: false,
                     failureReason: ex.Message,
-                    requestIp: publicIpAddress));
+                    requestIp: publicIpAddress,
+                    appUrl: GetCurrentAppUrl()));
 
                 return CreateGateResult(
                     LicenseGateStatus.RemoteUnavailable,
@@ -851,8 +854,14 @@ BEGIN
         [Result] VARCHAR(40) NOT NULL,
         [FailureReason] NVARCHAR(500) NULL,
         [RequestIp] VARCHAR(60) NULL,
+        [AppUrl] NVARCHAR(500) NULL,
         [CreatedAt] DATETIME NOT NULL CONSTRAINT [DF_ClientAppLicenseValidationLog_CreatedAt] DEFAULT (GETDATE())
     );
+END;
+
+IF COL_LENGTH('dbo.ClientAppLicenseValidationLog', 'AppUrl') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ClientAppLicenseValidationLog] ADD [AppUrl] NVARCHAR(500) NULL;
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ClientAppLicenseValidationLog_ClientCode_ValidatedAt' AND object_id = OBJECT_ID('dbo.ClientAppLicenseValidationLog'))
@@ -1001,8 +1010,14 @@ BEGIN
         [FailureReason] VARCHAR(500) NULL,
         [PublicIPAddress] VARCHAR(60) NULL,
         [DeviceInfo] VARCHAR(1000) NULL,
+        [AppUrl] NVARCHAR(500) NULL,
         [CreatedAt] DATETIME NOT NULL CONSTRAINT [DF_LicenseValidationHistory_CreatedAt] DEFAULT (GETDATE())
     );
+END;
+
+IF COL_LENGTH('dbo.LicenseValidationHistory', 'AppUrl') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[LicenseValidationHistory] ADD [AppUrl] NVARCHAR(500) NULL;
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_LicenseValidationHistory_ClientCode_LicenseKey_CreatedAt' AND object_id = OBJECT_ID('dbo.LicenseValidationHistory'))
@@ -1217,6 +1232,7 @@ INSERT INTO dbo.LicenseValidationHistory
     FailureReason,
     PublicIPAddress,
     DeviceInfo,
+    AppUrl,
     CreatedAt
 )
 VALUES
@@ -1227,6 +1243,7 @@ VALUES
     @FailureReason,
     @PublicIPAddress,
     @DeviceInfo,
+    @AppUrl,
     @CreatedAt
 );";
 
@@ -1237,6 +1254,7 @@ VALUES
             command.Parameters.AddWithValue("@FailureReason", (object?)entry.FailureReason ?? DBNull.Value);
             command.Parameters.AddWithValue("@PublicIPAddress", (object?)entry.PublicIPAddress ?? DBNull.Value);
             command.Parameters.AddWithValue("@DeviceInfo", (object?)entry.DeviceInfo ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AppUrl", (object?)entry.AppUrl ?? DBNull.Value);
             command.Parameters.AddWithValue("@CreatedAt", entry.CreatedAt);
             await command.ExecuteNonQueryAsync();
         }
@@ -1917,6 +1935,7 @@ INSERT INTO dbo.ClientAppLicenseValidationLog
     Result,
     FailureReason,
     RequestIp,
+    AppUrl,
     CreatedAt
 )
 VALUES
@@ -1933,6 +1952,7 @@ VALUES
     @Result,
     @FailureReason,
     @RequestIp,
+    @AppUrl,
     @CreatedAt
 );";
 
@@ -1949,6 +1969,7 @@ VALUES
             command.Parameters.AddWithValue("@Result", log.Result);
             command.Parameters.AddWithValue("@FailureReason", (object?)log.FailureReason ?? DBNull.Value);
             command.Parameters.AddWithValue("@RequestIp", (object?)log.RequestIp ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AppUrl", (object?)log.AppUrl ?? DBNull.Value);
             command.Parameters.AddWithValue("@CreatedAt", log.CreatedAt);
             await command.ExecuteNonQueryAsync();
         }
@@ -2468,7 +2489,8 @@ ORDER BY ValidatedAt DESC, Id DESC;";
             LicenseMachineFingerprint machine,
             bool isValid,
             string? failureReason,
-            string? requestIp)
+            string? requestIp,
+            string? appUrl = null)
         {
             return new LicenseValidationHistoryEntry
             {
@@ -2478,6 +2500,7 @@ ORDER BY ValidatedAt DESC, Id DESC;";
                 FailureReason = isValid ? null : failureReason,
                 PublicIPAddress = requestIp,
                 DeviceInfo = BuildDeviceInfo(machine),
+                AppUrl = appUrl,
                 CreatedAt = DateTime.Now
             };
         }
@@ -2616,7 +2639,8 @@ ORDER BY ValidatedAt DESC, Id DESC;";
             bool isExpired,
             bool isRemoteReachable,
             string? failureReason,
-            string? requestIp)
+            string? requestIp,
+            string? appUrl = null)
         {
             return new ClientAppLicenseValidationLog
             {
@@ -2632,6 +2656,7 @@ ORDER BY ValidatedAt DESC, Id DESC;";
                 Result = result,
                 FailureReason = failureReason,
                 RequestIp = requestIp,
+                AppUrl = appUrl,
                 CreatedAt = DateTime.Now
             };
         }

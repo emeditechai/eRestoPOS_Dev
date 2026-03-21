@@ -16,6 +16,8 @@ namespace RestaurantManagementSystem.Models
 
         public string? DeviceInfo { get; set; }
 
+        public string? AppUrl { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.Now;
     }
 }

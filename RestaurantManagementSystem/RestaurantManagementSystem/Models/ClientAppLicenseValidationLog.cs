@@ -28,6 +28,8 @@ namespace RestaurantManagementSystem.Models
 
         public string? RequestIp { get; set; }
 
+        public string? AppUrl { get; set; }
+
         public DateTime CreatedAt { get; set; }
     }
 }
