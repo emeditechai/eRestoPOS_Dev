@@ -160,7 +160,7 @@
             <div class="license-action-bar">
                 <div class="license-submit-note">Click Register License to send a 6-digit OTP to authorized approvers. After successful OTP verification, a welcome email with license details will be sent to the client&rsquo;s email address, and the license will be synced to both the local and central licensing databases.</div>
 
-                <button type="submit" class="btn btn-primary license-submit-button" id="startLicenseOtpButton">
+                <button type="button" class="btn btn-primary license-submit-button" id="startLicenseOtpButton">
                     <i class="fas fa-key me-2"></i>Register License
                 </button>
             </div>
@@ -552,6 +552,10 @@
 
             form.addEventListener('submit', function (event) {
                 event.preventDefault();
+                requestOtp();
+            });
+
+            registerButton.addEventListener('click', function () {
                 requestOtp();
             });
 
