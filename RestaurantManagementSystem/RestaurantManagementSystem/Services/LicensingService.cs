@@ -18,7 +18,7 @@ namespace RestaurantManagementSystem.Services
         private const string CentralMailConfigurationTableName = "dbo.tbl_centralmailconfiguration";
         private const string DefaultCentralLicenseRemoteServer = "198.38.81.123,1433";
         private const string DefaultCentralLicenseRemoteUsername = "sa";
-        private const string DefaultCentralLicenseRemotePassword = "asdf@1234";
+        private const string DefaultCentralLicenseRemotePassword = "Ehospit@lity@#1926";
         private const string DefaultCentralLicenseRemoteDatabase = "Central_Lic_DB";
         private const string RegistrationOtpSessionKey = "Licensing:PendingRegistrationOtp";
         private const string HardwareRenewalOtpSessionKey = "Licensing:PendingHardwareRenewalOtp";

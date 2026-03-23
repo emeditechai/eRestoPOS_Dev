@@ -6,7 +6,7 @@
 1. Connect to: `198.38.81.123,1433`
 2. Database: `dev_Restaurant`  
 3. Username: `sa`
-4. Password: `asdf@1234`
+4. Password: `Ehospit@lity@#1926`
 5. **Open file:** `EASY_DAY_CLOSING_SETUP.sql`
 6. **Click Execute** (F5)
 7. ✅ Done! Everything is now ready to use!

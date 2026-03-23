@@ -7,7 +7,7 @@ set -e
 
 DB_SERVER="${DB_SERVER:-198.38.81.123,1433}"
 DB_USER="${DB_USER:-sa}"
-DB_PASSWORD="${DB_PASSWORD:-asdf@1234}"
+DB_PASSWORD="${DB_PASSWORD:-Ehospit@lity@#1926}"
 DB_NAME="${DB_NAME:-dev_Restaurant}"
 
 echo "=========================================="

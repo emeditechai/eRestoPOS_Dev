@@ -5,7 +5,7 @@ class AddKitchenStationColumn
 {
     static void Main(string[] args)
     {
-        string connectionString = "Server=tcp:198.38.81.123,1433;Database=dev_Restaurant;User Id=sa;Password=asdf@1234;Encrypt=False;TrustServerCertificate=False;Connection Timeout=60;";
+        string connectionString = "Server=tcp:198.38.81.123,1433;Database=dev_Restaurant;User Id=sa;Password=Ehospit@lity@#1926;Encrypt=False;TrustServerCertificate=False;Connection Timeout=60;";
         
         string sql = @"
 -- Add KitchenStation column to KitchenTickets if not exists

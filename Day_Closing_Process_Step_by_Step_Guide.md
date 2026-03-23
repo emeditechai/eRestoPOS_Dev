@@ -33,7 +33,7 @@ Before using Day Closing feature, execute the database migration:
 2. Connect to: `198.38.81.123,1433`
    - Database: `dev_Restaurant`
    - User: `sa`
-   - Password: `asdf@1234`
+   - Password: `Ehospit@lity@#1926`
 3. Open file: `create_day_closing_tables.sql`
 4. Execute the script
 5. Verify tables created:

@@ -14,7 +14,7 @@ echo ""
 DB_SERVER="198.38.81.123,1433"
 DB_NAME="dev_Restaurant"
 DB_USER="sa"
-DB_PASS="asdf@1234"
+DB_PASS="Ehospit@lity@#1926"
 
 # Check if sqlcmd is available
 if ! command -v sqlcmd &> /dev/null; then
