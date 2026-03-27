@@ -267,11 +267,17 @@ namespace RestaurantManagementSystem.Controllers
                 using (var conn = new SqlConnection(_connectionString))
                 {
                     conn.Open();
-                    using (var cmd = new SqlCommand(@"SELECT TOP 1 1 FROM KitchenTickets WHERE OrderId = @OrderId AND (KitchenStation = 'BAR' OR TicketNumber LIKE 'BOT-%')", conn))
+                    using (var cmd = new SqlCommand(@"
+                        SELECT CASE
+                            WHEN EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Orders') AND name = 'OrderKitchenType')
+                                AND EXISTS (SELECT 1 FROM dbo.Orders WHERE Id = @OrderId AND ISNULL(OrderKitchenType, '') = 'Bar') THEN 1
+                            WHEN EXISTS (SELECT 1 FROM dbo.KitchenTickets WHERE OrderId = @OrderId AND (KitchenStation = 'BAR' OR TicketNumber LIKE 'BOT-%')) THEN 1
+                            ELSE 0
+                        END", conn))
                     {
                         cmd.Parameters.AddWithValue("@OrderId", orderId);
                         var obj = cmd.ExecuteScalar();
-                        return obj != null && obj != DBNull.Value;
+                        return obj != null && obj != DBNull.Value && Convert.ToInt32(obj) == 1;
                     }
                 }
             }

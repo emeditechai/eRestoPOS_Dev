@@ -209,17 +209,14 @@
             <td class="lbl">Sub Total</td>
             <td class="amt">&#8377;@subtotal.ToString("F2")</td>
         </tr>
-        @if (!isBarOrder)
-        {
-            <tr>
-                <td class="lbl">CGST @cgstPercent%</td>
-                <td class="amt">&#8377;@cgstAmt.ToString("F2")</td>
-            </tr>
-            <tr>
-                <td class="lbl">SGST @sgstPercent%</td>
-                <td class="amt">&#8377;@sgstAmt.ToString("F2")</td>
-            </tr>
-        }
+        <tr>
+            <td class="lbl">CGST @cgstPercent%</td>
+            <td class="amt">&#8377;@cgstAmt.ToString("F2")</td>
+        </tr>
+        <tr>
+            <td class="lbl">SGST @sgstPercent%</td>
+            <td class="amt">&#8377;@sgstAmt.ToString("F2")</td>
+        </tr>
         @if (discount > 0)
         {
             <tr>
