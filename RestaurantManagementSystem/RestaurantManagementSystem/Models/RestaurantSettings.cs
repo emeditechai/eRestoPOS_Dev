@@ -106,6 +106,9 @@ namespace RestaurantManagementSystem.Models
     [Display(Name = "Automatic Bill Send Email")]
     public bool IsReqAutoSentbillEmail { get; set; } = false;
 
+    [Display(Name = "Table Marked Available after bill Completion")]
+    public bool IsTableMarkedAvailableAfterBillCompletion { get; set; } = false;
+
     [Display(Name = "Required Discount on POS")]
     public bool IsRequiredDiscountOnPOS { get; set; } = false;
 

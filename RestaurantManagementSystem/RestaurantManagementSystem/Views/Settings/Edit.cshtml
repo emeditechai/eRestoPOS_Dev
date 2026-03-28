@@ -369,6 +369,19 @@
                                     </div>
                                     <div class="col-md-4">
                                         <div class="form-group mb-3">
+                                            <label asp-for="IsTableMarkedAvailableAfterBillCompletion" class="control-label"></label>
+                                            <div class="form-check form-switch">
+                                                <input asp-for="IsTableMarkedAvailableAfterBillCompletion" class="form-check-input" type="checkbox" id="isTableMarkedAvailableAfterBillCompletion">
+                                                <label class="form-check-label" for="isTableMarkedAvailableAfterBillCompletion">
+                                                    Table marked available after bill completion
+                                                </label>
+                                            </div>
+                                            <span asp-validation-for="IsTableMarkedAvailableAfterBillCompletion" class="field-validation-error"></span>
+                                            <div class="help-text">When enabled, this setting can be used to automatically free the table once billing is completed.</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group mb-3">
                                             <label asp-for="IsRequiredDiscountOnPOS" class="control-label"></label>
                                             <div class="form-check form-switch">
                                                 <input asp-for="IsRequiredDiscountOnPOS" class="form-check-input" type="checkbox" id="isRequiredDiscountOnPOS">

@@ -45,6 +45,7 @@ namespace RestaurantManagementSystem.Services
                     TakeAwayGSTPercentage = 5.00m,
                     IsDefaultGSTRequired = true,
                     IsCounterRequired = false,
+                    IsTableMarkedAvailableAfterBillCompletion = false,
                     BillFormat = "A4"
                 };
                 await EnsureSettingsForBranchExistsAsync(branchId, defaultSettings);
@@ -83,6 +84,7 @@ namespace RestaurantManagementSystem.Services
                         TakeAwayGSTPercentage = 5.00m,
                         IsDefaultGSTRequired = true,
                         IsCounterRequired = false,
+                        IsTableMarkedAvailableAfterBillCompletion = false,
                         BillFormat = "A4"
                     };
                     await EnsureSettingsForBranchExistsAsync(branchId, defaultSettings);
@@ -105,6 +107,7 @@ namespace RestaurantManagementSystem.Services
                         TakeAwayGSTPercentage = 5.00m,
                         IsDefaultGSTRequired = true,
                         IsCounterRequired = false,
+                        IsTableMarkedAvailableAfterBillCompletion = false,
                         BillFormat = "A4"
                     };
                 }
@@ -245,6 +248,12 @@ namespace RestaurantManagementSystem.Services
                                     s.IsReqAutoSentbillEmail = !reader.IsDBNull(ord) && reader.GetBoolean(ord);
                                 }
 
+                                if (ColumnExists(reader, "IsTableMarkedAvailableAfterBillCompletion"))
+                                {
+                                    ord = reader.GetOrdinal("IsTableMarkedAvailableAfterBillCompletion");
+                                    s.IsTableMarkedAvailableAfterBillCompletion = !reader.IsDBNull(ord) && reader.GetBoolean(ord);
+                                }
+
                                 // Required Discount on POS flag
                                 if (ColumnExists(reader, "IsRequiredDiscountOnPOS"))
                                 {
@@ -325,6 +334,7 @@ CREATE TABLE [dbo].[RestaurantSettings](
     [IsDiscountApprovalRequired] BIT NOT NULL DEFAULT 0,
     [IsCardPaymentApprovalRequired] BIT NOT NULL DEFAULT 0,
     [IsCounterRequired] BIT NOT NULL DEFAULT 0,
+    [IsTableMarkedAvailableAfterBillCompletion] BIT NOT NULL DEFAULT 0,
     [IsRequiredDiscountOnPOS] BIT NOT NULL DEFAULT 0,
     [IsRestrictMenuEditNonMainBranch] BIT NOT NULL DEFAULT 0,
     [BillFormat] NVARCHAR(10) NOT NULL DEFAULT N'A4',
@@ -340,9 +350,9 @@ CREATE TABLE [dbo].[RestaurantSettings](
                 // Insert a default row
                 var insertSql = @"
 INSERT INTO dbo.RestaurantSettings (
-    RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsCounterRequired, IsRequiredDiscountOnPOS, IsRestrictMenuEditNonMainBranch, BillFormat, CreatedAt, UpdatedAt
+    RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsCounterRequired, IsTableMarkedAvailableAfterBillCompletion, IsRequiredDiscountOnPOS, IsRestrictMenuEditNonMainBranch, BillFormat, CreatedAt, UpdatedAt
 ) VALUES (
-    @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsCounterRequired, @IsRequiredDiscountOnPOS, @IsRestrictMenuEditNonMainBranch, @BillFormat, GETDATE(), GETDATE()
+    @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsCounterRequired, @IsTableMarkedAvailableAfterBillCompletion, @IsRequiredDiscountOnPOS, @IsRestrictMenuEditNonMainBranch, @BillFormat, GETDATE(), GETDATE()
 );";
 
                 using (var cmd = new SqlCommand(insertSql, connection))
@@ -369,6 +379,7 @@ INSERT INTO dbo.RestaurantSettings (
                     cmd.Parameters.AddWithValue("@IsDiscountApprovalRequired", false);
                     cmd.Parameters.AddWithValue("@IsCardPaymentApprovalRequired", false);
                     cmd.Parameters.AddWithValue("@IsCounterRequired", false);
+                    cmd.Parameters.AddWithValue("@IsTableMarkedAvailableAfterBillCompletion", false);
                     cmd.Parameters.AddWithValue("@IsRequiredDiscountOnPOS", false);
                     cmd.Parameters.AddWithValue("@IsRestrictMenuEditNonMainBranch", false);
                     cmd.Parameters.AddWithValue("@BillFormat", "A4");
@@ -433,6 +444,7 @@ BEGIN
         IsKOTBillPrintRequired = @IsKOTBillPrintRequired,
         IsCounterRequired = @IsCounterRequired,
         isReqAutoSentbillEmail = @IsReqAutoSentbillEmail,
+        IsTableMarkedAvailableAfterBillCompletion = @IsTableMarkedAvailableAfterBillCompletion,
         IsRequiredDiscountOnPOS = @IsRequiredDiscountOnPOS,
         IsRestrictMenuEditNonMainBranch = @IsRestrictMenuEditNonMainBranch,
         BillFormat = @BillFormat,
@@ -443,9 +455,9 @@ END
 ELSE
 BEGIN
     INSERT INTO dbo.RestaurantSettings (
-        BranchId, RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, IsRequiredDiscountOnPOS, IsRestrictMenuEditNonMainBranch, BillFormat, FssaiNo, CreatedAt, UpdatedAt
+        BranchId, RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, IsTableMarkedAvailableAfterBillCompletion, IsRequiredDiscountOnPOS, IsRestrictMenuEditNonMainBranch, BillFormat, FssaiNo, CreatedAt, UpdatedAt
     ) VALUES (
-        @BranchId, @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @IsRequiredDiscountOnPOS, @IsRestrictMenuEditNonMainBranch, @BillFormat, @FssaiNo, GETDATE(), GETDATE()
+        @BranchId, @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @IsTableMarkedAvailableAfterBillCompletion, @IsRequiredDiscountOnPOS, @IsRestrictMenuEditNonMainBranch, @BillFormat, @FssaiNo, GETDATE(), GETDATE()
     );
 END"
                         : @"
@@ -476,6 +488,7 @@ BEGIN
         IsKOTBillPrintRequired = @IsKOTBillPrintRequired,
         IsCounterRequired = @IsCounterRequired,
         isReqAutoSentbillEmail = @IsReqAutoSentbillEmail,
+        IsTableMarkedAvailableAfterBillCompletion = @IsTableMarkedAvailableAfterBillCompletion,
         IsRequiredDiscountOnPOS = @IsRequiredDiscountOnPOS,
         IsRestrictMenuEditNonMainBranch = @IsRestrictMenuEditNonMainBranch,
         BillFormat = @BillFormat,
@@ -485,9 +498,9 @@ END
 ELSE
 BEGIN
     INSERT INTO dbo.RestaurantSettings (
-        RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, IsRequiredDiscountOnPOS, IsRestrictMenuEditNonMainBranch, BillFormat, FssaiNo, CreatedAt, UpdatedAt
+        RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, IsTableMarkedAvailableAfterBillCompletion, IsRequiredDiscountOnPOS, IsRestrictMenuEditNonMainBranch, BillFormat, FssaiNo, CreatedAt, UpdatedAt
     ) VALUES (
-        @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @IsRequiredDiscountOnPOS, @IsRestrictMenuEditNonMainBranch, @BillFormat, @FssaiNo, GETDATE(), GETDATE()
+        @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @IsTableMarkedAvailableAfterBillCompletion, @IsRequiredDiscountOnPOS, @IsRestrictMenuEditNonMainBranch, @BillFormat, @FssaiNo, GETDATE(), GETDATE()
     );
 END";
 
@@ -522,6 +535,7 @@ END";
                         cmd.Parameters.AddWithValue("@IsKOTBillPrintRequired", settings.IsKOTBillPrintRequired);
                         cmd.Parameters.AddWithValue("@IsCounterRequired", settings.IsCounterRequired);
                         cmd.Parameters.AddWithValue("@IsReqAutoSentbillEmail", settings.IsReqAutoSentbillEmail);
+                        cmd.Parameters.AddWithValue("@IsTableMarkedAvailableAfterBillCompletion", settings.IsTableMarkedAvailableAfterBillCompletion);
                         cmd.Parameters.AddWithValue("@IsRequiredDiscountOnPOS", settings.IsRequiredDiscountOnPOS);
                         cmd.Parameters.AddWithValue("@IsRestrictMenuEditNonMainBranch", settings.IsRestrictMenuEditNonMainBranch);
                         cmd.Parameters.AddWithValue("@BillFormat", (object)settings.BillFormat ?? "A4");
@@ -709,6 +723,21 @@ WHERE TABLE_SCHEMA = 'dbo'
                     await addCounterReq.ExecuteNonQueryAsync();
                 }
 
+                // Ensure IsTableMarkedAvailableAfterBillCompletion column exists
+                var checkTableAvailableAfterBill = new SqlCommand(@"
+                    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = 'RestaurantSettings'
+                    AND COLUMN_NAME = 'IsTableMarkedAvailableAfterBillCompletion'
+                    AND TABLE_SCHEMA = 'dbo'", connection);
+                var tableAvailableAfterBillExists = (int)await checkTableAvailableAfterBill.ExecuteScalarAsync() > 0;
+                if (!tableAvailableAfterBillExists)
+                {
+                    var addTableAvailableAfterBill = new SqlCommand(@"
+                        ALTER TABLE [dbo].[RestaurantSettings]
+                        ADD [IsTableMarkedAvailableAfterBillCompletion] BIT NOT NULL DEFAULT 0", connection);
+                    await addTableAvailableAfterBill.ExecuteNonQueryAsync();
+                }
+
                 // Ensure BarGSTPerc column exists
                 var checkBarGST = new SqlCommand(@"
                     SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
@@ -767,6 +796,7 @@ SET IsDefaultGSTRequired = ISNULL(IsDefaultGSTRequired, 1),
     IsDiscountApprovalRequired = ISNULL(IsDiscountApprovalRequired, 0),
     IsCardPaymentApprovalRequired = ISNULL(IsCardPaymentApprovalRequired, 0),
     IsCounterRequired = ISNULL(IsCounterRequired, 0),
+    IsTableMarkedAvailableAfterBillCompletion = ISNULL(IsTableMarkedAvailableAfterBillCompletion, 0),
     DefaultGSTPercentage = ISNULL(DefaultGSTPercentage, 5.00),
     TakeAwayGSTPercentage = ISNULL(TakeAwayGSTPercentage, 5.00),
     BarGSTPerc = ISNULL(BarGSTPerc, 5.00),

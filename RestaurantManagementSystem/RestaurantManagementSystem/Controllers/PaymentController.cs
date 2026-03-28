@@ -93,6 +93,127 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
+        private async Task ReleaseCompletedDineInTablesIfConfiguredAsync(int orderId, SqlConnection connection)
+        {
+            try
+            {
+                int orderStatus = 0;
+                int orderType = -1;
+                int tableTurnoverId = 0;
+                bool autoReleaseTables = false;
+
+                using (var settingsCmd = new SqlCommand(@"
+                    SELECT
+                        ISNULL(o.Status, 0) AS OrderStatus,
+                        ISNULL(o.OrderType, -1) AS OrderType,
+                        ISNULL(o.TableTurnoverId, 0) AS TableTurnoverId,
+                        ISNULL(
+                            CASE
+                                WHEN COL_LENGTH('dbo.RestaurantSettings', 'IsTableMarkedAvailableAfterBillCompletion') IS NULL THEN 0
+                                WHEN COL_LENGTH('dbo.RestaurantSettings', 'BranchId') IS NOT NULL
+                                     AND COL_LENGTH('dbo.Orders', 'BranchId') IS NOT NULL THEN (
+                                    SELECT TOP 1 CAST(ISNULL(rs.IsTableMarkedAvailableAfterBillCompletion, 0) AS int)
+                                    FROM dbo.RestaurantSettings rs
+                                    WHERE rs.BranchId = o.BranchId OR rs.BranchId IS NULL
+                                    ORDER BY CASE WHEN rs.BranchId = o.BranchId THEN 0 ELSE 1 END, rs.Id DESC
+                                )
+                                ELSE (
+                                    SELECT TOP 1 CAST(ISNULL(rs.IsTableMarkedAvailableAfterBillCompletion, 0) AS int)
+                                    FROM dbo.RestaurantSettings rs
+                                    ORDER BY rs.Id DESC
+                                )
+                            END,
+                            0
+                        ) AS AutoReleaseTables
+                    FROM dbo.Orders o
+                    WHERE o.Id = @OrderId", connection))
+                {
+                    settingsCmd.Parameters.AddWithValue("@OrderId", orderId);
+                    using (var reader = await settingsCmd.ExecuteReaderAsync())
+                    {
+                        if (!await reader.ReadAsync())
+                        {
+                            return;
+                        }
+
+                        orderStatus = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
+                        orderType = reader.IsDBNull(1) ? -1 : reader.GetInt32(1);
+                        tableTurnoverId = reader.IsDBNull(2) ? 0 : reader.GetInt32(2);
+                        autoReleaseTables = !reader.IsDBNull(3) && reader.GetInt32(3) == 1;
+                    }
+                }
+
+                if (!autoReleaseTables || orderStatus != 3 || orderType != 0)
+                {
+                    return;
+                }
+
+                if (tableTurnoverId > 0)
+                {
+                    using (var turnoverCmd = new SqlCommand(@"
+                        IF OBJECT_ID('dbo.TableTurnovers', 'U') IS NOT NULL
+                        BEGIN
+                            UPDATE dbo.TableTurnovers
+                            SET Status = CASE WHEN ISNULL(Status, 0) < 5 THEN 5 ELSE Status END,
+                                CompletedAt = CASE WHEN CompletedAt IS NULL THEN GETDATE() ELSE CompletedAt END,
+                                DepartedAt = CASE WHEN DepartedAt IS NULL THEN GETDATE() ELSE DepartedAt END
+                            WHERE Id = @TurnoverId;
+                        END", connection))
+                    {
+                        turnoverCmd.Parameters.AddWithValue("@TurnoverId", tableTurnoverId);
+                        await turnoverCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                using (var releaseCmd = new SqlCommand(@"
+                    DECLARE @TablesToRelease TABLE (TableId INT PRIMARY KEY);
+
+                    IF OBJECT_ID('dbo.OrderTables', 'U') IS NOT NULL
+                    BEGIN
+                        INSERT INTO @TablesToRelease (TableId)
+                        SELECT DISTINCT ot.TableId
+                        FROM dbo.OrderTables ot
+                        WHERE ot.OrderId = @OrderId
+                          AND ot.TableId IS NOT NULL;
+                    END
+
+                    IF @TurnoverId > 0 AND OBJECT_ID('dbo.TableTurnovers', 'U') IS NOT NULL
+                    BEGIN
+                        INSERT INTO @TablesToRelease (TableId)
+                        SELECT tt.TableId
+                        FROM dbo.TableTurnovers tt
+                        WHERE tt.Id = @TurnoverId
+                          AND tt.TableId IS NOT NULL
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM @TablesToRelease rel
+                              WHERE rel.TableId = tt.TableId
+                          );
+                    END
+
+                    UPDATE t
+                    SET t.Status = 0,
+                        t.IsAvailable = 1,
+                        t.LastOccupiedAt = GETDATE()
+                    FROM dbo.Tables t
+                    INNER JOIN @TablesToRelease rel ON rel.TableId = t.Id
+                    WHERE t.Status <> 0 OR ISNULL(t.IsAvailable, 0) <> 1;", connection))
+                {
+                    releaseCmd.Parameters.AddWithValue("@OrderId", orderId);
+                    releaseCmd.Parameters.AddWithValue("@TurnoverId", tableTurnoverId);
+                    var releasedRows = await releaseCmd.ExecuteNonQueryAsync();
+                    if (releasedRows > 0)
+                    {
+                        _logger?.LogInformation("Released dine-in tables for completed order {OrderId}; affected table rows={Rows}", orderId, releasedRows);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to auto-release tables for completed order {OrderId}", orderId);
+            }
+        }
+
         private bool IsOrderInActiveBranch(int orderId)
         {
             var activeBranchId = GetActiveBranchId();
@@ -6738,6 +6859,8 @@ END", connection))
         {
             try
             {
+                await ReleaseCompletedDineInTablesIfConfiguredAsync(orderId, connection);
+
                 _logger?.LogInformation("Auto bill email: Checking if enabled for order {OrderId}", orderId);
                 
                 // Check if auto-send is enabled and if email hasn't been sent yet
