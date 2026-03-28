@@ -42,7 +42,7 @@ namespace RestaurantManagementSystem
             builder.Services.AddDistributedMemoryCache();
             builder.Services.AddSession(options =>
             {
-                options.IdleTimeout = TimeSpan.FromHours(12);
+                 options.IdleTimeout = TimeSpan.FromHours(2);
                 options.Cookie.HttpOnly = true;
                 options.Cookie.IsEssential = true;
                 options.Cookie.SameSite = SameSiteMode.Lax;
@@ -53,7 +53,7 @@ namespace RestaurantManagementSystem
             builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
                 .AddCookie(options =>
                 {
-                    options.ExpireTimeSpan = TimeSpan.FromHours(12);
+                    options.ExpireTimeSpan = TimeSpan.FromHours(2);
                     options.SlidingExpiration = true;
                     options.AccessDeniedPath = "/Account/AccessDenied";
                     options.LoginPath = "/Account/Login";

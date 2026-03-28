@@ -335,7 +335,7 @@ namespace RestaurantManagementSystem.Services
                     new AuthenticationProperties
                     {
                         IsPersistent = rememberMe,
-                        ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12)
+                            ExpiresUtc = DateTimeOffset.UtcNow.AddHours(2)
                     });
 
                 // Create an audit log entry for login
@@ -358,7 +358,7 @@ namespace RestaurantManagementSystem.Services
                 await _httpContextAccessor.HttpContext.SignInAsync(
                     CookieAuthenticationDefaults.AuthenticationScheme,
                     principal,
-                    new AuthenticationProperties { IsPersistent = rememberMe, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12) });
+                        new AuthenticationProperties { IsPersistent = rememberMe, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(2) });
             }
         }
 
@@ -1549,7 +1549,7 @@ END", connection, transaction))
             var properties = authResult?.Properties ?? new AuthenticationProperties
             {
                 IsPersistent = false,
-                ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12)
+                 ExpiresUtc = DateTimeOffset.UtcNow.AddHours(2)
             };
 
             await context.SignInAsync(
@@ -1623,7 +1623,7 @@ END", connection, transaction))
             var properties = authResult?.Properties ?? new AuthenticationProperties
             {
                 IsPersistent = false,
-                ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12)
+                 ExpiresUtc = DateTimeOffset.UtcNow.AddHours(2)
             };
 
             await context.SignInAsync(

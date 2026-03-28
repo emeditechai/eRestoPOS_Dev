@@ -262,20 +262,72 @@ namespace RestaurantManagementSystem.Controllers
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     connection.Open();
-                    using (var cmd = new SqlCommand(@"
-                        UPDATE p
-                        SET p.BranchId = o.BranchId
-                        FROM dbo.Payments p
-                        INNER JOIN dbo.Orders o ON p.OrderId = o.Id
-                        WHERE p.Id = @PaymentId AND o.BranchId = @BranchId", connection))
-                    {
-                        cmd.Parameters.AddWithValue("@PaymentId", paymentId);
-                        cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
-                        cmd.ExecuteNonQuery();
-                    }
+                    SyncPaymentBranchFromOrder(paymentId, activeBranchId.Value, connection, null);
                 }
             }
             catch { }
+        }
+
+        private void SyncPaymentBranchFromOrder(int paymentId, int branchId, SqlConnection connection, SqlTransaction transaction)
+        {
+            try
+            {
+                using (var cmd = new SqlCommand(@"
+                    UPDATE p
+                    SET p.BranchId = o.BranchId
+                    FROM dbo.Payments p
+                    INNER JOIN dbo.Orders o ON p.OrderId = o.Id
+                    WHERE p.Id = @PaymentId AND o.BranchId = @BranchId", connection, transaction))
+                {
+                    cmd.Parameters.AddWithValue("@PaymentId", paymentId);
+                    cmd.Parameters.AddWithValue("@BranchId", branchId);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            catch { }
+        }
+
+        private void QueueSplitPaymentPostProcessing(int orderId, string orderNumber, int itemCount, decimal totalAmount, int? userId, string userName, string ipAddress)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await SendAutoBillEmailAsync(orderId, releaseTablesFirst: false);
+                }
+                catch (Exception emailEx)
+                {
+                    _logger?.LogError(emailEx, "Failed to send auto bill email for split payment order {OrderId}", orderId);
+                }
+
+                if (!userId.HasValue || userId.Value <= 0)
+                {
+                    return;
+                }
+
+                try
+                {
+                    await AuditTrailController.LogAuditAsync(
+                        _connectionString,
+                        orderId,
+                        orderNumber ?? string.Empty,
+                        "Add",
+                        "Payment",
+                        null,
+                        "Amount",
+                        null,
+                        $"₹{totalAmount:F2} (Split)",
+                        userId.Value,
+                        string.IsNullOrWhiteSpace(userName) ? "System" : userName,
+                        ipAddress,
+                        null,
+                        $"Split payment - {itemCount} payment(s) processed");
+                }
+                catch (Exception auditEx)
+                {
+                    _logger?.LogError(auditEx, "Failed to write split payment audit log for order {OrderId}", orderId);
+                }
+            });
         }
 
         private void SyncSplitBillBranchFromOrder(int splitBillId, int orderId)
@@ -1888,6 +1940,9 @@ END", connection))
                     return RedirectToAction("ProcessPayment", new { orderId = model.OrderId });
                 }
 
+                var activeBranchId = GetActiveBranchId();
+                bool syncPaymentBranch = activeBranchId.HasValue && HasColumn("Payments", "BranchId") && HasColumn("Orders", "BranchId");
+
                 // Pre-update Orders for discount, GST, Total if discount applied (same logic as single flow)
                 // NOTE: Discount may already be persisted via ApplyDiscount endpoint - avoid double-application
                 if (discountAmount > 0)
@@ -2042,7 +2097,10 @@ END", connection))
                                         throw new Exception(string.IsNullOrWhiteSpace(message) ? "Failed to process one of the split payments." : message);
                                     }
 
-                                    SyncPaymentBranchFromOrder(paymentId);
+                                    if (syncPaymentBranch)
+                                    {
+                                        SyncPaymentBranchFromOrder(paymentId, activeBranchId.Value, connection, tx);
+                                    }
 
                                     // Apply approval status if needed
                                     if (needsApproval && paymentStatus == 1)
@@ -2109,6 +2167,8 @@ END", connection))
                                 }
                             }
 
+                            await ReleaseCompletedDineInTablesIfConfiguredAsync(model.OrderId, connection);
+
                             tx.Commit();
                             _logger?.LogInformation("Split payments transaction committed successfully for Order {OrderId}", model.OrderId);
                         }
@@ -2119,47 +2179,27 @@ END", connection))
                             throw;
                         }
                     }
-                    
-                    // Auto-send bill email if order was completed (after transaction commit)
-                    try
-                    {
-                        using (var emailConn = new SqlConnection(_connectionString))
-                        {
-                            await emailConn.OpenAsync();
-                            await SendAutoBillEmailAsync(model.OrderId, emailConn);
-                        }
-                    }
-                    catch (Exception emailEx)
-                    {
-                        _logger?.LogError(emailEx, "Failed to send auto bill email for split payment order {OrderId}", model.OrderId);
-                        // Don't break the payment flow if email fails
-                    }
                 }
 
-                // Log audit trail for split payments
-                try
+                int? auditUserId = null;
+                if (int.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var parsedUserId))
                 {
-                    var userId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "0");
-                    var userName = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "System";
-                    var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                    string orderNumber = string.Empty;
-                    using (var conn = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
-                    {
-                        conn.Open();
-                        using (var orderCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT OrderNumber FROM Orders WHERE Id = @OrderId", conn))
-                        {
-                            orderCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
-                            var result = orderCmd.ExecuteScalar();
-                            if (result != null) orderNumber = result.ToString() ?? string.Empty;
-                        }
-                    }
-                    
-                    var totalAmount = model.Items.Sum(i => i.Amount + i.TipAmount);
-                    await AuditTrailController.LogAuditAsync(_connectionString, model.OrderId, orderNumber, "Add", "Payment",
-                        null, "Amount", null, $"₹{totalAmount:F2} (Split)", userId, userName, ipAddress, null,
-                        $"Split payment - {model.Items.Count} payment(s) processed");
+                    auditUserId = parsedUserId;
                 }
-                catch { /* Audit logging should not break the main flow */ }
+
+                var auditUserName = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "System";
+                var auditIpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var orderNumber = model.OrderNumber ?? string.Empty;
+                var totalAmount = model.Items.Sum(i => i.Amount + i.TipAmount);
+
+                QueueSplitPaymentPostProcessing(
+                    model.OrderId,
+                    orderNumber,
+                    model.Items.Count,
+                    totalAmount,
+                    auditUserId,
+                    auditUserName,
+                    auditIpAddress);
 
                 TempData["SuccessMessage"] = "Split payments processed successfully.";
                 _logger?.LogInformation("Split payments completed successfully for Order {OrderId}, redirecting to Index", model.OrderId);
@@ -6838,14 +6878,14 @@ END", connection))
         }
 
         // Overload for use from Index page (creates its own connection)
-        private async Task SendAutoBillEmailAsync(int orderId)
+        private async Task SendAutoBillEmailAsync(int orderId, bool releaseTablesFirst = true)
         {
             try
             {
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
-                    await SendAutoBillEmailAsync(orderId, connection);
+                    await SendAutoBillEmailAsync(orderId, connection, releaseTablesFirst);
                 }
             }
             catch (Exception ex)
@@ -6855,11 +6895,14 @@ END", connection))
         }
 
         // Original overload for use within payment processing (uses existing connection)
-        private async Task SendAutoBillEmailAsync(int orderId, SqlConnection connection)
+        private async Task SendAutoBillEmailAsync(int orderId, SqlConnection connection, bool releaseTablesFirst = true)
         {
             try
             {
-                await ReleaseCompletedDineInTablesIfConfiguredAsync(orderId, connection);
+                if (releaseTablesFirst)
+                {
+                    await ReleaseCompletedDineInTablesIfConfiguredAsync(orderId, connection);
+                }
 
                 _logger?.LogInformation("Auto bill email: Checking if enabled for order {OrderId}", orderId);
                 

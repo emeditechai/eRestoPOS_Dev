@@ -2255,7 +2255,7 @@
     </script>
     <script>
         // Session timeout handling:
-        // - Pure client-side idle timer: 10 minutes of no user activity → logout
+        // - Pure client-side idle timer: 2 hours of no user activity → logout
         // - Activity events (mousemove, click, keydown, touchstart, scroll) reset the timer
         // - On timeout, immediately redirect to SessionTimeoutLogout
         (function () {
@@ -2264,7 +2264,7 @@
                 return;
             }
 
-            const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+            const IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
             let idleTimer = null;
             let isRedirecting = false;
 
