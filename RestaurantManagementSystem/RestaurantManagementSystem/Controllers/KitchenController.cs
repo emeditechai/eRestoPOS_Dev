@@ -145,11 +145,22 @@ namespace RestaurantManagementSystem.Controllers
                 // Get all kitchen stations for the filter
                 viewModel.Filter.Stations = GetKitchenStations(connection);
                 
-                // Get tickets based on filter
+                // Get tickets based on filter (respects date range, station, status)
                 viewModel.Tickets = GetFilteredTickets(connection, filter, activeBranchId.Value);
                 
-                // Get dashboard statistics
-                viewModel.Stats = GetKitchenStats(connection, filter.StationId, activeBranchId.Value);
+                // Compute stats directly from the filtered tickets so cards always match what's shown
+                viewModel.Stats = new KitchenDashboardStats
+                {
+                    NewTicketsCount        = viewModel.Tickets.Count(t => t.Status == 0),
+                    InProgressTicketsCount = viewModel.Tickets.Count(t => t.Status == 1),
+                    ReadyTicketsCount      = viewModel.Tickets.Count(t => t.Status == 2),
+                    PendingItemsCount      = 0,
+                    AvgPrepTimeMinutes     = viewModel.Tickets
+                        .Where(t => t.Status == 3 && t.CompletedAt.HasValue)
+                        .Select(t => (t.CompletedAt!.Value - t.CreatedAt).TotalMinutes)
+                        .DefaultIfEmpty(0)
+                        .Average()
+                };
             }
             
             return View(viewModel);

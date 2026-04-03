@@ -9,7 +9,10 @@
     var opts = $.extend(true, {
       order: [[5, 'desc']],
       pageLength: 25,
-      columnDefs: [{ orderable: false, targets: 7 }]
+      columnDefs: [{ orderable: false, targets: 7 }],
+      language: {
+        emptyTable: 'No tickets found matching the selected filters'
+      }
     }, dataTableOptions || {});
 
     var dt = $(tableSelector).DataTable(opts);

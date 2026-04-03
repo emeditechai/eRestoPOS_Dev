@@ -150,42 +150,33 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @if (Model.Tickets.Any())
-                        {
-                            foreach (var ticket in Model.Tickets)
-                            {
-                                <tr>
-                                    <td>@ticket.TicketNumber</td>
-                                    <td>@ticket.OrderNumber</td>
-                                    <td>@ticket.TableName</td>
-                                    <td>@ticket.StationName</td>
-                                    <td>
-                                        <span class="badge @(ticket.Status == 0 ? "bg-warning text-dark" : 
-                                                          ticket.Status == 1 ? "bg-info" : 
-                                                          ticket.Status == 2 ? "bg-success" : 
-                                                          ticket.Status == 3 ? "bg-secondary" : 
-                                                          "bg-danger")">
-                                            @ticket.StatusDisplay
-                                        </span>
-                                    </td>
-                                    <td>@ticket.CreatedAt.ToString("MM/dd/yyyy HH:mm")</td>
-                                    <td>
-                                        <span class="@(ticket.MinutesSinceCreated > 15 && ticket.Status < 3 ? "text-danger" : "")">
-                                            @ticket.MinutesSinceCreated min
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <a href="@Url.Action("TicketDetails", "Kitchen", new { id = ticket.Id })" class="btn btn-sm btn-primary">
-                                            <i class="fas fa-eye"></i> Details
-                                        </a>
-                                    </td>
-                                </tr>
-                            }
-                        }
-                        else
+                        @foreach (var ticket in Model.Tickets)
                         {
                             <tr>
-                                <td colspan="8" class="text-center">No tickets found matching the selected filters</td>
+                                <td>@ticket.TicketNumber</td>
+                                <td>@ticket.OrderNumber</td>
+                                <td>@ticket.TableName</td>
+                                <td>@ticket.StationName</td>
+                                <td>
+                                    <span class="badge @(ticket.Status == 0 ? "bg-warning text-dark" : 
+                                                      ticket.Status == 1 ? "bg-info" : 
+                                                      ticket.Status == 2 ? "bg-success" : 
+                                                      ticket.Status == 3 ? "bg-secondary" : 
+                                                      "bg-danger")">
+                                        @ticket.StatusDisplay
+                                    </span>
+                                </td>
+                                <td>@ticket.CreatedAt.ToString("MM/dd/yyyy HH:mm")</td>
+                                <td>
+                                    <span class="@(ticket.MinutesSinceCreated > 15 && ticket.Status < 3 ? "text-danger" : "")">
+                                        @ticket.MinutesSinceCreated min
+                                    </span>
+                                </td>
+                                <td>
+                                    <a href="@Url.Action("TicketDetails", "Kitchen", new { id = ticket.Id })" class="btn btn-sm btn-primary">
+                                        <i class="fas fa-eye"></i> Details
+                                    </a>
+                                </td>
                             </tr>
                         }
                     </tbody>
