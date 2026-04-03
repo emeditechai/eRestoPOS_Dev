@@ -79,6 +79,8 @@ namespace RestaurantManagementSystem.ViewModels
         public List<QRCodeItem> QRCodes { get; set; } = new();
         public List<Table> Tables { get; set; } = new();
         public RestaurantInfo RestaurantInfo { get; set; } = new();
+        public List<BranchMaster> Branches { get; set; } = new();
+        public int SelectedBranchId { get; set; }
     }
 
     public class QRCodeItem

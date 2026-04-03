@@ -29,10 +29,12 @@ namespace RestaurantManagementSystem.Controllers
     public class MenuQRController : Controller
     {
         private readonly RestaurantDbContext _context;
+        private readonly string _connectionString;
 
-        public MenuQRController(RestaurantDbContext context)
+        public MenuQRController(RestaurantDbContext context, IConfiguration configuration)
         {
             _context = context;
+            _connectionString = configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
         }
 
         // Public action for displaying menu when QR code is scanned
@@ -181,7 +183,7 @@ namespace RestaurantManagementSystem.Controllers
 
         // Admin action for QR code management
         [Authorize]
-        public async Task<IActionResult> Index()
+        public async Task<IActionResult> Index(int? branchId = null)
         {
             var activeBranchId = User.GetActiveBranchId();
             if (!activeBranchId.HasValue)
@@ -190,10 +192,14 @@ namespace RestaurantManagementSystem.Controllers
                 return RedirectToAction("Index", "Home");
             }
 
+            var selectedBranchId = branchId ?? activeBranchId.Value;
+
             var viewModel = new QRCodeManagementViewModel();
-            viewModel.RestaurantInfo = await GetRestaurantInfoAsync(activeBranchId);
+            viewModel.SelectedBranchId = selectedBranchId;
+            viewModel.Branches = await GetAllBranchesAsync();
+            viewModel.RestaurantInfo = await GetRestaurantInfoAsync(selectedBranchId);
             viewModel.Tables = await _context.Tables
-                .Where(t => t.BranchId == activeBranchId.Value)
+                .Where(t => t.BranchId == selectedBranchId)
                 .OrderBy(t => t.TableName)
                 .ToListAsync();
 
@@ -205,7 +211,7 @@ namespace RestaurantManagementSystem.Controllers
 
         [HttpPost]
         [Authorize]
-        public async Task<IActionResult> GenerateQRCode(QRCodeType codeType, int? tableId = null)
+        public async Task<IActionResult> GenerateQRCode(QRCodeType codeType, int? tableId = null, int? targetBranchId = null)
         {
             try
             {
@@ -215,10 +221,12 @@ namespace RestaurantManagementSystem.Controllers
                     return Json(new { success = false, message = "No active branch selected. Please select a branch first." });
                 }
 
+                var branchIdToUse = targetBranchId ?? activeBranchId.Value;
+
                 var baseUrl = $"{Request.Scheme}://{Request.Host}";
                 string qrUrl;
                 string displayName;
-                var restaurantInfo = await GetRestaurantInfoAsync(activeBranchId);
+                var restaurantInfo = await GetRestaurantInfoAsync(branchIdToUse);
 
                 switch (codeType)
                 {
@@ -228,18 +236,18 @@ namespace RestaurantManagementSystem.Controllers
                             return Json(new { success = false, message = "Table ID is required for table-specific QR codes" });
                         }
                         var table = await _context.Tables
-                            .FirstOrDefaultAsync(t => t.Id == tableId.Value && t.BranchId == activeBranchId.Value);
+                            .FirstOrDefaultAsync(t => t.Id == tableId.Value && t.BranchId == branchIdToUse);
                         if (table == null)
                         {
-                            return Json(new { success = false, message = "Selected table was not found in the active branch." });
+                            return Json(new { success = false, message = "Selected table was not found in the selected branch." });
                         }
 
-                        qrUrl = $"{baseUrl}/MenuQR/Menu?tableId={tableId}&branchId={activeBranchId.Value}";
+                        qrUrl = $"{baseUrl}/MenuQR/Menu?tableId={tableId}&branchId={branchIdToUse}";
                         displayName = $"Table {table?.TableName ?? tableId.ToString()} Menu";
                         break;
                     case QRCodeType.GeneralMenu:
                     default:
-                        qrUrl = $"{baseUrl}/MenuQR/Menu?branchId={activeBranchId.Value}";
+                        qrUrl = $"{baseUrl}/MenuQR/Menu?branchId={branchIdToUse}";
                         displayName = "Restaurant Menu";
                         break;
                 }
@@ -274,7 +282,7 @@ namespace RestaurantManagementSystem.Controllers
 
         [HttpGet]
         [Authorize]
-        public async Task<IActionResult> DownloadQRCode(QRCodeType codeType, int? tableId = null)
+        public async Task<IActionResult> DownloadQRCode(QRCodeType codeType, int? tableId = null, int? targetBranchId = null)
         {
             try
             {
@@ -284,6 +292,8 @@ namespace RestaurantManagementSystem.Controllers
                     TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
                     return RedirectToAction("Index");
                 }
+
+                var branchIdToUse = targetBranchId ?? activeBranchId.Value;
 
                 var baseUrl = $"{Request.Scheme}://{Request.Host}";
                 string qrUrl;
@@ -297,19 +307,19 @@ namespace RestaurantManagementSystem.Controllers
                             return BadRequest("Table ID is required");
                         }
                         var table = await _context.Tables
-                            .FirstOrDefaultAsync(t => t.Id == tableId.Value && t.BranchId == activeBranchId.Value);
+                            .FirstOrDefaultAsync(t => t.Id == tableId.Value && t.BranchId == branchIdToUse);
                         if (table == null)
                         {
-                            TempData["ErrorMessage"] = "Selected table was not found in the active branch.";
+                            TempData["ErrorMessage"] = "Selected table was not found in the selected branch.";
                             return RedirectToAction("Index");
                         }
 
-                        qrUrl = $"{baseUrl}/MenuQR/Menu?tableId={tableId}&branchId={activeBranchId.Value}";
+                        qrUrl = $"{baseUrl}/MenuQR/Menu?tableId={tableId}&branchId={branchIdToUse}";
                         fileName = $"Table_{table?.TableName ?? tableId.ToString()}_QR.png";
                         break;
                     case QRCodeType.GeneralMenu:
                     default:
-                        qrUrl = $"{baseUrl}/MenuQR/Menu?branchId={activeBranchId.Value}";
+                        qrUrl = $"{baseUrl}/MenuQR/Menu?branchId={branchIdToUse}";
                         fileName = "Restaurant_Menu_QR.png";
                         break;
                 }
@@ -332,7 +342,7 @@ namespace RestaurantManagementSystem.Controllers
 
         [HttpPost]
         [Authorize]
-        public async Task<IActionResult> GenerateBulkTableQRCodes()
+        public async Task<IActionResult> GenerateBulkTableQRCodes(int? targetBranchId = null)
         {
             try
             {
@@ -343,8 +353,10 @@ namespace RestaurantManagementSystem.Controllers
                     return RedirectToAction("Index");
                 }
 
+                var branchIdToUse = targetBranchId ?? activeBranchId.Value;
+
                 var tables = await _context.Tables
-                    .Where(t => t.BranchId == activeBranchId.Value)
+                    .Where(t => t.BranchId == branchIdToUse)
                     .OrderBy(t => t.TableName)
                     .ToListAsync();
 
@@ -353,7 +365,7 @@ namespace RestaurantManagementSystem.Controllers
 
                 foreach (var table in tables)
                 {
-                    var qrUrl = $"{baseUrl}/MenuQR/Menu?tableId={table.Id}&branchId={activeBranchId.Value}";
+                    var qrUrl = $"{baseUrl}/MenuQR/Menu?tableId={table.Id}&branchId={branchIdToUse}";
                     
                     var qrGenerator = new QRCodeGenerator();
                     var qrCodeData = qrGenerator.CreateQrCode(qrUrl, QRCodeGenerator.ECCLevel.Q);
@@ -365,13 +377,56 @@ namespace RestaurantManagementSystem.Controllers
 
                 // For now, return success message. In production, you might want to create a ZIP file
                 TempData["SuccessMessage"] = $"Generated QR codes for {tables.Count} tables successfully!";
-                return RedirectToAction("Index");
+                return RedirectToAction("Index", new { branchId = branchIdToUse });
             }
             catch (Exception ex)
             {
                 TempData["ErrorMessage"] = $"Error generating bulk QR codes: {ex.Message}";
                 return RedirectToAction("Index");
             }
+        }
+
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> GetTablesByBranch(int branchId)
+        {
+            var tables = await _context.Tables
+                .Where(t => t.BranchId == branchId)
+                .OrderBy(t => t.TableName)
+                .Select(t => new { t.Id, t.TableName, t.Capacity })
+                .ToListAsync();
+            return Json(tables);
+        }
+
+        private async Task<List<BranchMaster>> GetAllBranchesAsync()
+        {
+            var branches = new List<BranchMaster>();
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+                using (var cmd = new SqlCommand(@"
+                    SELECT BranchId, BranchCode, BranchName, ISNULL(Is_MainBranch,0) AS Is_MainBranch, ISNULL(IsActive,1) AS IsActive
+                    FROM dbo.Branches
+                    WHERE ISNULL(IsActive,1) = 1
+                    ORDER BY BranchName", connection))
+                {
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            branches.Add(new BranchMaster
+                            {
+                                BranchId = reader.GetInt32(0),
+                                BranchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                                BranchName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                                Is_MainBranch = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                                IsActive = !reader.IsDBNull(4) && reader.GetBoolean(4)
+                            });
+                        }
+                    }
+                }
+            }
+            return branches;
         }
 
         private async Task<RestaurantInfo> GetRestaurantInfoAsync(int? branchId)
@@ -440,7 +495,7 @@ namespace RestaurantManagementSystem.Controllers
         private async Task<bool> HasColumnAsync(string tableName, string columnName)
         {
             var count = await _context.Database.SqlQueryRaw<int>(@"
-                SELECT COUNT(*)
+                SELECT COUNT(*) AS Value
                 FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_NAME = {0} AND COLUMN_NAME = {1}
             ", tableName, columnName).FirstOrDefaultAsync();
