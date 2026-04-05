@@ -209,7 +209,7 @@
                             <td class="small text-nowrap">@row.BillNo</td>
                             @if (Model.IsMainBranchAdmin) { <td class="small text-nowrap">@row.BranchName</td> }
                             <td>
-                                @if (row.OrderType == "Bar")
+                                @if (string.Equals(row.OrderType, "BAR", StringComparison.OrdinalIgnoreCase))
                                 { <span class="badge bg-primary">BAR</span> }
                                 else
                                 { <span class="badge bg-secondary">Foods</span> }
