@@ -13,15 +13,35 @@
     };
 }
 
-<div class="container-fluid mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="fas fa-cocktail"></i> BOT Details - @Model.BOT_No</h2>
-        <div>
+<style>
+    /* ===== BOT Details — Mobile & Tablet Responsive ===== */
+    .bot-details-header { flex-wrap: wrap; gap: .5rem; }
+    .bot-details-header .btn-group-actions { display: flex; gap: .5rem; flex-shrink: 0; }
+    @@media (max-width: 575.98px) {
+        .bot-details-header h2 { font-size: 1.2rem; }
+        .bot-details-header .btn { min-height: 42px; }
+        .bot-status-actions .btn { min-height: 44px; font-size: .95rem; }
+        .table-borderless th, .table-borderless td { padding: .35rem .5rem; font-size: .88rem; }
+    }
+    @@media (max-width: 991.98px) {
+        .bot-status-actions .btn { min-height: 44px; }
+        .bot-card-header { font-size: .95rem; }
+    }
+    /* Unified card header colour */
+    .bot-card-header-primary { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
+    .bot-card-header-success { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
+    .bot-card-header-info    { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
+</style>
+
+<div class="container-fluid mt-3 mt-md-4">
+    <div class="d-flex align-items-center mb-3 mb-md-4 bot-details-header">
+        <h2 class="me-auto mb-0"><i class="fas fa-cocktail"></i> BOT Details - @Model.BOT_No</h2>
+        <div class="btn-group-actions">
             <a href="@Url.Action("Dashboard")" class="btn btn-secondary">
-                <i class="fas fa-arrow-left"></i> Back
+                <i class="fas fa-arrow-left"></i> <span class="d-none d-sm-inline">Back</span>
             </a>
             <a href="@Url.Action("Print", new { id = Model.BOT_ID })" class="btn btn-primary" target="_blank">
-                <i class="fas fa-print"></i> Print
+                <i class="fas fa-print"></i> <span class="d-none d-sm-inline">Print</span>
             </a>
         </div>
     </div>
@@ -44,9 +64,9 @@
 
     <div class="row">
         <!-- BOT Header Information -->
-        <div class="col-md-6 mb-4">
-            <div class="card">
-                <div class="card-header bg-primary text-white">
+        <div class="col-md-6 mb-3 mb-md-4">
+            <div class="card h-100">
+                <div class="card-header text-white bot-card-header bot-card-header-primary">
                     <h5 class="mb-0"><i class="fas fa-info-circle"></i> BOT Information</h5>
                 </div>
                 <div class="card-body">
@@ -114,12 +134,12 @@
         </div>
 
         <!-- BOT Amounts -->
-        <div class="col-md-6 mb-4">
-            <div class="card">
-                <div class="card-header bg-success text-white">
+        <div class="col-md-6 mb-3 mb-md-4">
+            <div class="card h-100">
+                <div class="card-header text-white bot-card-header bot-card-header-success">
                     <h5 class="mb-0"><i class="fas fa-rupee-sign"></i> Amount Details</h5>
                 </div>
-                <div class="card-body">
+                <div class="card-body bot-status-actions">
                     <table class="table table-borderless">
                         <tr>
                             <th>Subtotal:</th>
@@ -176,10 +196,11 @@
 
     <!-- BOT Items -->
     <div class="card">
-        <div class="card-header bg-info text-white">
+        <div class="card-header text-white bot-card-header bot-card-header-info">
             <h5 class="mb-0"><i class="fas fa-list"></i> Beverage Items (@Model.Items.Count)</h5>
         </div>
-        <div class="card-body">
+        <div class="card-body p-0">
+            <div class="table-responsive">
             <table class="table table-hover">
                 <thead class="table-dark">
                     <tr>
@@ -246,6 +267,7 @@
                     }
                 </tbody>
             </table>
+            </div>@* end table-responsive *@
         </div>
     </div>
 </div>

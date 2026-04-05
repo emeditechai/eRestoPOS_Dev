@@ -3,15 +3,46 @@
     ViewData["Title"] = "Process Payment";
 }
 
-<div class="container-fluid p-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+<style>
+  /* ===== Process Payment — Mobile & Tablet Responsive ===== */
+  @@media (max-width: 575.98px) {
+    .pp-page { padding: .75rem !important; }
+    .pp-page h1 { font-size: 1.35rem; }
+    .pp-page p.fs-5 { font-size: 1rem !important; }
+    .pp-page .nav-tabs .nav-link { padding: .45rem .7rem; font-size: .88rem; }
+    .pp-page .card-body.p-4 { padding: .875rem !important; }
+    .pp-page .input-group-lg .form-control,
+    .pp-page .input-group-lg .input-group-text,
+    .pp-page .form-select-lg { font-size: 1rem !important; min-height: 44px; }
+    .pp-page .btn-lg.rounded-pill { min-height: 50px; font-size: 1rem; border-radius: .75rem !important; }
+    .pp-page .btn-group .btn { min-height: 42px; }
+    .pp-disc-input { width: 100% !important; max-width: 100% !important; }
+    #splitTable th, #splitTable td { font-size: .75rem; padding: .28rem .3rem; }
+  }
+  @@media (min-width: 576px) and (max-width: 991.98px) {
+    .pp-page .card-body.p-4 { padding: 1.25rem !important; }
+    .pp-disc-input { max-width: 240px !important; }
+  }
+  @@media (max-width: 991.98px) {
+    .pp-page .input-group-lg .form-control,
+    .pp-page .form-select-lg { min-height: 44px; }
+    .pp-page .btn-lg { min-height: 48px; }
+    .pp-page .btn-group .btn { min-height: 40px; }
+  }
+  /* Summary card on top on mobile */
+  @@media (max-width: 991.98px) {
+    .pp-summary-col { margin-bottom: 1rem; }
+  }
+</style>
+<div class="container-fluid p-3 p-md-4 pp-page">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3 mb-md-4">
         <div>
             <h1 class="mb-0 fw-bold">@ViewData["Title"]</h1>
             <p class="text-muted fs-5">Order #@Model.OrderNumber</p>
         </div>
-        <div>
+        <div class="ms-auto">
             <a asp-action="Index" asp-route-id="@Model.OrderId" class="btn btn-outline-secondary rounded-pill px-4">
-                <i class="fas fa-arrow-left me-2"></i> Back to Payment
+                <i class="fas fa-arrow-left me-2"></i> <span class="d-none d-sm-inline">Back to Payment</span><span class="d-inline d-sm-none">Back</span>
             </a>
         </div>
     </div>
@@ -52,7 +83,63 @@
                         <input type="hidden" id="SingleGrossItemTotal" value="@Model.GrossItemTotal" />
 
                         <div class="row g-4">
-                            <div class="col-lg-8">
+                            <div class="col-12 col-lg-4 order-0 order-lg-1 pp-summary-col">
+                                <!-- Payment Summary Card -->
+                                <div class="card mb-4 bg-light rounded-3">
+                                    <div class="card-body p-3">
+                                        <div class="row align-items-center">
+                                            <div class="col-12">
+                                                <div class="d-flex align-items-center">
+                                                    <div class="me-3">
+                                                        <i class="fas fa-receipt fa-2x text-primary opacity-50"></i>
+                                                    </div>
+                                                    <div>
+                                                        <h6 class="mb-0 text-muted">Order Total</h6>
+                                                        <h4 class="mb-0 fw-bold text-primary">₹<span id="orderTotalDisplay">@Model.TotalAmount.ToString("F2")</span></h4>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-12 mt-3">
+                                                <div class="d-flex align-items-center">
+                                                    <div class="me-3">
+                                                        <i class="fas fa-wallet fa-2x text-success opacity-50"></i>
+                                                    </div>
+                                                    <div>
+                                                        <h6 class="mb-0 text-muted">Remaining Balance</h6>
+                                                        <h4 class="mb-0 fw-bold @(Model.RemainingAmount > 0 ? "text-success" : "text-muted")">₹<span id="remainingBalanceDisplay">@Model.RemainingAmount.ToString("F2")</span></h4>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Payment Summary -->
+                                <div class="card border-primary mb-4">
+                                    <div class="card-header bg-primary text-white py-2">
+                                        <h5 class="mb-0">Payment Summary</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row mb-2">
+                                            <div class="col-6">Payment Amount:</div>
+                                            <div class="col-6 text-end fw-bold">₹<span id="summaryAmount">0.00</span></div>
+                                        </div>
+                                        <div class="row mb-2">
+                                            <div class="col-6">Discount:</div>
+                                            <div class="col-6 text-end text-danger">-₹<span id="summaryDiscount">0.00</span></div>
+                                        </div>
+                                        <div class="row mb-2">
+                                            <div class="col-6">Roundoff Adjustment:</div>
+                                            <div class="col-6 text-end">₹<span id="summaryRoundoff">0.00</span></div>
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-6"><strong>Total to Process:</strong></div>
+                                            <div class="col-6 text-end"><strong>₹<span id="summaryTotal">0.00</span></strong></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-8 order-1 order-lg-0">
                         
                         <!-- Payment Method Section -->
                         <h5 class="mb-3 mt-2 fw-semibold">1. Select Payment Method</h5>
@@ -89,7 +176,7 @@
                                     <input type="radio" class="btn-check" name="discountMode" id="discountModePercent" value="percent">
                                     <label class="btn btn-outline-secondary" for="discountModePercent">Percent</label>
                                 </div>
-                                <div class="input-group input-group-lg" style="max-width:320px;">
+                                <div class="input-group input-group-lg pp-disc-input" style="max-width:320px;">
                                     <span id="discountPrefix" class="input-group-text bg-light fw-bold">₹</span>
                                     <input type="number" min="0" step="0.01" id="discountEntry" class="form-control form-control-lg shadow-sm" placeholder="Enter discount" value="@(Model.DiscountAmount > 0 ? Model.DiscountAmount.ToString("F2") : "")" />
                                 </div>
@@ -187,62 +274,6 @@
                         </div>
 
                             </div>
-                            <div class="col-lg-4">
-                                <!-- Payment Summary Card -->
-                                <div class="card mb-4 bg-light rounded-3">
-                                    <div class="card-body p-3">
-                                        <div class="row align-items-center">
-                                            <div class="col-12">
-                                                <div class="d-flex align-items-center">
-                                                    <div class="me-3">
-                                                        <i class="fas fa-receipt fa-2x text-primary opacity-50"></i>
-                                                    </div>
-                                                    <div>
-                                                        <h6 class="mb-0 text-muted">Order Total</h6>
-                                                        <h4 class="mb-0 fw-bold text-primary">₹<span id="orderTotalDisplay">@Model.TotalAmount.ToString("F2")</span></h4>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div class="col-12 mt-3">
-                                                <div class="d-flex align-items-center">
-                                                    <div class="me-3">
-                                                        <i class="fas fa-wallet fa-2x text-success opacity-50"></i>
-                                                    </div>
-                                                    <div>
-                                                        <h6 class="mb-0 text-muted">Remaining Balance</h6>
-                                                        <h4 class="mb-0 fw-bold @(Model.RemainingAmount > 0 ? "text-success" : "text-muted")">₹<span id="remainingBalanceDisplay">@Model.RemainingAmount.ToString("F2")</span></h4>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Payment Summary -->
-                                <div class="card border-primary mb-4">
-                                    <div class="card-header bg-primary text-white py-2">
-                                        <h5 class="mb-0">Payment Summary</h5>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="row mb-2">
-                                            <div class="col-6">Payment Amount:</div>
-                                            <div class="col-6 text-end fw-bold">₹<span id="summaryAmount">0.00</span></div>
-                                        </div>
-                                        <div class="row mb-2">
-                                            <div class="col-6">Discount:</div>
-                                            <div class="col-6 text-end text-danger">-₹<span id="summaryDiscount">0.00</span></div>
-                                        </div>
-                                        <div class="row mb-2">
-                                            <div class="col-6">Roundoff Adjustment:</div>
-                                            <div class="col-6 text-end">₹<span id="summaryRoundoff">0.00</span></div>
-                                        </div>
-                                        <div class="row">
-                                            <div class="col-6"><strong>Total to Process:</strong></div>
-                                            <div class="col-6 text-end"><strong>₹<span id="summaryTotal">0.00</span></strong></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                             </form>
                         </div>
@@ -267,7 +298,23 @@
                                 <input type="hidden" id="GrossItemTotal" value="@Model.GrossItemTotal" />
 
                                 <div class="row g-4">
-                                    <div class="col-lg-8">
+                                    <div class="col-12 col-lg-4 order-0 order-lg-1 pp-summary-col">
+                                        <!-- Summary -->
+                                        <div class="card mb-3 bg-light">
+                                            <div class="card-body p-3">
+                                                <div class="text-muted">Order Total</div>
+                                                <div class="h5 fw-bold">₹@Model.TotalAmount.ToString("F2")</div>
+
+                                                <div class="mt-3 text-muted">Target to Collect (rounded)</div>
+                                                <div class="h5 fw-bold text-success">₹<span id="splitRemainingDisplay">@Model.RemainingAmount.ToString("F2")</span></div>
+
+                                                <div class="d-grid mt-3">
+                                                    <button type="button" class="btn btn-outline-primary" id="addSplitRow"><i class="fas fa-plus"></i> Add Payment Line</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-lg-8 order-1 order-lg-0">
 
                                 <!-- Discount on order (optional) -->
                                 <h5 class="mb-3 fw-semibold">Discount (Optional)</h5>
@@ -286,7 +333,7 @@
                                         <input type="radio" class="btn-check" name="DiscountType" id="splitDiscPercent" value="percent">
                                         <label class="btn btn-outline-secondary" for="splitDiscPercent">Percent</label>
                                     </div>
-                                    <div class="input-group input-group-lg" style="max-width:320px;">
+                                    <div class="input-group input-group-lg pp-disc-input" style="max-width:320px;">
                                         <span id="splitDiscountPrefix" class="input-group-text bg-light fw-bold">₹</span>
                                         <input type="number" min="0" step="0.01" name="DiscountAmount" id="splitDiscountEntry" class="form-control form-control-lg shadow-sm" placeholder="Enter discount" value="@(Model.DiscountAmount > 0 ? Model.DiscountAmount.ToString("F2") : "")" />
                                     </div>
@@ -325,22 +372,6 @@
                                 </div>
 
                                     </div>
-                                    <div class="col-lg-4">
-                                        <!-- Summary -->
-                                        <div class="card mb-3 bg-light">
-                                            <div class="card-body p-3">
-                                                <div class="text-muted">Order Total</div>
-                                                <div class="h5 fw-bold">₹@Model.TotalAmount.ToString("F2")</div>
-
-                                                <div class="mt-3 text-muted">Target to Collect (rounded)</div>
-                                                <div class="h5 fw-bold text-success">₹<span id="splitRemainingDisplay">@Model.RemainingAmount.ToString("F2")</span></div>
-
-                                                <div class="d-grid mt-3">
-                                                    <button type="button" class="btn btn-outline-primary" id="addSplitRow"><i class="fas fa-plus"></i> Add Payment Line</button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
                                 </div>
                             </form>
                         </div>
@@ -355,6 +386,12 @@
     <partial name="_ValidationScriptsPartial" />
     
     <script>
+        // Lightweight debounce — prevents burst calls on fast typing
+        function debounce(fn, ms) {
+            var t;
+            return function() { var args = arguments, ctx = this; clearTimeout(t); t = setTimeout(function(){ fn.apply(ctx, args); }, ms); };
+        }
+
         $(document).ready(function() {
             // --- Split payments UI ---
             const paymentMethods = @Html.Raw(Newtonsoft.Json.JsonConvert.SerializeObject(Model.AvailablePaymentMethods.Select(m => new { value = m.Value, text = m.Text })));
@@ -521,7 +558,7 @@
                 if ($('#splitDiscPercent').is(':checked')) $('#splitDiscountPrefix').text('%'); else $('#splitDiscountPrefix').text('₹');
                 rebalanceRows();
             });
-            $('#splitDiscountEntry').on('input', function(){ rebalanceRows(); });
+            $('#splitDiscountEntry').on('input', debounce(rebalanceRows, 120));
 
             // Initialize with one row and auto amount on first load of split tab
             setTimeout(function(){
@@ -534,116 +571,62 @@
             }, 0);
 
             // Update payment summary when page loads
-            // If server provided a pending discount (from Payment page), seed the entry field
             var initialServerDiscount = parseFloat($('#DiscountAmount').val()) || 0;
             if ((($('#discountEntry').val() || '').trim() === '') && initialServerDiscount > 0) {
                 $('#discountEntry').val(initialServerDiscount.toFixed(2));
             }
-            // Initial computations
-            updatePaymentSummary();
-            // Ensure split header target reflects same calculation at load as single tab
-            if ($('#splitPane').length) { setTimeout(function(){ if (typeof computeSplitTarget === 'function') computeSplitTarget(); }, 0); }
+            // Initial computations (run once, synchronously)
+            recalcDiscountAndAmount();
+            computeSplitTarget();
             
             // Show/hide card payment fields & UPI reference based on payment method
+            // No AJAX — determined synchronously by method name for instant response
             $('#paymentMethodSelect').change(function() {
                 var selectedOption = $(this).find('option:selected');
-                var requiresCardInfo = false;
                 var text = selectedOption.text().toLowerCase();
-                
-                // Update card type icon
-                if ($(this).val()) {
-                    $('.payment-icon').addClass('text-primary');
-                } else {
-                    $('.payment-icon').removeClass('text-primary');
-                }
                 
                 // Handle Complementary payment method (automatic 100% discount)
                 if (text.includes('complementary')) {
-                    // Select percent mode and set to 100%
                     $('#discountModePercent').prop('checked', true);
                     $('#discountPrefix').text('%');
                     $('#discountEntry').val('100');
-                    
-                    // Force recalculation of discount and amount
                     recalcDiscountAndAmount();
-                    
-                    // Hide card fields
                     $('#cardPaymentFields').hide();
                     $('#upiReferenceWrapper').hide();
                     $('#UPIReference').val('');
-                    
-                    return; // Skip the AJAX call
+                    return;
                 }
                 
-                // Handle UPI reference field
+                // UPI reference field
                 if (text.includes('upi')) {
-                    $('#upiReferenceWrapper').slideDown(200);
+                    $('#upiReferenceWrapper').show();
                 } else {
-                    $('#upiReferenceWrapper').slideUp(200);
+                    $('#upiReferenceWrapper').hide();
                     $('#UPIReference').val('');
                 }
                 
-                // Immediately show card fields for card payments without waiting for AJAX
-                var paymentMethodText = selectedOption.text().toLowerCase();
-                if (paymentMethodText.includes('card') || paymentMethodText.includes('credit') || paymentMethodText.includes('debit')) {
-                    $('#cardPaymentFields').show(); // Show immediately
-                    
-                    // Still make the AJAX call to get additional details, but don't wait for it to show the fields
-                    $.ajax({
-                        url: '/Payment/GetPaymentMethodDetails',
-                        type: 'GET',
-                        data: { id: $(this).val() },
-                        success: function(data) {
-                            // Update card icons based on card type if available
-                            if (data && data.cardTypes) {
-                                highlightCardIcons(data.cardTypes);
-                            }
-                        }
-                    });
+                // Card fields: show/hide instantly based on method name
+                if (text.includes('card') || text.includes('credit') || text.includes('debit')) {
+                    $('#cardPaymentFields').show();
                 } else {
-                    // For non-card methods, hide card fields
                     $('#cardPaymentFields').hide();
-                    // Clear any client-side validation state when card fields are hidden
                     $('#cardTypeSelect, #LastFourDigits').removeClass('is-invalid');
                     $('#cardTypeFeedback').text('').hide();
                     $('#last4Feedback').text('').hide();
-                    
-                    // Only make AJAX call if not a card and not complementary
-                    $.ajax({
-                        url: '/Payment/GetPaymentMethodDetails',
-                        type: 'GET',
-                        data: { id: $(this).val() },
-                        success: function(data) {
-                            // In case the API indicates it requires card info
-                            if (data && data.requiresCardInfo) {
-                                $('#cardPaymentFields').show();
-                                
-                                // Update card icons based on card type if available
-                                if (data.cardTypes) {
-                                    highlightCardIcons(data.cardTypes);
-                                }
-                            }
-                        }
-                    });
                 }
             });
             
-            // Update payment summary when amount or discount changes
-            $('#Amount, #DiscountAmount').on('input', function() {
-                updatePaymentSummary();
-            });
-            
-            // Track original remaining and paid; we'll recompute remaining after discount using the same
-            // rounding rules as the Payment page (subtotal -> discount -> GST -> tip -> round to whole rupee)
+            // Track original remaining and paid
             var originalRemaining = parseFloat('@Model.RemainingAmount');
             var modelOrderTotal = parseFloat('@Model.TotalAmount');
             var alreadyPaid = Math.max(0, +(modelOrderTotal - originalRemaining));
             var manualAmountOverride = false;
 
-            $('#Amount').on('input', function(){
+            // Amount: manual override flag + summary update (debounced)
+            $('#Amount').on('input', debounce(function(){
                 manualAmountOverride = true;
                 updatePaymentSummary();
-            });
+            }, 120));
 
             // Consistent rounding helpers (match Payment/Index page)
             function roundMoney(val) { return Math.round((val + (val >= 0 ? 0.0000001 : -0.0000001)) * 100) / 100; }
@@ -733,7 +716,7 @@
                 updatePaymentSummary();
             }
 
-            $('#discountEntry').on('input', recalcDiscountAndAmount);
+            $('#discountEntry').on('input', debounce(recalcDiscountAndAmount, 120));
             $('input[name=discountMode]').change(function(){
                 manualAmountOverride = false; // reset override on mode change
                 if ($(this).val() === 'percent') {

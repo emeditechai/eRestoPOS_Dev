@@ -61,12 +61,7 @@
       color: #003d82;
       font-weight: 600;
     }
-    /* Colorful Order Summary styling */
-    .order-summary-card .card-header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      font-weight: 600;
-    }
+    /* Order Summary header colour is handled by .sidebar-card-header below */
     .order-summary-card .card-body {
       background: linear-gradient(to bottom, #f8f9ff 0%, #ffffff 100%);
     }
@@ -116,6 +111,13 @@
       white-space: nowrap;
     }
     #orderPrimaryActions #orderSaveState { white-space: nowrap; }
+
+    /* Consistent sidebar card header colour */
+    .sidebar-card-header {
+      background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
+      color: white;
+      font-weight: 600;
+    }
   </style>
 }
 @{
@@ -132,6 +134,68 @@
   var hasPendingToFire = Model.Items != null && Model.Items.Any(i => i.Status == 0);
   var kotBadgeText = isBarOrder ? "BOT" : "KOT";
 }
+<style>
+  /* ===== Order Details — Mobile & Tablet Responsive ===== */
+  /* Touch-friendly base (phones + tablets up to 991px) */
+  @@media (max-width: 991.98px) {
+    .col-lg-4 .sticky-top { position: static !important; }
+    .form-control-sm.item-note, .form-control-sm.item-qty { min-height: 38px; font-size: .9rem; }
+    #addItemBtn { min-height: 38px; }
+    #orderItemsTable td, #orderItemsTable th { font-size: .82rem; }
+    .col-lg-8 .card-header.py-2 { padding-top: .35rem !important; padding-bottom: .35rem !important; }
+    .row.g-3 { --bs-gutter-x: .75rem; --bs-gutter-y: .75rem; }
+  }
+  /* Small phones (< 576px) */
+  @@media (max-width: 575.98px) {
+    #orderDetailsApp { padding-left: .25rem; padding-right: .25rem; padding-top: .5rem; }
+    #orderItemAddForm {
+      display: grid !important;
+      grid-template-columns: 1fr auto;
+      grid-template-rows: auto auto;
+      gap: .4rem;
+      width: 100%;
+    }
+    #orderItemAddForm input[type="hidden"] { display: none; }
+    #orderItemAddForm > .col, #orderItemAddForm > div.col { min-width: 0 !important; width: auto !important; }
+    #orderItemAddForm > .col:has(#menuItemGroupSelect) { grid-column: 1; grid-row: 1; }
+    #orderItemAddForm > .col:has(#menuItemQty)          { grid-column: 2; grid-row: 1; }
+    #orderItemAddForm > .col:has(#menuItemInput)         { grid-column: 1; grid-row: 2; }
+    #orderItemAddForm > .col:has(#addItemBtn)            { grid-column: 2; grid-row: 2; }
+    #menuItemGroupSelect, #menuItemInput { min-width: 0 !important; width: 100%; font-size: .9rem; }
+    #menuItemQty { width: 68px; }
+    #orderItemAddForm .form-label { font-size: .78rem; margin-bottom: .15rem; }
+    #orderItemAddForm .form-label .badge { display: none !important; }
+    #orderPrimaryActions {
+      width: 100%;
+      margin-left: 0 !important;
+      justify-content: flex-start !important;
+      flex-wrap: wrap;
+      gap: .3rem !important;
+      margin-top: .3rem;
+    }
+    #orderPrimaryActions .btn-sm { padding: .3rem .55rem; font-size: .78rem; }
+    #orderPrimaryActions .badge  { display: none !important; }
+    #orderPrimaryActions .action-meta { display: none !important; }
+    .col-lg-8 .card-header .small { font-size: .72rem; }
+    #orderItemsTable thead tr th:nth-child(4),
+    #orderItemsTable tbody tr td:nth-child(4) { display: none; }
+    #orderItemsTable tfoot td { font-size: .8rem; padding: .25rem .4rem; }
+    #mobileStickyTotals { padding: .4rem .75rem; box-shadow: 0 -2px 8px rgba(0,0,0,.08); }
+    .order-summary-card .card-body { padding: .5rem .75rem; }
+    .order-summary-card dl.row dt,
+    .order-summary-card dl.row dd { padding-top: .15rem; padding-bottom: .15rem; font-size: .82rem; }
+    .d-flex.flex-wrap.align-items-center.gap-2.mb-2 { gap: .35rem !important; }
+  }
+  /* Tablets — 576–991px */
+  @@media (min-width: 576px) and (max-width: 991.98px) {
+    #menuItemGroupSelect { min-width: 120px !important; max-width: 160px; }
+    #menuItemInput { min-width: 140px !important; }
+    #orderPrimaryActions .badge,
+    #orderItemAddForm .form-label .badge { display: none !important; }
+    #orderPrimaryActions .btn-sm { padding: .3rem .55rem; font-size: .8rem; }
+    #orderPrimaryActions .action-meta { font-size: .78rem; }
+  }
+</style>
 <div class="container-fluid py-3 position-relative" id="orderDetailsApp" data-order-id="@Model.Id" data-is-fully-paid="@isFullyPaid.ToString().ToLower()"  data-is-bar-order="@isBarOrder.ToString().ToLower()">
   @if (isFullyPaid)
   {
@@ -325,7 +389,13 @@
     <div class="col-lg-4 col-12">
       <div class="sticky-top" style="top:1rem;">
         <div class="card mb-3 shadow-sm order-summary-card">
-          <div class="card-header py-2"><i class="fas fa-info-circle me-1"></i> Order Summary</div>
+          <div class="card-header py-2 d-flex justify-content-between align-items-center sidebar-card-header">
+            <span><i class="fas fa-info-circle me-1"></i> Order Summary</span>
+            <button class="btn btn-sm p-0 d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#orderSummaryBody" aria-expanded="false" aria-controls="orderSummaryBody" style="color:inherit; line-height:1;">
+              <i class="fas fa-chevron-down" id="summaryChevron" style="font-size:.8rem; transition:transform .2s;"></i>
+            </button>
+          </div>
+          <div class="collapse d-lg-block" id="orderSummaryBody">
           <div class="card-body small">
             <div class="d-flex flex-wrap gap-2 mb-2">
               <span class="badge @paymentBadgeClass">@paymentBadgeText</span>
@@ -359,17 +429,18 @@
               <dt class="col-5">Last Updated</dt><dd class="col-7">@Model.UpdatedAt.ToString("g")</dd>
             </dl>
           </div>
+          </div>@* end #orderSummaryBody collapse *@
         </div>
-        <div class="card mb-3 shadow-sm" style="border-left: 4px solid #10b981;">
-          <div class="card-header py-2" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;"><i class="fas fa-sticky-note me-1"></i> Order Note</div>
+        <div class="card mb-3 shadow-sm">
+          <div class="card-header py-2 sidebar-card-header"><i class="fas fa-sticky-note me-1"></i> Order Note</div>
           <div class="card-body small">
             @if(!string.IsNullOrWhiteSpace(Model.SpecialInstructions)){
               <div class="text-muted">@Model.SpecialInstructions</div>
             } else { <div class="text-muted fst-italic">No note provided.</div> }
           </div>
         </div>
-        <div class="card shadow-sm" style="border-left: 4px solid #f59e0b;">
-          <div class="card-header py-2" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white;"><i class="fas fa-receipt me-1"></i> Totals</div>
+        <div class="card shadow-sm">
+          <div class="card-header py-2 sidebar-card-header"><i class="fas fa-receipt me-1"></i> Totals</div>
           <div class="card-body p-2">
             <table class="table table-sm mb-0">
               <tbody class="small">
@@ -388,9 +459,15 @@
   </div>
 
   <div id="mobileStickyTotals" class="d-lg-none">
-    <div class="d-flex justify-content-between align-items-center">
-      <div class="small text-muted">Subtotal: <span class="fw-semibold" id="orderSubtotalCellMobile">₹@Model.Subtotal.ToString("F2")</span></div>
-      <div class="small">Total: <span class="fw-bold" id="orderTotalCellMobile">₹@Model.TotalAmount.ToString("F2")</span></div>
+    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+      <div class="d-flex gap-3">
+        <div class="small text-muted">Sub: <span class="fw-semibold" id="orderSubtotalCellMobile">₹@Model.Subtotal.ToString("F2")</span></div>
+        <div class="small text-muted">GST: <span class="fw-semibold text-secondary">₹@Model.TaxAmount.ToString("F2")</span></div>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge @paymentBadgeClass" style="font-size:.72rem;">@paymentBadgeText</span>
+        <div class="small fw-bold">Total: <span id="orderTotalCellMobile">₹@Model.TotalAmount.ToString("F2")</span></div>
+      </div>
     </div>
   </div>
   @if (Model.Items.Any(i=>i.Status==0))
@@ -714,6 +791,19 @@
         // Don't load on initial page load - server-side rendering already provides correct prices
         // Only reload when user changes the group selection
       }
+    })();
+
+    // Mobile: rotate chevron on Order Summary collapse toggle
+    (function() {
+      var collapseEl = document.getElementById('orderSummaryBody');
+      var chevron = document.getElementById('summaryChevron');
+      if (!collapseEl || !chevron) return;
+      collapseEl.addEventListener('show.bs.collapse', function() {
+        chevron.style.transform = 'rotate(180deg)';
+      });
+      collapseEl.addEventListener('hide.bs.collapse', function() {
+        chevron.style.transform = 'rotate(0deg)';
+      });
     })();
   </script>
 }

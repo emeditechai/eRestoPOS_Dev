@@ -26,16 +26,20 @@ BEGIN
         o.Id AS OrderId,
         o.OrderNumber,
         MIN(p.CreatedAt) AS PaymentDate,
-        -- Sum amounts across all payment lines for this order
-        SUM(p.Amount_ExclGST) - SUM(ISNULL(p.DiscAmount,0)) AS TaxableValue,
-        SUM(ISNULL(p.DiscAmount,0)) AS DiscountAmount,
-        -- Use MAX for percentages (should be same across all lines for an order)
+        -- Use Orders table as the authoritative source for financial amounts.
+        -- This correctly handles BAR inclusive-GST orders (where Orders.Subtotal is the
+        -- after-discount taxable base and Orders.TaxAmount is the exact GST charged),
+        -- as well as regular exclusive-GST orders. Stored Payments.CGSTAmount /
+        -- Payments.SGSTAmount can be wrong due to the double-discount bug for BAR orders.
+        ISNULL(MIN(o.Subtotal), 0) AS TaxableValue,
+        ISNULL(MIN(o.DiscountAmount), 0) AS DiscountAmount,
+        -- Percentages are stored correctly in Payments rows
         MAX(ISNULL(p.CGST_Perc,0)) AS CGSTPerc,
-        SUM(ISNULL(p.CGSTAmount,0)) AS CGSTAmount,
+        ROUND(ISNULL(MIN(o.TaxAmount), 0) / 2.0, 2) AS CGSTAmount,
         MAX(ISNULL(p.SGST_Perc,0)) AS SGSTPerc,
-        SUM(ISNULL(p.SGSTAmount,0)) AS SGSTAmount,
-        SUM(ISNULL(p.CGSTAmount,0)) + SUM(ISNULL(p.SGSTAmount,0)) AS TotalGST,
-        SUM(p.Amount_ExclGST) - SUM(ISNULL(p.DiscAmount,0)) + (SUM(ISNULL(p.CGSTAmount,0)) + SUM(ISNULL(p.SGSTAmount,0))) AS InvoiceTotal
+        ISNULL(MIN(o.TaxAmount), 0) - ROUND(ISNULL(MIN(o.TaxAmount), 0) / 2.0, 2) AS SGSTAmount,
+        ISNULL(MIN(o.TaxAmount), 0) AS TotalGST,
+        ISNULL(MIN(o.Subtotal), 0) + ISNULL(MIN(o.TaxAmount), 0) AS InvoiceTotal
     INTO #OrderGST
     FROM Orders o
     INNER JOIN Payments p ON o.Id = p.OrderId

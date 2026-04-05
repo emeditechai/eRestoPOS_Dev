@@ -142,8 +142,13 @@
                                     </div>
                             @if (Model.DiscountAmount > 0)
                             {
+                                // Show percentage next to discount label (derived from gross item total)
+                                decimal discPct = Model.GrossItemTotal > 0
+                                    ? Math.Round(Model.DiscountAmount / Model.GrossItemTotal * 100, 2)
+                                    : 0m;
+                                string discLabel = discPct > 0 ? $"Discount ({discPct:F2}%)" : "Discount";
                                 <div class="row mb-2">
-                                    <div class="col-6 text-end">Discount:</div>
+                                    <div class="col-6 text-end">@discLabel:</div>
                                     <div class="col-6 text-end text-danger">-₹@Model.DiscountAmount.ToString("F2")</div>
                                 </div>
                             }
@@ -1000,42 +1005,50 @@
             const cancelBtn = document.getElementById('cancelDiscountBtn');
             if (cancelBtn) {
                 cancelBtn.addEventListener('click', function() {
-                    if (!confirm('Are you sure you want to cancel the discount?')) {
-                        return;
-                    }
-                    
-                    // Get CSRF token
-                    const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value;
-                    if (!token) {
-                        alert('Security token not found. Please refresh the page.');
-                        return;
-                    }
-                    
-                    // Remove discount from backend
-                    fetch('/Payment/CancelDiscount', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'RequestVerificationToken': token
-                        },
-                        body: new URLSearchParams({
-                            orderId: @Model.OrderId,
-                            __RequestVerificationToken: token
-                        })
-                    })
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.success) {
-                            // Clear input and reload
-                            if (input) input.value = '';
-                            window.location.reload();
-                        } else {
-                            alert('Failed to cancel discount: ' + (data.error || 'Unknown error'));
+                    Swal.fire({
+                        title: 'Cancel Discount?',
+                        text: 'Are you sure you want to remove the applied discount?',
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonColor: '#d33',
+                        cancelButtonColor: '#6c757d',
+                        confirmButtonText: 'Yes, Remove',
+                        cancelButtonText: 'Keep Discount'
+                    }).then(result => {
+                        if (!result.isConfirmed) return;
+
+                        // Get CSRF token
+                        const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value;
+                        if (!token) {
+                            Swal.fire({ icon: 'error', title: 'Error', text: 'Security token not found. Please refresh the page.' });
+                            return;
                         }
-                    })
-                    .catch(err => {
-                        console.error('Error canceling discount:', err);
-                        alert('Failed to cancel discount. Please try again.');
+
+                        // Remove discount from backend
+                        fetch('/Payment/CancelDiscount', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'RequestVerificationToken': token
+                            },
+                            body: new URLSearchParams({
+                                orderId: @Model.OrderId,
+                                __RequestVerificationToken: token
+                            })
+                        })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.success) {
+                                if (input) input.value = '';
+                                window.location.reload();
+                            } else {
+                                Swal.fire({ icon: 'error', title: 'Failed', text: 'Failed to cancel discount: ' + (data.error || 'Unknown error') });
+                            }
+                        })
+                        .catch(err => {
+                            console.error('Error canceling discount:', err);
+                            Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to cancel discount. Please try again.' });
+                        });
                     });
                 });
             }
@@ -1049,6 +1062,21 @@
 
             // Initialize prefix based on default selection
             setPrefix();
+
+            // On page load: if a discount is already persisted, pre-fill % value + lock
+            if (existingDisc > 0) {
+                // Always use raw data-gross-item-total (= SUM of OrderItems.Subtotal, always pre-discount)
+                // as the denominator. For exclusive-GST orders, grossItemTotal === baseSubtotal which is
+                // the POST-discount Orders.Subtotal (e.g. ₹225), giving a wrong 11.11% back-calc.
+                // data-gross-item-total is Model.GrossItemTotal = SUM(oi.Subtotal) = ₹250 (pre-discount always).
+                const rawGross = parseNum(summary.dataset.grossItemTotal);
+                const pctBase  = rawGross > 0 ? rawGross : (baseSubtotal + existingDisc);
+                const loadedPct = Math.round(existingDisc / pctBase * 10000) / 100; // 2dp
+                if (typePercent) typePercent.checked = true;
+                setPrefix();
+                if (input) input.value = loadedPct.toFixed(2);
+                setLocked(true);
+            }
         })();
 
         // Send Bill PDF via Email

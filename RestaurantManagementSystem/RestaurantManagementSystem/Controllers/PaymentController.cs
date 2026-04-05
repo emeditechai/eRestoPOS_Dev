@@ -923,6 +923,7 @@ END", connection))
                     decimal paymentGstPercentage = 5.0m; // Default fallback
                     decimal orderSubtotal = 0m;
                     decimal gstApplicableShare = 1.0m;
+                    bool isInclusiveBarOrder = false; // BAR inclusive GST: Orders.Subtotal already has discount embedded
                     using (var gstConnection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                     {
                         gstConnection.Open();
@@ -986,6 +987,7 @@ END", connection))
                                         decimal totalItemsSubtotal = srd.IsDBNull(0) ? 0m : srd.GetDecimal(0);
                                         decimal applicableItemsSubtotal = srd.IsDBNull(1) ? 0m : srd.GetDecimal(1);
                                         bool isBarOrder = !srd.IsDBNull(2) && srd.GetInt32(2) == 1;
+                                        isInclusiveBarOrder = isBarOrder; // hoist for post-try use
 
                                         if (totalItemsSubtotal > 0)
                                         {
@@ -1103,7 +1105,10 @@ END", connection))
                         }
                     }
                     catch { /* ignore malformed discount params */ }
-                    decimal discountedSubtotal = orderSubtotal - discountAmount;
+                    // For BAR inclusive GST: Orders.Subtotal = (items_incl - discount)/(1+GSTRate) — already the after-discount
+                    // taxable base. Subtracting discountAmount again causes double-discount and wrong CGST/SGST.
+                    // For regular exclusive GST: Orders.Subtotal is pre-discount; subtract discount here.
+                    decimal discountedSubtotal = isInclusiveBarOrder ? orderSubtotal : (orderSubtotal - discountAmount);
                     
                     // Step 2: Calculate GST on the discounted subtotal (only for GST-applicable items)
                     decimal paymentGstAmount = Math.Round(discountedSubtotal * gstApplicableShare * paymentGstPercentage / 100m, 2, MidpointRounding.AwayFromZero);
@@ -1747,6 +1752,7 @@ END", connection))
                 decimal persistedDiscountAmount = 0m;
                 decimal persistedTotalAmount = 0m;
                 decimal gstApplicableShare = 1.0m;
+                bool isSplitBarOrder = false; // BAR inclusive GST: Orders.Subtotal already has discount embedded
                 
                 using (var conn = new SqlConnection(_connectionString))
                 {
@@ -1820,6 +1826,7 @@ END", connection))
                                     decimal totalItemsSubtotal = rd2.IsDBNull(0) ? 0m : rd2.GetDecimal(0);
                                     decimal applicableItemsSubtotal = rd2.IsDBNull(1) ? 0m : rd2.GetDecimal(1);
                                     bool isBarOrder = !rd2.IsDBNull(2) && rd2.GetInt32(2) == 1;
+                                    isSplitBarOrder = isBarOrder; // hoist for post-try use
 
                                     if (totalItemsSubtotal > 0)
                                     {
@@ -1906,7 +1913,8 @@ END", connection))
                 else
                 {
                     // Calculate fresh (new discount being applied or no persisted values)
-                    decimal discountedSubtotal = Math.Max(0, orderSubtotal - discountAmount);
+                    // For BAR inclusive GST: Orders.Subtotal is already after-discount taxable base; do NOT subtract discount again
+                    decimal discountedSubtotal = Math.Max(0, isSplitBarOrder ? orderSubtotal : (orderSubtotal - discountAmount));
                     gstAmount = Math.Round(discountedSubtotal * gstApplicableShare * gstPerc / 100m, 2, MidpointRounding.AwayFromZero);
                     orderTotal = discountedSubtotal + gstAmount + orderTip;
                     _logger?.LogInformation("Split payment calculating fresh total: subtotal={Subtotal}, discount={Discount}, GST={GST}, tip={Tip}, total={Total}", 
@@ -4431,6 +4439,14 @@ END", connection))
                             model.GSTPercentage = gstPercentageFromPayments;
                             model.CGSTAmount = totalCGSTFromPayments;
                             model.SGSTAmount = totalSGSTFromPayments;
+
+                            // Re-derive CGST/SGST from the authoritative Orders.TaxAmount when stored payment
+                            // values don't sum to the correct total (fixes BAR double-discount GST bug data)
+                            if (model.TaxAmount > 0 && Math.Abs((model.CGSTAmount + model.SGSTAmount) - model.TaxAmount) > 0.10m)
+                            {
+                                model.CGSTAmount = Math.Round(model.TaxAmount / 2m, 2, MidpointRounding.AwayFromZero);
+                                model.SGSTAmount = model.TaxAmount - model.CGSTAmount;
+                            }
                             
                             // Update TaxAmount to match total GST from payments
                             if (model.TaxAmount == 0)
