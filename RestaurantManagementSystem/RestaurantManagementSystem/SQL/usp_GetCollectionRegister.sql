@@ -46,6 +46,13 @@
             IF OBJECT_ID('dbo.Counters', 'U') IS NOT NULL
                 SET @HasCountersTable = 1;
 
+                -- BillNo: include GlobalBillNo when column exists
+                DECLARE @BillNoSelect NVARCHAR(MAX);
+                IF COL_LENGTH('dbo.Orders', 'GlobalBillNo') IS NOT NULL
+                    SET @BillNoSelect = N'ISNULL(CAST(o.GlobalBillNo AS NVARCHAR(100)), '''') AS BillNo,';
+                ELSE
+                    SET @BillNoSelect = N'CAST('''' AS NVARCHAR(100)) AS BillNo,';
+
                 DECLARE @CounterSelect NVARCHAR(MAX) = N'CAST(NULL AS INT) AS CounterId, CAST('''' AS NVARCHAR(200)) AS CounterName,';
                 DECLARE @CounterJoin NVARCHAR(MAX) = N'';
                 IF @CounterColumn IS NOT NULL
@@ -89,6 +96,7 @@
             )
             SELECT 
             o.OrderNumber AS OrderNo,
+            ' + @BillNoSelect + N'
             ISNULL(t.TableName, ''N/A'') AS TableNo,
             ISNULL(p.ProcessedByName, ''System'') AS Username,
                 ' + @CounterSelect + N'
