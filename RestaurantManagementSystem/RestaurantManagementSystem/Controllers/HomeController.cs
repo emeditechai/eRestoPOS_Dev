@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using RestaurantManagementSystem.Utilities;
+using RestaurantManagementSystem.Services;
 
 namespace RestaurantManagementSystem.Controllers
 {
@@ -21,12 +22,14 @@ namespace RestaurantManagementSystem.Controllers
         private readonly ILogger<HomeController> _logger;
         private readonly IConfiguration _configuration;
         private readonly string _connectionString;
+        private readonly ILicensingService _licensingService;
 
-        public HomeController(ILogger<HomeController> logger, IConfiguration configuration)
+        public HomeController(ILogger<HomeController> logger, IConfiguration configuration, ILicensingService licensingService)
         {
             _logger = logger;
             _configuration = configuration;
             _connectionString = _configuration.GetConnectionString("DefaultConnection");
+            _licensingService = licensingService;
         }
 
         public async Task<IActionResult> Index()
@@ -224,6 +227,20 @@ namespace RestaurantManagementSystem.Controllers
                 LogoPath = logoPath,
                 RestaurantName = restaurantName
             };
+
+            // Fetch active alert message from ClientAppLicense
+            try
+            {
+                var alertMessage = await _licensingService.GetActiveAlertMessageAsync();
+                if (!string.IsNullOrWhiteSpace(alertMessage))
+                {
+                    ViewBag.AlertMessage = alertMessage;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Unable to fetch alert message");
+            }
             
             return View(model);
         }

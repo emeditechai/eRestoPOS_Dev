@@ -1149,6 +1149,36 @@ BEGIN
     ALTER TABLE [dbo].[ClientAppLicense] ADD [ProductType] NVARCHAR(100) NULL;
 END;
 
+IF COL_LENGTH('dbo.ClientAppLicense', 'IsDisplayAlerts') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ClientAppLicense] ADD [IsDisplayAlerts] BIT NOT NULL CONSTRAINT [DF_ClientAppLicense_IsDisplayAlerts] DEFAULT ((0));
+END;
+
+IF COL_LENGTH('dbo.ClientAppLicense', 'AlertStartdate') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ClientAppLicense] ADD [AlertStartdate] DATE NULL;
+END;
+
+IF COL_LENGTH('dbo.ClientAppLicense', 'AlertStartTime') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ClientAppLicense] ADD [AlertStartTime] TIME(0) NULL;
+END;
+
+IF COL_LENGTH('dbo.ClientAppLicense', 'AlertEnddate') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ClientAppLicense] ADD [AlertEnddate] DATE NULL;
+END;
+
+IF COL_LENGTH('dbo.ClientAppLicense', 'AlertEndTime') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ClientAppLicense] ADD [AlertEndTime] TIME(0) NULL;
+END;
+
+IF COL_LENGTH('dbo.ClientAppLicense', 'AlertMessage') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ClientAppLicense] ADD [AlertMessage] NVARCHAR(MAX) NULL;
+END;
+
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_ClientAppLicense_ClientCode' AND object_id = OBJECT_ID('dbo.ClientAppLicense'))
 BEGIN
     CREATE UNIQUE INDEX [UX_ClientAppLicense_ClientCode] ON [dbo].[ClientAppLicense]([ClientCode]);
@@ -1490,7 +1520,13 @@ SELECT
     OTP_Verified,
     AMC_Expireddate,
     AppUrl,
-    ProductType
+    ProductType,
+    ISNULL(IsDisplayAlerts, 0) AS IsDisplayAlerts,
+    AlertStartdate,
+    AlertStartTime,
+    AlertEnddate,
+    AlertEndTime,
+    AlertMessage
 FROM dbo.ClientAppLicense
 ORDER BY CreatedAt DESC, Id DESC;";
 
@@ -1508,6 +1544,39 @@ ORDER BY CreatedAt DESC, Id DESC;";
             }
 
             return null;
+        }
+
+        public async Task<string?> GetActiveAlertMessageAsync()
+        {
+            try
+            {
+                var currentAppUrl = GetCurrentAppUrl();
+
+                await using var connection = new SqlConnection(_localConnectionString);
+                await connection.OpenAsync();
+
+                const string sql = @"
+SELECT TOP 1 AlertMessage
+FROM dbo.ClientAppLicense
+WHERE IsDisplayAlerts = 1
+  AND AlertMessage IS NOT NULL
+  AND AlertMessage <> ''
+  AND GETDATE() >= CAST(AlertStartdate AS datetime) + CAST(AlertStartTime AS datetime)
+  AND GETDATE() <= CAST(AlertEnddate AS datetime) + CAST(AlertEndTime AS datetime)
+  AND AppUrl = @AppUrl
+ORDER BY Id DESC;";
+
+                await using var command = new SqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@AppUrl", currentAppUrl ?? (object)DBNull.Value);
+
+                var result = await command.ExecuteScalarAsync();
+                return result as string;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to fetch alert message from ClientAppLicense");
+                return null;
+            }
         }
 
         private async Task<LicenseValidationHistoryEntry?> GetLatestRemoteValidationHistoryForTodayAsync(SqlConnection connection, SqlTransaction? transaction, string clientCode, string licenseKey)
@@ -1975,7 +2044,13 @@ SELECT TOP 1
     OTP_Verified,
     AMC_Expireddate,
     AppUrl,
-    ProductType
+    ProductType,
+    ISNULL(IsDisplayAlerts, 0) AS IsDisplayAlerts,
+    AlertStartdate,
+    AlertStartTime,
+    AlertEnddate,
+    AlertEndTime,
+    AlertMessage
 FROM dbo.ClientAppLicense
 WHERE ClientCode = @ClientCode
   AND LicenseKey = @LicenseKey
@@ -2010,7 +2085,13 @@ SELECT TOP 1
     OTP_Verified,
     AMC_Expireddate,
     AppUrl,
-    ProductType
+    ProductType,
+    ISNULL(IsDisplayAlerts, 0) AS IsDisplayAlerts,
+    AlertStartdate,
+    AlertStartTime,
+    AlertEnddate,
+    AlertEndTime,
+    AlertMessage
 FROM dbo.ClientAppLicense
 WHERE ServerMacID = @ServerMacID
   AND HardDiskNumber = @HardDiskNumber
@@ -2053,7 +2134,13 @@ SELECT TOP 1
     OTP_Verified,
     AMC_Expireddate,
     AppUrl,
-    ProductType
+    ProductType,
+    ISNULL(IsDisplayAlerts, 0) AS IsDisplayAlerts,
+    AlertStartdate,
+    AlertStartTime,
+    AlertEnddate,
+    AlertEndTime,
+    AlertMessage
 FROM dbo.ClientAppLicense
 WHERE AppUrl = @AppUrl
 ORDER BY CreatedAt DESC, Id DESC;";
@@ -2086,7 +2173,13 @@ INSERT INTO dbo.ClientAppLicense
     OTP_Verified,
     AMC_Expireddate,
     AppUrl,
-    ProductType
+    ProductType,
+    IsDisplayAlerts,
+    AlertStartdate,
+    AlertStartTime,
+    AlertEnddate,
+    AlertEndTime,
+    AlertMessage
 )
 VALUES
 (
@@ -2107,7 +2200,13 @@ VALUES
     @OTP_Verified,
     @AMC_Expireddate,
     @AppUrl,
-    @ProductType
+    @ProductType,
+    @IsDisplayAlerts,
+    @AlertStartdate,
+    @AlertStartTime,
+    @AlertEnddate,
+    @AlertEndTime,
+    @AlertMessage
 );
 SELECT CAST(SCOPE_IDENTITY() AS BIGINT);";
 
@@ -2164,7 +2263,13 @@ BEGIN
         OTP_Verified = @OTP_Verified,
         AMC_Expireddate = @AMC_Expireddate,
         AppUrl = @AppUrl,
-        ProductType = @ProductType
+        ProductType = @ProductType,
+        IsDisplayAlerts = @IsDisplayAlerts,
+        AlertStartdate = @AlertStartdate,
+        AlertStartTime = @AlertStartTime,
+        AlertEnddate = @AlertEnddate,
+        AlertEndTime = @AlertEndTime,
+        AlertMessage = @AlertMessage
     WHERE ClientCode = @ClientCode OR LicenseKey = @LicenseKey;
 END
 ELSE
@@ -2188,7 +2293,13 @@ BEGIN
         OTP_Verified,
         AMC_Expireddate,
         AppUrl,
-        ProductType
+        ProductType,
+        IsDisplayAlerts,
+        AlertStartdate,
+        AlertStartTime,
+        AlertEnddate,
+        AlertEndTime,
+        AlertMessage
     )
     VALUES
     (
@@ -2209,7 +2320,13 @@ BEGIN
         @OTP_Verified,
         @AMC_Expireddate,
         @AppUrl,
-        @ProductType
+        @ProductType,
+        @IsDisplayAlerts,
+        @AlertStartdate,
+        @AlertStartTime,
+        @AlertEnddate,
+        @AlertEndTime,
+        @AlertMessage
     );
 END;";
 
@@ -3041,6 +3158,12 @@ ORDER BY ValidatedAt DESC, Id DESC;";
             command.Parameters.AddWithValue("@AMC_Expireddate", (object?)license.AMC_Expireddate ?? DBNull.Value);
             command.Parameters.AddWithValue("@AppUrl", (object?)license.AppUrl ?? DBNull.Value);
             command.Parameters.AddWithValue("@ProductType", (object?)license.ProductType ?? DBNull.Value);
+            command.Parameters.AddWithValue("@IsDisplayAlerts", license.IsDisplayAlerts);
+            command.Parameters.AddWithValue("@AlertStartdate", (object?)license.AlertStartDate ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AlertStartTime", (object?)license.AlertStartTime ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AlertEnddate", (object?)license.AlertEndDate ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AlertEndTime", (object?)license.AlertEndTime ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AlertMessage", (object?)license.AlertMessage ?? DBNull.Value);
         }
 
         private static void AddRemoteLicenseParameters(SqlCommand command, ClientAppLicense license)
@@ -3063,6 +3186,12 @@ ORDER BY ValidatedAt DESC, Id DESC;";
             command.Parameters.AddWithValue("@AMC_Expireddate", (object?)license.AMC_Expireddate ?? DBNull.Value);
             command.Parameters.AddWithValue("@AppUrl", (object?)license.AppUrl ?? DBNull.Value);
             command.Parameters.AddWithValue("@ProductType", (object?)license.ProductType ?? DBNull.Value);
+            command.Parameters.AddWithValue("@IsDisplayAlerts", license.IsDisplayAlerts);
+            command.Parameters.AddWithValue("@AlertStartdate", (object?)license.AlertStartDate ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AlertStartTime", (object?)license.AlertStartTime ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AlertEnddate", (object?)license.AlertEndDate ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AlertEndTime", (object?)license.AlertEndTime ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AlertMessage", (object?)license.AlertMessage ?? DBNull.Value);
         }
 
         private ClientAppLicense MapLocalLicense(SqlDataReader reader)
@@ -3096,7 +3225,13 @@ ORDER BY ValidatedAt DESC, Id DESC;";
                 OTP_Verified = !reader.IsDBNull(15) && reader.GetBoolean(15),
                 AMC_Expireddate = reader.IsDBNull(16) ? null : reader.GetDateTime(16),
                 AppUrl = reader.IsDBNull(17) ? null : reader.GetString(17),
-                ProductType = reader.IsDBNull(18) ? null : reader.GetString(18)
+                ProductType = reader.IsDBNull(18) ? null : reader.GetString(18),
+                IsDisplayAlerts = reader.FieldCount > 19 && !reader.IsDBNull(19) && reader.GetBoolean(19),
+                AlertStartDate = reader.FieldCount > 20 && !reader.IsDBNull(20) ? reader.GetDateTime(20) : null,
+                AlertStartTime = reader.FieldCount > 21 && !reader.IsDBNull(21) ? reader.GetTimeSpan(21) : null,
+                AlertEndDate = reader.FieldCount > 22 && !reader.IsDBNull(22) ? reader.GetDateTime(22) : null,
+                AlertEndTime = reader.FieldCount > 23 && !reader.IsDBNull(23) ? reader.GetTimeSpan(23) : null,
+                AlertMessage = reader.FieldCount > 24 && !reader.IsDBNull(24) ? reader.GetString(24) : null
             };
         }
 
@@ -3582,7 +3717,13 @@ SELECT TOP 1
     OTP_Verified,
     AMC_Expireddate,
     AppUrl,
-    ProductType
+    ProductType,
+    ISNULL(IsDisplayAlerts, 0) AS IsDisplayAlerts,
+    AlertStartdate,
+    AlertStartTime,
+    AlertEnddate,
+    AlertEndTime,
+    AlertMessage
 FROM dbo.ClientAppLicense
 WHERE LicenseKey = @LicenseKey
 ORDER BY CreatedAt DESC, Id DESC;";
