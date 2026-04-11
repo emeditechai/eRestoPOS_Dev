@@ -5755,9 +5755,10 @@ END", connection))
                     ViewBag.PosCounterIdValue = 0;
                 }
 
-                // Load KOT data if POS KOT Print is required
-                ViewBag.IsPOSKOTPrintRequired = settings?.IsPOSKOTPrintRequired ?? false;
-                if (settings?.IsPOSKOTPrintRequired == true)
+                // Load KOT data if POS KOT Print is required (only for POS orders: Takeout=1, Delivery=2)
+                bool isPosOrder = model.OrderType == 1 || model.OrderType == 2;
+                ViewBag.IsPOSKOTPrintRequired = (settings?.IsPOSKOTPrintRequired ?? false) && isPosOrder;
+                if (settings?.IsPOSKOTPrintRequired == true && isPosOrder)
                 {
                     try
                     {
