@@ -5755,6 +5755,24 @@ END", connection))
                     ViewBag.PosCounterIdValue = 0;
                 }
 
+                // Load KOT data if POS KOT Print is required
+                ViewBag.IsPOSKOTPrintRequired = settings?.IsPOSKOTPrintRequired ?? false;
+                if (settings?.IsPOSKOTPrintRequired == true)
+                {
+                    try
+                    {
+                        var (kotTicketNumber, kotItems) = LoadKOTDataForOrder(orderId);
+                        ViewBag.KOTItems = kotItems;
+                        ViewBag.KOTTicketNumber = kotTicketNumber;
+                    }
+                    catch (Exception kotEx)
+                    {
+                        _logger?.LogWarning(kotEx, "Unable to load KOT data for POS print, orderId={OrderId}", orderId);
+                        ViewBag.KOTItems = null;
+                        ViewBag.KOTTicketNumber = null;
+                    }
+                }
+
                 return View("PrintPOS", model);
             }
             catch (Exception ex)
@@ -5814,6 +5832,161 @@ END", connection))
             }
 
             return User.GetActiveBranchName() ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Loads order items for KOT print on POS orders. Creates a KitchenTicket (Status=3 Delivered)
+        /// using the existing KOT numbering sequence so it gets a real ticket number but doesn't
+        /// appear as pending on the kitchen display. Reuses the ticket on reprints.
+        /// Returns (ticketNumber, items).
+        /// </summary>
+        private (string TicketNumber, List<dynamic> Items) LoadKOTDataForOrder(int orderId)
+        {
+            var items = new List<dynamic>();
+            string ticketNumber = "";
+
+            using var connection = new SqlConnection(_connectionString);
+            connection.Open();
+
+            // Check if a KitchenTicket already exists for this POS order
+            using (var chkCmd = new SqlCommand(@"
+                SELECT TOP 1 kt.TicketNumber
+                FROM KitchenTickets kt
+                WHERE kt.OrderId = @OrderId
+                ORDER BY kt.Id DESC", connection))
+            {
+                chkCmd.Parameters.AddWithValue("@OrderId", orderId);
+                var existing = chkCmd.ExecuteScalar();
+                if (existing != null && existing != DBNull.Value)
+                    ticketNumber = existing.ToString()!;
+            }
+
+            // If no ticket exists, create one with Status=3 (Delivered) so it doesn't show on kitchen display
+            if (string.IsNullOrEmpty(ticketNumber))
+            {
+                using var txn = connection.BeginTransaction();
+                try
+                {
+                    // Get order info
+                    string orderNumber = "";
+                    int? branchId = null;
+                    using (var infoCmd = new SqlCommand(@"
+                        SELECT OrderNumber, BranchId FROM Orders WHERE Id = @OrderId", connection, txn))
+                    {
+                        infoCmd.Parameters.AddWithValue("@OrderId", orderId);
+                        using var infoReader = infoCmd.ExecuteReader();
+                        if (infoReader.Read())
+                        {
+                            orderNumber = infoReader.IsDBNull(0) ? $"ORD-{orderId:D5}" : infoReader.GetString(0);
+                            branchId = infoReader.IsDBNull(1) ? null : (int?)infoReader.GetInt32(1);
+                        }
+                    }
+
+                    // Generate ticket number using existing sequence logic
+                    using (var numCmd = new SqlCommand(@"
+                        SELECT
+                            'KOT-' + CONVERT(NVARCHAR(8), GETDATE(), 112) + '-' +
+                            RIGHT('0000' + CAST(
+                                ISNULL(MAX(TRY_CAST(RIGHT(kt.TicketNumber, 4) AS INT)), 0) + 1
+                            AS NVARCHAR(4)), 4)
+                        FROM KitchenTickets kt WITH (UPDLOCK, HOLDLOCK)
+                        INNER JOIN Orders o2 ON o2.Id = kt.OrderId
+                        WHERE LEFT(kt.TicketNumber, 12) = 'KOT-' + CONVERT(NVARCHAR(8), GETDATE(), 112)
+                          AND ((@BranchId IS NULL AND o2.BranchId IS NULL) OR o2.BranchId = @BranchId)", connection, txn))
+                    {
+                        numCmd.Parameters.AddWithValue("@BranchId", (object?)branchId ?? DBNull.Value);
+                        var result = numCmd.ExecuteScalar();
+                        ticketNumber = result?.ToString() ?? $"KOT-{DateTime.Now:yyyyMMdd}-0001";
+                    }
+
+                    // Determine which columns exist on KitchenTickets (schema varies)
+                    bool hasOrderNumber = false;
+                    bool hasKitchenStation = false;
+                    using (var colCmd = new SqlCommand(@"
+                        SELECT
+                            CASE WHEN COL_LENGTH('dbo.KitchenTickets','OrderNumber') IS NOT NULL THEN 1 ELSE 0 END,
+                            CASE WHEN COL_LENGTH('dbo.KitchenTickets','KitchenStation') IS NOT NULL THEN 1 ELSE 0 END", connection, txn))
+                    {
+                        using var colReader = colCmd.ExecuteReader();
+                        if (colReader.Read())
+                        {
+                            hasOrderNumber = colReader.GetInt32(0) == 1;
+                            hasKitchenStation = colReader.GetInt32(1) == 1;
+                        }
+                    }
+
+                    // Build INSERT dynamically
+                    var cols = "TicketNumber, OrderId, Status, CreatedAt, CompletedAt";
+                    var vals = "@TicketNumber, @OrderId, 3, GETDATE(), GETDATE()";
+                    if (hasOrderNumber)  { cols += ", OrderNumber";  vals += ", @OrderNumber"; }
+                    if (hasKitchenStation){ cols += ", KitchenStation"; vals += ", 'KITCHEN'"; }
+
+                    using (var insCmd = new SqlCommand(
+                        $"INSERT INTO KitchenTickets ({cols}) VALUES ({vals}); SELECT SCOPE_IDENTITY();", connection, txn))
+                    {
+                        insCmd.Parameters.AddWithValue("@TicketNumber", ticketNumber);
+                        insCmd.Parameters.AddWithValue("@OrderId", orderId);
+                        if (hasOrderNumber) insCmd.Parameters.AddWithValue("@OrderNumber", orderNumber);
+                        var ticketId = Convert.ToInt32(insCmd.ExecuteScalar());
+
+                        // Insert KitchenTicketItems
+                        // Check which table name exists
+                        string ticketItemsTable = "KitchenTicketItems";
+                        using (var tblCmd = new SqlCommand(@"
+                            IF OBJECT_ID('dbo.KitchenTicketItems','U') IS NULL
+                               AND OBJECT_ID('dbo.Kitchen_TicketItems','U') IS NOT NULL
+                                SELECT 'Kitchen_TicketItems'
+                            ELSE
+                                SELECT 'KitchenTicketItems'", connection, txn))
+                        {
+                            var tblResult = tblCmd.ExecuteScalar();
+                            if (tblResult != null) ticketItemsTable = tblResult.ToString()!;
+                        }
+
+                        using (var itemInsCmd = new SqlCommand($@"
+                            INSERT INTO [{ticketItemsTable}] (KitchenTicketId, OrderItemId, MenuItemName, Quantity, SpecialInstructions, Status)
+                            SELECT @TicketId, oi.Id, mi.Name, oi.Quantity, oi.SpecialInstructions, 3
+                            FROM OrderItems oi
+                            INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
+                            WHERE oi.OrderId = @OrderId", connection, txn))
+                        {
+                            itemInsCmd.Parameters.AddWithValue("@TicketId", ticketId);
+                            itemInsCmd.Parameters.AddWithValue("@OrderId", orderId);
+                            itemInsCmd.ExecuteNonQuery();
+                        }
+                    }
+
+                    txn.Commit();
+                }
+                catch
+                {
+                    txn.Rollback();
+                    throw;
+                }
+            }
+
+            // Fetch order items for display
+            using (var itemCmd = new SqlCommand(@"
+                SELECT mi.Name, oi.Quantity, oi.SpecialInstructions
+                FROM OrderItems oi
+                INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
+                WHERE oi.OrderId = @OrderId
+                ORDER BY oi.Id", connection))
+            {
+                itemCmd.Parameters.AddWithValue("@OrderId", orderId);
+                using var reader = itemCmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    items.Add(new
+                    {
+                        Name = reader.IsDBNull(0) ? "" : reader.GetString(0),
+                        Quantity = reader.GetInt32(1),
+                        SpecialInstructions = reader.IsDBNull(2) ? "" : reader.GetString(2)
+                    });
+                }
+            }
+
+            return (ticketNumber, items);
         }
 
         private RestaurantSettings? LoadRestaurantSettingsForOrder(int orderId)
@@ -5877,6 +6050,7 @@ END", connection))
                                 };
 
                                 try { settings.FssaiNo = reader["FssaiNo"]?.ToString(); } catch { }
+                                try { settings.IsPOSKOTPrintRequired = reader["IsPOSKOTPrintRequired"] != DBNull.Value && Convert.ToBoolean(reader["IsPOSKOTPrintRequired"]); } catch { }
                                 return settings;
                             }
                         }

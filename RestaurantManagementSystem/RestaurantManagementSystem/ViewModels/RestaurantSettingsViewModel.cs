@@ -121,6 +121,9 @@ namespace RestaurantManagementSystem.ViewModels
 
     [Display(Name = "Restrict Menu Add/Edit/Delete from Non-Main Branch")]
     public bool IsRestrictMenuEditNonMainBranch { get; set; } = false;
+
+    [Display(Name = "POS KOT Print Required")]
+    public bool IsPOSKOTPrintRequired { get; set; } = false;
         
         [Required(ErrorMessage = "Bill Format is required")]
         [Display(Name = "Bill Format")]

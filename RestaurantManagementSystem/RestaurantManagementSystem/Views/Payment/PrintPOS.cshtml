@@ -52,6 +52,25 @@
         .solid   { border: none; border-top: 1px solid  #000; margin: 5px 0; }
         .double  { border: none; border-top: 3px double #000; margin: 5px 0; }
 
+        /* ── scissors cut line ── */
+        .cut-line {
+            position: relative;
+            border: none;
+            border-top: 2px dashed #000;
+            margin: 18px 0;
+            overflow: visible;
+        }
+        .cut-line::before {
+            content: '\2702';
+            position: absolute;
+            top: -10px;
+            left: -2px;
+            font-size: 16px;
+            background: #fff;
+            padding: 0 2px;
+            line-height: 1;
+        }
+
         /* ── bill meta (Name / Date / Counter etc.) ── */
         .meta-table { width: 100%; font-size: 11px; border-collapse: collapse; }
         .meta-table td { padding: 1px 0; vertical-align: top; }
@@ -299,6 +318,62 @@
         @if (!string.IsNullOrWhiteSpace(settings.FssaiNo)) { <div>FSSAI Lic No: @settings.FssaiNo</div> }
         <div style="margin-top:4px; font-weight:bold;">Thanks For Visit Again !!</div>
     </div>
+
+    @* ── POS KOT PRINT (if enabled) ── *@
+    @{
+        var isPosKotRequired = (bool)(ViewBag.IsPOSKOTPrintRequired ?? false);
+        var kotItems = ViewBag.KOTItems as List<dynamic>;
+        var kotTicketNumber = ViewBag.KOTTicketNumber as string;
+    }
+    @if (isPosKotRequired && kotItems != null && kotItems.Any())
+    {
+        @* ── SCISSORS CUT LINE ── *@
+        <hr class="cut-line" />
+
+        @* ── KOT HEADER (separate receipt) ── *@
+        <div class="center">
+            <div class="shop-name">@settings.RestaurantName</div>
+            @if (!string.IsNullOrWhiteSpace(ViewBag.PrintBranchName as string)) { <div class="tiny">Branch: @ViewBag.PrintBranchName</div> }
+        </div>
+        <hr class="dashed" />
+        <div class="center bold" style="font-size:15px; letter-spacing:.5px; text-transform:uppercase; margin-top:4px;">
+            KOT - Kitchen Order Ticket
+        </div>
+        @if (!string.IsNullOrWhiteSpace(kotTicketNumber))
+        {
+            <div class="center bold" style="font-size:13px;">@kotTicketNumber</div>
+        }
+        <div class="center small" style="margin-bottom:4px;">Order #@Model.OrderNumber</div>
+        <div class="center tiny">Date: @DateTime.Now.ToString("dd/MM/yy") &nbsp; Time: @DateTime.Now.ToString("HH:mm")</div>
+        <hr class="dashed" />
+
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr>
+                    <th style="text-align:left; border-bottom:1px solid #000; padding:2px 0; font-size:11px;">Item</th>
+                    <th style="text-align:center; border-bottom:1px solid #000; padding:2px 0; font-size:11px; width:30px;">Qty</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in kotItems)
+                {
+                    <tr>
+                        <td style="padding:2px 0; font-size:12px; border-bottom:1px dashed #bbb;">
+                            @item.Name
+                            @if (!string.IsNullOrEmpty((string)item.SpecialInstructions))
+                            {
+                                <div class="tiny" style="color:#555;">@item.SpecialInstructions</div>
+                            }
+                        </td>
+                        <td style="text-align:center; padding:2px 0; font-size:12px; border-bottom:1px dashed #bbb;">@item.Quantity</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <hr class="dashed" />
+        <div class="center tiny bold" style="margin-top:4px;">--- End of KOT ---</div>
+    }
 
     <script>window.onload = function () { window.print(); };</script>
 </body>
