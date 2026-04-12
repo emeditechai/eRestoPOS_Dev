@@ -2255,8 +2255,9 @@
     </script>
     <script>
         // Session timeout handling:
-        // - Pure client-side idle timer: 2 hours of no user activity → logout
-        // - Activity events (mousemove, click, keydown, touchstart, scroll) reset the timer
+        // - Client-side idle timer: 60 minutes of no user activity → logout
+        // - Activity events reset the idle timer
+        // - Keepalive ping every 5 minutes while user is active to prevent server-side session expiry
         // - On timeout, immediately redirect to SessionTimeoutLogout
         (function () {
             const sessionTokenMeta = document.querySelector('meta[name="session-token"]');
@@ -2264,20 +2265,48 @@
                 return;
             }
 
-            const IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
+            const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 60 minutes
+            const KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
             let idleTimer = null;
+            let keepaliveInterval = null;
             let isRedirecting = false;
+            let lastActivity = Date.now();
 
             function redirectToTimeoutLogout() {
                 if (isRedirecting) return;
                 isRedirecting = true;
+                stopKeepalive();
                 window.location.href = '/Account/SessionTimeoutLogout';
             }
 
             function resetIdleTimer() {
                 if (isRedirecting) return;
+                lastActivity = Date.now();
                 clearTimeout(idleTimer);
                 idleTimer = setTimeout(redirectToTimeoutLogout, IDLE_TIMEOUT_MS);
+            }
+
+            // Keepalive: ping server every 5 minutes while user is active
+            // This prevents the server-side session from expiring during active use
+            function startKeepalive() {
+                if (keepaliveInterval) return;
+                keepaliveInterval = setInterval(function () {
+                    // Only ping if user was active in the last 10 minutes
+                    if (Date.now() - lastActivity < 10 * 60 * 1000) {
+                        fetch('/Account/SessionKeepalive', {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                        }).catch(function () { /* ignore network errors */ });
+                    }
+                }, KEEPALIVE_INTERVAL_MS);
+            }
+
+            function stopKeepalive() {
+                if (keepaliveInterval) {
+                    clearInterval(keepaliveInterval);
+                    keepaliveInterval = null;
+                }
             }
 
             // Reset on any user interaction
@@ -2286,8 +2315,9 @@
                     document.addEventListener(evt, resetIdleTimer, { passive: true, capture: true });
                 });
 
-            // Start the idle timer immediately
+            // Start idle timer and keepalive
             resetIdleTimer();
+            startKeepalive();
 
         })();
     </script>

@@ -215,6 +215,15 @@ namespace RestaurantManagementSystem.Controllers
             await _authService.SignOutUserAsync();
             return View("LogoutHandler");
         }
+
+        // Keepalive endpoint - called by client JS to prevent server-side session expiry
+        [HttpPost]
+        public IActionResult SessionKeepalive()
+        {
+            // Touch the session to reset its server-side idle timeout
+            HttpContext.Session.SetString("LastKeepalive", DateTime.UtcNow.ToString("o"));
+            return Ok();
+        }
         
         [HttpGetAttribute]
         [AllowAnonymousAttribute]
