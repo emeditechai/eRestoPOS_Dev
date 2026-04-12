@@ -124,10 +124,11 @@ namespace RestaurantManagementSystem.Controllers
         // GET: Create Reservation Form
         public IActionResult Create()
         {
+            var nextHour = DateTime.Now.AddHours(1);
             Reservation model = new Reservation 
             { 
                 ReservationDate = DateTime.Today,
-                ReservationTime = DateTime.Now.AddHours(1),
+                ReservationTime = new DateTime(nextHour.Year, nextHour.Month, nextHour.Day, nextHour.Hour, nextHour.Minute, 0),
                 PartySize = 2
             };
             
@@ -203,6 +204,22 @@ namespace RestaurantManagementSystem.Controllers
             {
                 TempData["ErrorMessage"] = "Please select an active branch first.";
                 return RedirectToAction("List");
+            }
+
+            // Server-side: Reject past date/time
+            if (model.ReservationDate.Date < DateTime.Today)
+            {
+                ModelState.AddModelError("ReservationDate", "Reservation date cannot be in the past.");
+            }
+            else if (model.ReservationDate.Date == DateTime.Today && model.ReservationTime.TimeOfDay < DateTime.Now.TimeOfDay)
+            {
+                ModelState.AddModelError("ReservationTime", "Reservation time cannot be in the past for today's date.");
+            }
+
+            // Server-side: Phone must be exactly 10 digits
+            if (!string.IsNullOrEmpty(model.PhoneNumber) && !System.Text.RegularExpressions.Regex.IsMatch(model.PhoneNumber, @"^\d{10}$"))
+            {
+                ModelState.AddModelError("PhoneNumber", "Phone number must be exactly 10 digits.");
             }
 
             if (!ModelState.IsValid)

@@ -28,7 +28,8 @@ namespace RestaurantManagementSystem.Models
 
         [Required]
         [Phone]
-        [StringLength(20)]
+        [StringLength(10, MinimumLength = 10, ErrorMessage = "Phone number must be exactly 10 digits.")]
+        [RegularExpression(@"^\d{10}$", ErrorMessage = "Phone number must be exactly 10 digits.")]
         [Display(Name = "Phone Number")]
         public string PhoneNumber { get; set; }
 

@@ -119,6 +119,16 @@
                                 </td>
                                 <td data-order="@GetStatusSortWeight(reservation.Status)">
                                     <span class="badge @GetStatusBadgeClass(reservation.Status)">@GetStatusDisplay(reservation.Status)</span>
+                                    @{
+                                        int stepNum = GetStepNumber(reservation.Status);
+                                    }
+                                    @if (stepNum > 0)
+                                    {
+                                        <div class="progress mt-1" style="height: 4px;" title="Step @stepNum of 5">
+                                            <div class="progress-bar bg-success" style="width: @(stepNum * 20)%"></div>
+                                        </div>
+                                        <div class="small text-muted" style="font-size:0.65rem;">Step @stepNum/5</div>
+                                    }
                                 </td>
                                 <td>
                                     @if (string.IsNullOrWhiteSpace(reservation.SpecialRequests))
@@ -178,6 +188,17 @@
                                             else
                                             {
                                                 <li><span class="dropdown-item disabled">Seat</span></li>
+                                            }
+
+                                            @if (reservation.Status == ReservationStatus.Seated && reservation.TableId.HasValue)
+                                            {
+                                                <li><hr class="dropdown-divider" /></li>
+                                                <li>
+                                                    <a class="dropdown-item text-success fw-bold" href="@Url.Action("Create", "Order", new { tableId = reservation.TableId.Value })">
+                                                        <i class="bi bi-cart-plus"></i> Create Order
+                                                    </a>
+                                                </li>
+                                                <li><hr class="dropdown-divider" /></li>
                                             }
 
                                             @if (canComplete)
@@ -278,6 +299,19 @@
     string GetStatusDisplay(ReservationStatus status)
     {
         return status == ReservationStatus.NoShow ? "No-Show" : status.ToString();
+    }
+
+    int GetStepNumber(ReservationStatus status)
+    {
+        return status switch
+        {
+            ReservationStatus.Pending => 1,
+            ReservationStatus.Waitlisted => 1,
+            ReservationStatus.Confirmed => 2,
+            ReservationStatus.Seated => 3,
+            ReservationStatus.Completed => 5,
+            _ => 0 // Cancelled, NoShow - no progress
+        };
     }
 
     int GetStatusSortWeight(ReservationStatus status)
