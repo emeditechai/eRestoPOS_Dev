@@ -15,23 +15,25 @@
             <form asp-action="SaveTable" method="post">
                 <input type="hidden" asp-for="Id" />
 
+                <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
                 <div class="row">
                     <div class="col-md-6">
                         <div class="mb-3">
-                            <label asp-for="TableNumber" class="form-label">Table Number</label>
-                            <input asp-for="TableNumber" class="form-control" required maxlength="20" />
+                            <label asp-for="TableNumber" class="form-label">Table Number <span class="text-danger">*</span></label>
+                            <input asp-for="TableNumber" class="form-control" required maxlength="20" placeholder="Enter table number" />
                             <span asp-validation-for="TableNumber" class="text-danger"></span>
                         </div>
 
                         <div class="mb-3">
-                            <label asp-for="Capacity" class="form-label">Seating Capacity</label>
-                            <input asp-for="Capacity" class="form-control" type="number" min="1" max="20" required />
+                            <label asp-for="Capacity" class="form-label">Seating Capacity <span class="text-danger">*</span></label>
+                            <input asp-for="Capacity" class="form-control" type="number" min="1" max="20" required placeholder="Enter seating capacity" />
                             <span asp-validation-for="Capacity" class="text-danger"></span>
                         </div>
 
                         <div class="mb-3">
                             <label asp-for="MinPartySize" class="form-label">Minimum Party Size</label>
-                            <input asp-for="MinPartySize" class="form-control" type="number" min="1" max="20" />
+                            <input asp-for="MinPartySize" class="form-control" type="number" min="1" max="20" placeholder="Enter minimum party size" />
                             <span asp-validation-for="MinPartySize" class="text-danger"></span>
                             <small class="form-text text-muted">Minimum party size this table is suitable for</small>
                         </div>
@@ -40,16 +42,18 @@
                     <div class="col-md-6">
                         <div class="mb-3">
                             <div class="d-flex justify-content-between align-items-center">
-                                <label asp-for="Section" class="form-label mb-0">Area/Section</label>
+                                <label asp-for="Section" class="form-label mb-0">Area/Section <span class="text-danger">*</span></label>
                                 <a class="small" href="@Url.Action("TableSections", "Reservation")">Manage Sections</a>
                             </div>
-                            <select asp-for="Section" class="form-select" asp-items="ViewBag.SectionOptions"></select>
+                            <select asp-for="Section" class="form-select" asp-items="ViewBag.SectionOptions" required>
+                                <option value="">-- Select Section --</option>
+                            </select>
                             <span asp-validation-for="Section" class="text-danger"></span>
                         </div>
 
                         <div class="mb-3">
-                            <label asp-for="Status" class="form-label">Status</label>
-                            <select asp-for="Status" class="form-select" asp-items="Html.GetEnumSelectList<TableStatus>()"></select>
+                            <label asp-for="Status" class="form-label">Status <span class="text-danger">*</span></label>
+                            <select asp-for="Status" class="form-select" asp-items="Html.GetEnumSelectList<TableStatus>()" required></select>
                             <span asp-validation-for="Status" class="text-danger"></span>
                         </div>
 
@@ -59,6 +63,9 @@
                             <span asp-validation-for="IsActive" class="text-danger"></span>
                         </div>
                     </div>
+                </div>
+                <div class="mb-2">
+                    <small class="text-muted"><span class="text-danger">*</span> indicates mandatory fields</small>
                 </div>
 
                 <div class="mb-3">

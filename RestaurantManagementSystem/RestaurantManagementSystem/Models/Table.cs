@@ -10,8 +10,8 @@ namespace RestaurantManagementSystem.Models
 
         public int? BranchId { get; set; }
 
-        [Required]
-        [StringLength(20)]
+        [Required(ErrorMessage = "Table number is required")]
+        [StringLength(20, MinimumLength = 1, ErrorMessage = "Table number must be between 1 and 20 characters")]
         [Display(Name = "Table Number")]
         public string TableNumber { get; set; } = string.Empty;
         
@@ -22,11 +22,12 @@ namespace RestaurantManagementSystem.Models
             set { TableNumber = value; }
         }
 
-        [Required]
+        [Required(ErrorMessage = "Seating capacity is required")]
         [Display(Name = "Seating Capacity")]
         [Range(1, 20, ErrorMessage = "Seating capacity must be between 1 and 20")]
         public int Capacity { get; set; }
 
+        [Required(ErrorMessage = "Area/Section is required")]
         [Display(Name = "Area/Section")]
         [StringLength(50)]
         public string? Section { get; set; }

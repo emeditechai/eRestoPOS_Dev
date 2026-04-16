@@ -23,12 +23,16 @@
             <a asp-action="ActiveTables" class="btn btn-outline-primary ms-2">
                 <i class="fas fa-list"></i> View All Active Tables
             </a>
-            <a asp-action="CleanupStaleTurnovers" class="btn btn-outline-warning ms-2" 
-               onclick="return confirm('This will clean up old table turnovers and reset available tables. Continue?')">
+            <a href="@Url.Action("CleanupStaleTurnovers", "TableService")" class="btn btn-outline-warning ms-2 swal-confirm-link"
+               data-swal-title="Cleanup Stale Tables"
+               data-swal-text="This will clean up old table turnovers and reset available tables. Continue?"
+               data-swal-icon="warning">
                 <i class="fas fa-broom"></i> Cleanup Stale Tables
             </a>
-            <a asp-action="ForceResetAllTables" class="btn btn-outline-danger ms-2" 
-               onclick="return confirm('This will FORCE RESET all tables to available and clear all turnovers. Are you sure?')">
+            <a href="@Url.Action("ForceResetAllTables", "TableService")" class="btn btn-outline-danger ms-2 swal-confirm-link"
+               data-swal-title="Force Reset All Tables"
+               data-swal-text="This will FORCE RESET all tables to available, cancel all active orders, and clear all turnovers. Are you sure?"
+               data-swal-icon="warning">
                 <i class="fas fa-power-off"></i> Force Reset All Tables
             </a>
         </div>
@@ -669,5 +673,32 @@
         var pulseStyle = document.createElement('style');
         pulseStyle.innerHTML = '@@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } } .badge.bg-primary { animation: pulse 2s ease-in-out infinite; }';
         document.head.appendChild(pulseStyle);
+
+        // SweetAlert2 confirmation for action links
+        document.querySelectorAll('.swal-confirm-link').forEach(function(link) {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                var url = this.getAttribute('href');
+                var title = this.getAttribute('data-swal-title') || 'Are you sure?';
+                var text = this.getAttribute('data-swal-text') || 'This action cannot be undone.';
+                var icon = this.getAttribute('data-swal-icon') || 'warning';
+
+                Swal.fire({
+                    title: title,
+                    text: text,
+                    icon: icon,
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    cancelButtonColor: '#6c757d',
+                    confirmButtonText: 'Yes, proceed',
+                    cancelButtonText: 'Cancel',
+                    reverseButtons: true
+                }).then(function(result) {
+                    if (result.isConfirmed) {
+                        window.location.href = url;
+                    }
+                });
+            });
+        });
     </script>
 }

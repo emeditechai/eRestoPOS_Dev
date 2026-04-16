@@ -22,13 +22,14 @@ namespace RestaurantManagementSystem.Models
         
         [Required(ErrorMessage = "Guest name is required")]
         [Display(Name = "Guest Name")]
-        [StringLength(100, ErrorMessage = "Guest name cannot exceed 100 characters")]
+        [StringLength(100, MinimumLength = 2, ErrorMessage = "Guest name must be between 2 and 100 characters")]
+        [RegularExpression(@"^[a-zA-Z\s\.\-']+$", ErrorMessage = "Guest name can only contain letters, spaces, dots, hyphens, and apostrophes")]
         public string GuestName { get; set; }
         
         [Required(ErrorMessage = "Party size is required")]
         [Display(Name = "Party Size")]
         [Range(1, 50, ErrorMessage = "Party size must be between 1 and 50")]
-        public int PartySize { get; set; }
+        public int PartySize { get; set; } = 1;
         
         [Display(Name = "Notes/Special Requests")]
         [StringLength(500, ErrorMessage = "Notes cannot exceed 500 characters")]

@@ -217,6 +217,7 @@ namespace RestaurantManagementSystem.Controllers
                     
                     int departedTurnovers = 0;
                     int resetTables = 0;
+                    int cancelledOrders = 0;
                     
                     // Mark ALL active turnovers as departed
                     using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -226,6 +227,17 @@ namespace RestaurantManagementSystem.Controllers
                         WHERE Status < 5", connection))
                     {
                         departedTurnovers = command.ExecuteNonQuery();
+                    }
+                    
+                    // Complete all active orders linked to tables (Status 0=Open, 1=In Progress, 2=Ready → 4=Cancelled)
+                    using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        UPDATE o 
+                        SET o.Status = 4 -- Cancelled
+                        FROM Orders o
+                        INNER JOIN OrderTables ot ON o.Id = ot.OrderId
+                        WHERE o.Status IN (0, 1, 2)", connection))
+                    {
+                        cancelledOrders = command.ExecuteNonQuery();
                     }
                     
                     // Reset ALL tables to Available status
@@ -249,7 +261,7 @@ namespace RestaurantManagementSystem.Controllers
                         command.ExecuteNonQuery();
                     }
                     
-                    TempData["SuccessMessage"] = $"Force reset completed: {departedTurnovers} turnovers departed, {resetTables} tables reset to available. All server assignments cleared.";
+                    TempData["SuccessMessage"] = $"Force reset completed: {departedTurnovers} turnovers departed, {resetTables} tables reset to available, {cancelledOrders} active orders cancelled. All server assignments cleared.";
                 }
             }
             catch (Exception ex)
