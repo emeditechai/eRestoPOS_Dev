@@ -127,6 +127,7 @@ namespace RestaurantManagementSystem
 
             app.UseSession();
 
+            app.UseMiddleware<MaintenanceMiddleware>();
             app.UseMiddleware<DatabaseColumnFixMiddleware>();
             app.UseAuthentication();
             app.UseMiddleware<LicensingMiddleware>();
