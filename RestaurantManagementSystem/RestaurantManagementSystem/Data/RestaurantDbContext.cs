@@ -310,10 +310,10 @@ namespace RestaurantManagementSystem.Data
 
             // Seed data for Tables
             modelBuilder.Entity<Table>().HasData(
-                new Table { Id = 1, TableNumber = "T1", Capacity = 4, Status = TableStatus.Available, IsActive = true },
-                new Table { Id = 2, TableNumber = "T2", Capacity = 2, Status = TableStatus.Occupied, IsActive = true },
-                new Table { Id = 3, TableNumber = "T3", Capacity = 6, Status = TableStatus.Available, IsActive = true },
-                new Table { Id = 4, TableNumber = "T4", Capacity = 8, Status = TableStatus.Reserved, IsActive = true }
+                new Table { Id = 1, TableNumber = "T1", Capacity = 4, Section = "Main", Status = TableStatus.Available, IsActive = true },
+                new Table { Id = 2, TableNumber = "T2", Capacity = 2, Section = "Main", Status = TableStatus.Occupied, IsActive = true },
+                new Table { Id = 3, TableNumber = "T3", Capacity = 6, Section = "Main", Status = TableStatus.Available, IsActive = true },
+                new Table { Id = 4, TableNumber = "T4", Capacity = 8, Section = "Main", Status = TableStatus.Reserved, IsActive = true }
             );
 
             // Seed data for Reservations

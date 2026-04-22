@@ -354,7 +354,11 @@
 
                     const selectedIds = getSelectedMenuItemIds();
                     if (selectedIds.length === 0) {
-                        alert('Select at least one menu item using the checkboxes before copying.');
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'No Items Selected',
+                            text: 'Select at least one menu item using the checkboxes before copying.'
+                        });
                         return;
                     }
 
@@ -405,7 +409,11 @@
                             throw new Error(payload.message || 'Copy failed.');
                         }
 
-                        alert(payload.message || 'Menu items copied successfully.');
+                        await Swal.fire({
+                            icon: 'success',
+                            title: 'Copy Completed',
+                            text: payload.message || 'Menu items copied successfully.'
+                        });
                         window.location.reload();
                     } catch (error) {
                         showCopyError(error && error.message ? error.message : 'Copy failed.');
