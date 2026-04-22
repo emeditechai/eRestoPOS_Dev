@@ -14,7 +14,10 @@
                 <th>Name</th>
                 <th>Category</th>
                 <th>Sub Category</th>
-                <th class="text-end">Price</th>
+                <th class="text-end">Dine In Price (₹)</th>
+                <th class="text-end">Takeout Price</th>
+                <th class="text-end">Delivery Price</th>
+                <th class="text-end">Room Service Price</th>
                 <th class="text-center">Prep Time</th>
                 <th class="text-center">Status</th>
             </tr>
@@ -32,6 +35,9 @@
                         <td>@(i.Category?.Name ?? "")</td>
                         <td>@(i.SubCategory?.Name ?? "")</td>
                         <td class="text-end">@i.Price.ToString("N2")</td>
+                        <td class="text-end">@(i.TakeoutPrice.HasValue ? i.TakeoutPrice.Value.ToString("N2") : "-")</td>
+                        <td class="text-end">@(i.DeliveryPrice.HasValue ? i.DeliveryPrice.Value.ToString("N2") : "-")</td>
+                        <td class="text-end">@(i.RoomServicePrice.HasValue ? i.RoomServicePrice.Value.ToString("N2") : "-")</td>
                         <td class="text-center">@i.PreparationTimeMinutes min</td>
                         <td class="text-center">@(i.IsAvailable ? "Available" : "Unavailable")</td>
                     </tr>
@@ -41,7 +47,7 @@
             else
             {
                 <tr>
-                    <td colspan="8" class="text-center">No menu items found</td>
+                    <td colspan="11" class="text-center">No menu items found</td>
                 </tr>
             }
         </tbody>

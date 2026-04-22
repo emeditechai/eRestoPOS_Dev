@@ -27,7 +27,7 @@ namespace RestaurantManagementSystem.ViewModels
         public string Description { get; set; }
 
         [Required(ErrorMessage = "Price is required")]
-        [Range(0.01, 10000, ErrorMessage = "Price must be greater than 0")]
+        [Range(0, 10000, ErrorMessage = "Dine In Price must be greater than or equal to 0")]
         [DataType(DataType.Currency)]
         public decimal Price { get; set; }
 

@@ -39,7 +39,6 @@
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/3.2.3/css/buttons.dataTables.min.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery-timepicker/1.13.18/jquery.timepicker.min.css" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css" />
     <link rel="stylesheet" href="~/css/settings.css" asp-append-version="true" />
     @await RenderSectionAsync("Styles", required: false)
 </head>
@@ -783,10 +782,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-timepicker/1.13.18/jquery.timepicker.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
-        // Configure toastr
-        toastr.options = {
+        // SweetAlert-backed toastr compatibility layer.
+        // Existing toastr.* calls across pages will continue to work,
+        // but notifications are rendered using SweetAlert only.
+        window.toastr = window.toastr || {};
+        toastr.options = toastr.options || {
             "closeButton": true,
             "progressBar": true,
             "positionClass": "toast-top-right",
@@ -796,23 +798,99 @@
             "hideMethod": "fadeOut"
         };
 
-        // Auto-display TempData messages as toastr notifications
+        (function () {
+            function parseMs(value, fallback) {
+                var n = parseInt(value, 10);
+                return isNaN(n) ? fallback : n;
+            }
+
+            function toSwalPosition(positionClass) {
+                if (!positionClass) return 'top-end';
+                if (positionClass.indexOf('top-left') >= 0) return 'top-start';
+                if (positionClass.indexOf('top-center') >= 0) return 'top';
+                if (positionClass.indexOf('top-right') >= 0) return 'top-end';
+                if (positionClass.indexOf('bottom-left') >= 0) return 'bottom-start';
+                if (positionClass.indexOf('bottom-center') >= 0) return 'bottom';
+                if (positionClass.indexOf('bottom-right') >= 0) return 'bottom-end';
+                return 'top-end';
+            }
+
+            function show(icon, message, title) {
+                var opts = toastr.options || {};
+                var hasHtml = /<[^>]+>/.test(message || '');
+                var swalConfig = {
+                    icon: icon,
+                    title: title || '',
+                    showConfirmButton: false,
+                    showCloseButton: !!opts.closeButton,
+                    timer: parseMs(opts.timeOut, 5000),
+                    timerProgressBar: !!opts.progressBar,
+                    position: toSwalPosition(opts.positionClass),
+                    toast: true
+                };
+
+                if (hasHtml) {
+                    swalConfig.html = message || '';
+                } else {
+                    swalConfig.text = message || '';
+                }
+
+                Swal.fire(swalConfig);
+                return { close: function () { Swal.close(); } };
+            }
+
+            toastr.success = function (message, title) { return show('success', message, title || 'Success'); };
+            toastr.error = function (message, title) { return show('error', message, title || 'Error'); };
+            toastr.warning = function (message, title) { return show('warning', message, title || 'Warning'); };
+            toastr.info = function (message, title) { return show('info', message, title || 'Information'); };
+            toastr.clear = function () { Swal.close(); };
+        })();
+
+        // Auto-display TempData messages as SweetAlert popups
         $(document).ready(function() {
             @if (TempData["SuccessMessage"] != null)
             {
-                <text>toastr.success('@Html.Raw(TempData["SuccessMessage"])', 'Success');</text>
+                <text>
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Success',
+                    text: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(TempData["SuccessMessage"]?.ToString() ?? string.Empty)),
+                    confirmButtonColor: '#198754'
+                });
+                </text>
             }
             @if (TempData["ErrorMessage"] != null)
             {
-                <text>toastr.error('@Html.Raw(TempData["ErrorMessage"])', 'Error');</text>
+                <text>
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(TempData["ErrorMessage"]?.ToString() ?? string.Empty)),
+                    confirmButtonColor: '#dc3545'
+                });
+                </text>
             }
             @if (TempData["WarningMessage"] != null)
             {
-                <text>toastr.warning('@Html.Raw(TempData["WarningMessage"])', 'Warning');</text>
+                <text>
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Warning',
+                    text: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(TempData["WarningMessage"]?.ToString() ?? string.Empty)),
+                    confirmButtonColor: '#f0ad4e'
+                });
+                </text>
             }
             @if (TempData["InfoMessage"] != null)
             {
-                <text>toastr.info('@Html.Raw(TempData["InfoMessage"])', 'Information');</text>
+                <text>
+                Swal.fire({
+                    icon: 'info',
+                    title: 'Information',
+                    text: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(TempData["InfoMessage"]?.ToString() ?? string.Empty)),
+                    confirmButtonColor: '#0d6efd'
+                });
+                </text>
             }
         });
     </script>
@@ -1626,8 +1704,6 @@
             }
         });
     </script>
-    <!-- SweetAlert2 -->
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
         // Global handler for data-swal-confirm buttons (replaces native confirm)
         document.addEventListener('click', function (e) {

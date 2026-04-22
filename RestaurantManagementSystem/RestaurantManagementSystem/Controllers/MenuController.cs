@@ -366,10 +366,10 @@ END
             {
                 var items = GetAllMenuItems();
 
-                var csv = "Id,PLU,Name,Category,SubCategory,Price,PrepTime,Available\n";
+                var csv = "Id,PLU,Name,Category,SubCategory,Dine In Price (INR),Takeout Price,Delivery Price,Room Service Price,PrepTime,Available\n";
                 foreach (var i in items)
                 {
-                    var line = $"{i.Id},\"{(i.PLUCode ?? "")}\",\"{(i.Name ?? "").Replace("\"", "\"\"")}\",\"{(i.Category?.Name ?? "").Replace("\"", "\"\"")}\",\"{(i.SubCategory?.Name ?? "").Replace("\"", "\"\"")}\",{i.Price}, {i.PreparationTimeMinutes}, {(i.IsAvailable?1:0)}\n";
+                    var line = $"{i.Id},\"{(i.PLUCode ?? "")}\",\"{(i.Name ?? "").Replace("\"", "\"\"")}\",\"{(i.Category?.Name ?? "").Replace("\"", "\"\"")}\",\"{(i.SubCategory?.Name ?? "").Replace("\"", "\"\"")}\",{i.Price:0.00},{(i.TakeoutPrice.HasValue ? i.TakeoutPrice.Value.ToString("0.00") : "")},{(i.DeliveryPrice.HasValue ? i.DeliveryPrice.Value.ToString("0.00") : "")},{(i.RoomServicePrice.HasValue ? i.RoomServicePrice.Value.ToString("0.00") : "")},{i.PreparationTimeMinutes},{(i.IsAvailable?1:0)}\n";
                     csv += line;
                 }
 

@@ -4,15 +4,16 @@
     ViewData["Title"] = "Edit Menu Item";
 }
 
-<div class="container-fluid">
+<div class="container-fluid menu-edit-page">
     <div class="row">
         <div class="col-md-12">
-            <div class="card">
+            <div class="card menu-edit-card border-0 shadow-sm">
                 <form asp-action="Edit" method="post" enctype="multipart/form-data">
-                <div class="card-header bg-light py-3 px-4">
+                <div class="card-header bg-light py-3 px-4 menu-edit-header">
                     <div class="row g-3 align-items-end">
                         <div class="col-lg-4 col-md-12">
                             <h4 class="mb-0 fw-semibold">Edit Menu Item</h4>
+                            <small class="text-muted">Update menu details with a consistent workflow.</small>
                         </div>
                         <div class="col-lg-5 col-md-8">
                             <label asp-for="BranchId" class="form-label small mb-1 fw-semibold">Branch</label>
@@ -47,7 +48,7 @@
                             </li>
                             <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="modifiers-tab" data-bs-toggle="tab" data-bs-target="#modifiers" type="button" role="tab" aria-controls="modifiers" aria-selected="false">
-                                    <i class="fas fa-sliders-h me-1"></i> Modifiers
+                                    <i class="fas fa-sliders-h me-1"></i> Modifiers <span class="badge bg-secondary ms-1" id="modifierActivityCount">0</span>
                                 </button>
                             </li>
                         </ul>
@@ -55,14 +56,16 @@
                         <div class="tab-content pt-2 pb-1" id="menuItemTabsContent">
                             <!-- General Tab -->
                             <div class="tab-pane fade show active" id="general" role="tabpanel" aria-labelledby="general-tab">
-                                <div class="row">
+                                <div class="row g-3">
                                     <div class="col-md-6">
-                                        <div class="form-group">
+                                        <div class="section-panel h-100">
+                                        <div class="section-title">Core Information</div>
+                                        <div class="form-group mb-2">
                                             <label asp-for="PLUCode" class="control-label"></label>
                                             <input asp-for="PLUCode" class="form-control" required />
                                             <span asp-validation-for="PLUCode" class="text-danger"></span>
                                         </div>
-                                        <div class="form-group">
+                                        <div class="form-group mb-2">
                                             <label asp-for="MenuItemGroupId" class="control-label">Item Group</label>
                                             <select asp-for="MenuItemGroupId" class="form-control" asp-items="ViewBag.MenuItemGroups" required aria-required="true">
                                                 <option value="">-- Select Item Group --</option>
@@ -70,38 +73,38 @@
                                             <div class="invalid-feedback">Please select an item group.</div>
                                             <span asp-validation-for="MenuItemGroupId" class="text-danger"></span>
                                         </div>
-                                        <div class="form-group">
+                                        <div class="form-group mb-2">
                                             <label asp-for="Name" class="control-label"></label>
                                             <input asp-for="Name" class="form-control" />
                                             <span asp-validation-for="Name" class="text-danger"></span>
                                         </div>
                                         
-                                        <div class="form-group">
-                                            <label asp-for="Price" class="control-label"></label>
-                                            <input asp-for="Price" class="form-control" type="number" step="0.01" />
+                                        <div class="form-group mb-2">
+                                            <label asp-for="Price" class="control-label">Dine In Price (₹)</label>
+                                            <input asp-for="Price" class="form-control" type="number" step="0.01" min="0" />
                                             <span asp-validation-for="Price" class="text-danger"></span>
                                         </div>
                                         
-                                        <div class="form-group">
+                                        <div class="form-group mb-2">
                                             <label asp-for="TakeoutPrice" class="control-label"></label>
                                             <input asp-for="TakeoutPrice" class="form-control" type="number" step="0.01" />
                                             <span asp-validation-for="TakeoutPrice" class="text-danger"></span>
                                         </div>
                                         
-                                        <div class="form-group">
+                                        <div class="form-group mb-2">
                                             <label asp-for="DeliveryPrice" class="control-label"></label>
                                             <input asp-for="DeliveryPrice" class="form-control" type="number" step="0.01" />
                                             <span asp-validation-for="DeliveryPrice" class="text-danger"></span>
                                         </div>
 
-                                        <div class="form-group">
+                                        <div class="form-group mb-2">
                                             <label asp-for="RoomServicePrice" class="control-label"></label>
                                             <input asp-for="RoomServicePrice" class="form-control" type="number" step="0.01" />
                                             <span asp-validation-for="RoomServicePrice" class="text-danger"></span>
                                         </div>
                                         
                                         <!-- UOM Dropdown - Visible only for BAR items -->
-                                        <div class="form-group" id="uom-group" style="display: none;">
+                                        <div class="form-group mb-2" id="uom-group" style="display: none;">
                                             <label asp-for="UOMId" class="control-label">Unit of Measurement</label>
                                             <select asp-for="UOMId" class="form-control" asp-items="ViewBag.UOMs">
                                                 <option value="">-- Select UOM --</option>
@@ -109,7 +112,7 @@
                                             <span asp-validation-for="UOMId" class="text-danger"></span>
                                         </div>
                                         
-                                        <div class="form-group">
+                                        <div class="form-group mb-2">
                                             <label asp-for="CategoryId" class="control-label"></label>
                                             <select asp-for="CategoryId" class="form-control" asp-items="ViewBag.Categories" onchange="loadSubCategories()">
                                                 <option value="">-- Select Category --</option>
@@ -117,7 +120,7 @@
                                             <span asp-validation-for="CategoryId" class="text-danger"></span>
                                         </div>
 
-                                        <div class="form-group">
+                                        <div class="form-group mb-2">
                                             <label asp-for="SubCategoryId" class="control-label required"></label>
                                             <select asp-for="SubCategoryId" class="form-control" asp-items="ViewBag.SubCategories" required aria-required="true">
                                                 <option value="">-- Select Sub Category --</option>
@@ -126,29 +129,32 @@
                                             <span asp-validation-for="SubCategoryId" class="text-danger"></span>
                                         </div>
 
-                                        <div class="form-group">
+                                        <div class="form-group mb-2">
                                             <label asp-for="KitchenStationId" class="control-label"></label>
                                             <select asp-for="KitchenStationId" class="form-control" asp-items="ViewBag.KitchenStations">
                                                 <option value="">-- Select Kitchen Station --</option>
                                             </select>
                                             <span asp-validation-for="KitchenStationId" class="text-danger"></span>
                                         </div>
+                                        </div>
                                     </div>
                                     
                                     <div class="col-md-6">
-                                        <div class="form-group">
+                                        <div class="section-panel h-100">
+                                        <div class="section-title">Operations & Availability</div>
+                                        <div class="form-group mb-2">
                                             <label asp-for="PreparationTimeMinutes" class="control-label"></label>
                                             <input asp-for="PreparationTimeMinutes" class="form-control" type="number" min="1" value="@(Model.PreparationTimeMinutes == 0 ? 1 : Model.PreparationTimeMinutes)" />
                                             <span asp-validation-for="PreparationTimeMinutes" class="text-danger"></span>
                                         </div>
                                         
-                                        <div class="form-group">
+                                        <div class="form-group mb-2">
                                             <label asp-for="CalorieCount" class="control-label"></label>
                                             <input asp-for="CalorieCount" class="form-control" type="number" />
                                             <span asp-validation-for="CalorieCount" class="text-danger"></span>
                                         </div>
                                         
-                                        <div class="form-group">
+                                        <div class="form-group mb-2">
                                             <label asp-for="DiscountPercentage" class="control-label"></label>
                                             <input asp-for="DiscountPercentage" class="form-control" type="number" step="0.01" />
                                             <span asp-validation-for="DiscountPercentage" class="text-danger"></span>
@@ -164,7 +170,7 @@
                                             <span asp-validation-for="GSTPercentage" class="text-danger"></span>
                                         </div>
                                         
-                                        <div class="form-group">
+                                        <div class="form-group mb-2">
                                             <label asp-for="ImageFile" class="control-label"></label>
                                             @if (!string.IsNullOrEmpty(Model.ImagePath))
                                             {
@@ -179,23 +185,24 @@
                                             <span asp-validation-for="ImageFile" class="text-danger"></span>
                                         </div>
 
-                                        <div class="form-check form-check-inline mt-3">
+                                        <div class="form-check form-check-inline mt-3 status-chip">
                                             <input asp-for="IsAvailable" class="form-check-input" />
                                             <label asp-for="IsAvailable" class="form-check-label"></label>
                                         </div>
-                                        <div class="form-check form-check-inline mt-3 ms-2">
+                                        <div class="form-check form-check-inline mt-3 ms-2 status-chip">
                                             <input asp-for="NotAvailable" class="form-check-input" id="NotAvailableEdit" />
                                             <label class="form-check-label" for="NotAvailableEdit">Not Available</label>
                                         </div>
                                         
-                                        <div class="form-check form-check-inline">
+                                        <div class="form-check form-check-inline status-chip">
                                             <input asp-for="IsFeatured" class="form-check-input" />
                                             <label asp-for="IsFeatured" class="form-check-label"></label>
                                         </div>
                                         
-                                        <div class="form-check form-check-inline">
+                                        <div class="form-check form-check-inline status-chip">
                                             <input asp-for="IsSpecial" class="form-check-input" />
                                             <label asp-for="IsSpecial" class="form-check-label"></label>
+                                        </div>
                                         </div>
                                     </div>
 
@@ -246,6 +253,17 @@
                             
                             <!-- Modifiers Tab -->
                             <div class="tab-pane fade" id="modifiers" role="tabpanel" aria-labelledby="modifiers-tab">
+                                <div class="card border-0 shadow-sm mb-3 modifier-activity-panel">
+                                    <div class="card-body p-3">
+                                        <div class="d-flex align-items-center justify-content-between mb-2">
+                                            <h6 class="mb-0"><i class="fas fa-history me-1"></i> Modifier Activity</h6>
+                                            <small class="text-muted">Live change tracking for this menu item</small>
+                                        </div>
+                                        <ul class="list-unstyled mb-0 small" id="modifierActivityList">
+                                            <li class="text-muted" id="modifierActivityEmpty">No changes tracked yet.</li>
+                                        </ul>
+                                    </div>
+                                </div>
                                 <div class="row">
                                     @if (ViewBag.Modifiers != null)
                                     {
@@ -292,13 +310,13 @@
                             </div>
                         </div>
 
-                        <div class="form-group mt-4 text-right">
-                            <button type="submit" class="btn btn-primary">
-                                <i class="fa fa-save"></i> Save Changes
-                            </button>
-                            <a asp-action="Index" class="btn btn-secondary">
-                                <i class="fa fa-times"></i> Cancel
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4 form-action-bar">
+                            <a asp-action="Index" class="btn btn-outline-secondary">
+                                <i class="fa fa-times me-1"></i> Cancel
                             </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fa fa-save me-1"></i> Save Changes
+                            </button>
                         </div>
                 </div>
                 </form>
@@ -308,6 +326,74 @@
 </div>
 
 <!-- Ingredients feature removed intentionally -->
+
+<style>
+    .menu-edit-page .menu-edit-card {
+        border-radius: 14px;
+        overflow: hidden;
+    }
+
+    .menu-edit-page .menu-edit-header {
+        border-bottom: 1px solid #e9edf3;
+        background: linear-gradient(180deg, #fafcff 0%, #f7f9fc 100%);
+    }
+
+    .menu-edit-page .section-panel {
+        border: 1px solid #e7edf5;
+        background: #fbfcfe;
+        border-radius: 12px;
+        padding: 12px;
+    }
+
+    .menu-edit-page .section-title {
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #4f6077;
+        font-weight: 700;
+        margin-bottom: 10px;
+    }
+
+    .menu-edit-page .status-chip {
+        border: 1px solid #e3e9f2;
+        border-radius: 8px;
+        padding: 6px 10px;
+        background-color: #fff;
+        min-height: 34px;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .menu-edit-page .form-action-bar {
+        border-top: 1px solid #e9edf3;
+        padding-top: 14px;
+        position: sticky;
+        bottom: 0;
+        background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, #ffffff 30%);
+        z-index: 5;
+    }
+
+    .menu-edit-page .modifier-activity-panel {
+        border: 1px solid #e4ebf4;
+        background: #f9fbff;
+    }
+
+    .menu-edit-page .modifier-activity-item {
+        border-left: 3px solid #2c7be5;
+        padding-left: 10px;
+        margin-bottom: 8px;
+    }
+
+    @@media (max-width: 767.98px) {
+        .menu-edit-page .section-panel {
+            padding: 10px;
+        }
+
+        .menu-edit-page .form-action-bar {
+            padding-bottom: 4px;
+        }
+    }
+</style>
 
 @section Scripts {
     @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
@@ -406,10 +492,115 @@
             
             // Check initial state on page load
             toggleUOMField();
+
+            initializeModifierActivityTracker();
             
             // Load subcategories on page load if category is selected
             // The subcategories are already loaded by the server, only reload if category changes
         });
+
+        function initializeModifierActivityTracker() {
+            const $form = $('form');
+            const $activityList = $('#modifierActivityList');
+            const $empty = $('#modifierActivityEmpty');
+            const $count = $('#modifierActivityCount');
+            const changes = new Map();
+
+            function normalizeValue(el) {
+                const $el = $(el);
+                if ($el.is(':checkbox')) {
+                    return $el.is(':checked') ? 'Yes' : 'No';
+                }
+                if ($el.attr('type') === 'file') {
+                    return el.files && el.files.length > 0 ? el.files[0].name : '';
+                }
+                return ($el.val() || '').toString().trim();
+            }
+
+            function displayValue(value) {
+                return value === '' ? '(empty)' : value;
+            }
+
+            function getFieldLabel(el) {
+                const $el = $(el);
+                const id = $el.attr('id');
+                if (id && id.startsWith('modifier-')) {
+                    return 'Modifier: ' + $('label[for="' + id + '"]').text().trim().replace(/\s+/g, ' ');
+                }
+                if (($el.attr('name') || '').startsWith('ModifierPrices[')) {
+                    const cardLabel = $el.closest('.card-body').find('.form-check-label').first().text().trim().replace(/\s+/g, ' ');
+                    return 'Modifier Price: ' + cardLabel;
+                }
+                const explicitLabel = id ? $('label[for="' + id + '"]').first().text().trim() : '';
+                if (explicitLabel) {
+                    return explicitLabel.replace(/\s+/g, ' ');
+                }
+                return ($el.attr('name') || 'Field').replace(/\[|\]/g, ' ');
+            }
+
+            function render() {
+                $activityList.find('.modifier-activity-item').remove();
+                const sorted = Array.from(changes.values()).sort((a, b) => b.time - a.time);
+                $count.text(sorted.length);
+
+                if (sorted.length === 0) {
+                    $empty.removeClass('d-none');
+                    return;
+                }
+
+                $empty.addClass('d-none');
+                sorted.forEach(function (entry) {
+                    const timeText = new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const item = '<li class="modifier-activity-item">'
+                        + '<div class="fw-semibold">' + entry.label + '</div>'
+                        + '<div class="text-muted">' + displayValue(entry.from) + ' -> ' + displayValue(entry.to) + '</div>'
+                        + '<small class="text-secondary">Updated at ' + timeText + '</small>'
+                        + '</li>';
+                    $activityList.append(item);
+                });
+            }
+
+            function trackChange(el) {
+                const key = ($(el).attr('name') || $(el).attr('id') || '').toString();
+                if (!key) return;
+
+                const $el = $(el);
+                const current = normalizeValue(el);
+                const baseline = $el.data('baseline');
+
+                if ((($el.attr('name') || '').startsWith('ModifierPrices['))) {
+                    const modifierId = (($el.attr('name') || '').match(/\[(\d+)\]/) || [])[1];
+                    const modifierChecked = modifierId ? $('#modifier-' + modifierId).is(':checked') : true;
+                    if (!modifierChecked) {
+                        changes.delete(key);
+                        render();
+                        return;
+                    }
+                }
+
+                if (current === baseline) {
+                    changes.delete(key);
+                } else {
+                    changes.set(key, {
+                        label: getFieldLabel(el),
+                        from: baseline,
+                        to: current,
+                        time: Date.now()
+                    });
+                }
+                render();
+            }
+
+            $form.find('input:not([type="hidden"]):not([name="__RequestVerificationToken"]), select, textarea').each(function () {
+                $(this).data('baseline', normalizeValue(this));
+            });
+
+            $form.on('change input', 'input:not([type="hidden"]):not([name="__RequestVerificationToken"]), select, textarea', function () {
+                trackChange(this);
+            });
+
+            render();
+        }
 
         // Load subcategories based on selected category
         function loadSubCategories() {
