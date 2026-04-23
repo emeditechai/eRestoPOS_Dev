@@ -201,6 +201,11 @@ IF COL_LENGTH('dbo.MenuItems', 'BranchId') IS NULL
 BEGIN
     ALTER TABLE dbo.MenuItems ADD BranchId INT NULL;
 END
+
+IF COL_LENGTH('dbo.MenuItems', 'IsExtraCharge') IS NULL
+BEGIN
+    ALTER TABLE dbo.MenuItems ADD IsExtraCharge BIT NOT NULL CONSTRAINT DF_MenuItems_IsExtraCharge DEFAULT 0;
+END
 ", connection))
             {
                 cmd.ExecuteNonQuery();
@@ -795,6 +800,7 @@ END
                 CalorieCount = menuItem.CalorieCount,
                 IsFeatured = menuItem.IsFeatured,
                 IsSpecial = menuItem.IsSpecial,
+                IsExtraCharge = menuItem.IsExtraCharge,
                 DiscountPercentage = menuItem.DiscountPercentage,
                 KitchenStationId = menuItem.KitchenStationId,
                 GSTPercentage = menuItem.GSTPercentage,
@@ -1380,6 +1386,7 @@ END
                             m.[CalorieCount],
                             ISNULL(m.[IsFeatured], 0) AS IsFeatured,
                             ISNULL(m.[IsSpecial], 0) AS IsSpecial,
+                            ISNULL(m.[IsExtraCharge], 0) AS IsExtraCharge,
                             m.[DiscountPercentage],
                             m.[KitchenStationId],
                             m.[TargetGP]
@@ -1416,6 +1423,7 @@ END
                             m.[CalorieCount],
                             ISNULL(m.[IsFeatured], 0) AS IsFeatured,
                             ISNULL(m.[IsSpecial], 0) AS IsSpecial,
+                            ISNULL(m.[IsExtraCharge], 0) AS IsExtraCharge,
                             m.[DiscountPercentage],
                             m.[KitchenStationId],
                             m.[TargetGP]
@@ -1464,6 +1472,7 @@ END
                                         CalorieCount = SafeGetNullableInt(reader, "CalorieCount"),
                                         IsFeatured = SafeGetBoolean(reader, "IsFeatured"),
                                         IsSpecial = SafeGetBoolean(reader, "IsSpecial"),
+                                        IsExtraCharge = HasColumn(reader, "IsExtraCharge") ? SafeGetBoolean(reader, "IsExtraCharge") : false,
                                         DiscountPercentage = SafeGetNullableDecimal(reader, "DiscountPercentage"),
                                         KitchenStationId = SafeGetNullableInt(reader, "KitchenStationId"),
                                         TargetGP = SafeGetNullableDecimal(reader, "TargetGP"),
@@ -1584,6 +1593,7 @@ END
                             m.[CalorieCount],
                             m.[IsFeatured],
                             m.[IsSpecial],
+                            ISNULL(m.[IsExtraCharge], 0) AS IsExtraCharge,
                             m.[DiscountPercentage],
                             m.[KitchenStationId],
                             m.[TargetGP],
@@ -1625,6 +1635,7 @@ END
                             m.[CalorieCount],
                             m.[IsFeatured],
                             m.[IsSpecial],
+                            ISNULL(m.[IsExtraCharge], 0) AS IsExtraCharge,
                             m.[DiscountPercentage],
                             m.[KitchenStationId],
                             m.[TargetGP],
@@ -1677,6 +1688,7 @@ END
                                 CalorieCount = SafeGetNullableInt(reader, "CalorieCount"),
                                 IsFeatured = SafeGetBoolean(reader, "IsFeatured"),
                                 IsSpecial = SafeGetBoolean(reader, "IsSpecial"),
+                                IsExtraCharge = HasColumn(reader, "IsExtraCharge") ? SafeGetBoolean(reader, "IsExtraCharge") : false,
                                 DiscountPercentage = SafeGetNullableDecimal(reader, "DiscountPercentage"),
                                 KitchenStationId = SafeGetNullableInt(reader, "KitchenStationId"),
                                 TargetGP = SafeGetNullableDecimal(reader, "TargetGP"),
@@ -1818,10 +1830,10 @@ END
                     insertQuery = $@"
                         INSERT INTO [dbo].[MenuItems] (BranchId, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice{roomServicePriceColumn}, CategoryId, SubCategoryId, ImagePath,
                                   IsAvailable, PrepTime, CalorieCount, 
-                                  IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{groupColumn}{uomColumn})
+                                  IsFeatured, IsSpecial, IsExtraCharge, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{groupColumn}{uomColumn})
                         VALUES (@BranchId, @PLUCode, @Name, @Description, @Price, @TakeoutPrice, @DeliveryPrice{roomServicePriceParam}, @CategoryId, @SubCategoryId, @ImagePath,
                             @IsAvailable, @PreparationTimeMinutes, @CalorieCount, 
-                            @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{groupParam}{uomParam});
+                            @IsFeatured, @IsSpecial, @IsExtraCharge, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{groupParam}{uomParam});
                         SELECT SCOPE_IDENTITY();";
                 }
                 else
@@ -1836,10 +1848,10 @@ END
                     insertQuery = $@"
                         INSERT INTO [dbo].[MenuItems] (BranchId, PLUCode, Name, Description, Price, TakeoutPrice, DeliveryPrice{roomServicePriceColumn}, CategoryId, ImagePath,
                                   IsAvailable, PrepTime, CalorieCount, 
-                                  IsFeatured, IsSpecial, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{groupColumn}{uomColumn})
+                                  IsFeatured, IsSpecial, IsExtraCharge, DiscountPercentage, KitchenStationId, GSTPercentage, IsGstApplicable, NotAvailable{groupColumn}{uomColumn})
                         VALUES (@BranchId, @PLUCode, @Name, @Description, @Price, @TakeoutPrice, @DeliveryPrice{roomServicePriceParam}, @CategoryId, @ImagePath,
                             @IsAvailable, @PreparationTimeMinutes, @CalorieCount, 
-                            @IsFeatured, @IsSpecial, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{groupParam}{uomParam});
+                            @IsFeatured, @IsSpecial, @IsExtraCharge, @DiscountPercentage, @KitchenStationId, @GSTPercentage, @IsGstApplicable, @NotAvailable{groupParam}{uomParam});
                         SELECT SCOPE_IDENTITY();";
                 }
                 
@@ -1916,6 +1928,7 @@ END
                         
                     command.Parameters.AddWithValue("@IsFeatured", model.IsFeatured);
                     command.Parameters.AddWithValue("@IsSpecial", model.IsSpecial);
+                    command.Parameters.AddWithValue("@IsExtraCharge", model.IsExtraCharge);
                     
                     if (model.DiscountPercentage.HasValue)
                         command.Parameters.AddWithValue("@DiscountPercentage", model.DiscountPercentage);
@@ -2174,6 +2187,7 @@ END
                         CalorieCount = @CalorieCount,
                         IsFeatured = @IsFeatured,
                         IsSpecial = @IsSpecial,
+                        IsExtraCharge = @IsExtraCharge,
                         DiscountPercentage = @DiscountPercentage,
                         KitchenStationId = @KitchenStationId,
                         GSTPercentage = @GSTPercentage,
@@ -2254,6 +2268,7 @@ END
                         
                     command.Parameters.AddWithValue("@IsFeatured", model.IsFeatured);
                     command.Parameters.AddWithValue("@IsSpecial", model.IsSpecial);
+                    command.Parameters.AddWithValue("@IsExtraCharge", model.IsExtraCharge);
                     
                     if (model.DiscountPercentage.HasValue)
                         command.Parameters.AddWithValue("@DiscountPercentage", model.DiscountPercentage);
@@ -3568,6 +3583,7 @@ WHERE BranchId = @BranchId
                 "CalorieCount",
                 "IsFeatured",
                 "IsSpecial",
+                "IsExtraCharge",
                 "DiscountPercentage",
                 "KitchenStationId",
                 "GSTPercentage",

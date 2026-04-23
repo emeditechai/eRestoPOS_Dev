@@ -200,6 +200,17 @@
                                     }
 
                                     <div class="row g-2 mt-2">
+                                        <div class="col-12">
+                                            <div class="card bg-light h-100">
+                                                <div class="card-body p-2">
+                                                    <label class="small text-muted mb-0">Extra Charge</label>
+                                                    <p class="mb-0 fw-bold small">@(Model.IsExtraCharge ? "Yes" : "No")</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="row g-2 mt-2">
                                         @if (Model.CalorieCount.HasValue)
                                         {
                                             <div class="col-6">
@@ -241,6 +252,11 @@
                                                         @if (Model.IsSpecial)
                                                         {
                                                             <span class="badge bg-warning ms-1">Special</span>
+                                                        }
+
+                                                        @if (Model.IsExtraCharge)
+                                                        {
+                                                            <span class="badge bg-dark ms-1">Extra Charge</span>
                                                         }
                                                     </div>
                                                 </div>

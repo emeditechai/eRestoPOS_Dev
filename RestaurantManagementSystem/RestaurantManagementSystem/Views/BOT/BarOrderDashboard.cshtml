@@ -10,6 +10,11 @@
             <i class="fas fa-cocktail me-2"></i>@ViewData["Title"]
         </h1>
         <div class="d-flex align-items-center gap-2">
+            <div class="bar-refresh-tools me-1">
+                <small id="refreshCountdown" class="text-muted">Refresh in 120s</small>
+                <button type="button" id="toggleAutoRefreshBtn" class="btn btn-sm btn-outline-secondary">Pause Auto Refresh</button>
+                <button type="button" id="refreshNowBtn" class="btn btn-sm btn-outline-primary"><i class="fas fa-rotate-right me-1"></i>Refresh</button>
+            </div>
             <a href="@Url.Action("Form", "Feedback")" class="btn btn-light" style="border-radius: 50%; width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(124,58,237,.25); color: #7c3aed;" target="_blank" rel="noopener noreferrer" title="Open Feedback Form">
                 <i class="fas fa-comment-dots"></i>
             </a>
@@ -38,6 +43,16 @@
 
     @* Compact styling with purple theme *@
     <style>
+        .bar-refresh-tools {
+            display: inline-flex;
+            align-items: center;
+            gap: .5rem;
+            flex-wrap: wrap;
+            padding: .4rem .55rem;
+            border: 1px solid #ddd6fe;
+            border-radius: 8px;
+            background: rgba(255,255,255,.9);
+        }
         .card { border-radius: 8px; }
         .card-header { padding: .5rem .75rem; }
         .card-body { padding: .75rem; }
@@ -51,6 +66,13 @@
         .btn-group .btn { padding: .2rem .4rem; }
         .table-container { max-height: 28vh; overflow: auto; }
         .bar-metric-card { border-left: 4px solid #7c3aed; }
+
+        @@media (max-width: 767.98px) {
+            .bar-refresh-tools {
+                width: 100%;
+                justify-content: flex-start;
+            }
+        }
     </style>
 
     @* Metrics row with purple theme *@
@@ -59,7 +81,8 @@
             <div class="card text-white metric-card bar-metric-card" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);">
                 <div class="card-body">
                     <h5>Open Orders</h5>
-                    <h2>@Model.OpenOrdersCount</h2>
+                    <h2 id="kpiOpenCount">@Model.OpenOrdersCount</h2>
+                    <small id="kpiOpenMeta" style="opacity:.9;">Filtered @Model.OpenOrdersCount / Total @Model.OpenOrdersCount</small>
                 </div>
             </div>
         </div>
@@ -67,7 +90,8 @@
             <div class="card text-white metric-card bar-metric-card" style="background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%);">
                 <div class="card-body">
                     <h5>In Progress</h5>
-                    <h2>@Model.InProgressOrdersCount</h2>
+                    <h2 id="kpiProgressCount">@Model.InProgressOrdersCount</h2>
+                    <small id="kpiProgressMeta" style="opacity:.9;">Filtered @Model.InProgressOrdersCount / Total @Model.InProgressOrdersCount</small>
                 </div>
             </div>
         </div>
@@ -75,7 +99,8 @@
             <div class="card text-white metric-card bar-metric-card" style="background: linear-gradient(135deg, #a855f7 0%, #c084fc 100%);">
                 <div class="card-body">
                     <h5>Ready</h5>
-                    <h2>@Model.ReadyOrdersCount</h2>
+                    <h2 id="kpiReadyCount">@Model.ReadyOrdersCount</h2>
+                    <small id="kpiReadyMeta" style="opacity:.9;">Filtered @Model.ReadyOrdersCount / Total @Model.ReadyOrdersCount</small>
                 </div>
             </div>
         </div>
@@ -83,7 +108,8 @@
             <div class="card text-white metric-card bar-metric-card" style="background: linear-gradient(135deg, #c084fc 0%, #d8b4fe 100%);">
                 <div class="card-body">
                     <h5>Today's Bar Sales</h5>
-                    <h2>₹@Model.TotalSales.ToString("F2")</h2>
+                    <h2 id="kpiSalesAmount">₹@Model.TotalSales.ToString("F2")</h2>
+                    <small id="kpiSalesMeta" style="opacity:.9;">Filtered ₹@Model.TotalSales.ToString("F2") / Total ₹@Model.TotalSales.ToString("F2")</small>
                 </div>
             </div>
         </div>
@@ -157,10 +183,10 @@
                                                     @{
                                                         var encryptedOrderUrl = "/Order/Details?token=" + Uri.EscapeDataString(EncryptionService.EncryptParameters(new Dictionary<string, string> { ["id"] = order.Id.ToString(), ["fromBar"] = "true" }));
                                                     }
-                                                    <a href="@encryptedOrderUrl" class="btn btn-sm btn-outline-primary" title="View Order">
+                                                    <a href="@encryptedOrderUrl" class="btn btn-sm btn-outline-primary" title="View Order" target="_blank" rel="noopener noreferrer">
                                                         <i class="fas fa-eye"></i>
                                                     </a>
-                                                    <a href="/Payment/Index/@order.Id?fromBar=true" class="btn btn-sm btn-outline-success" title="Process Payment">
+                                                    <a href="/Payment/Index/@order.Id?fromBar=true" class="btn btn-sm btn-outline-success" title="Process Payment" target="_blank" rel="noopener noreferrer">
                                                         <i class="fas fa-credit-card"></i>
                                                     </a>
                                                     <button type="button" class="btn btn-sm btn-outline-danger cancel-order-trigger"
@@ -189,10 +215,24 @@
                 <div class="card-header d-flex justify-content-between align-items-center" style="background: linear-gradient(90deg, #9333ea 60%, #a855f7 100%); color: white;">
                     <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Completed Bar Orders</h5>
                     <form class="d-flex align-items-center" method="get" asp-controller="BOT" asp-action="BarOrderDashboard" style="gap:.5rem">
+                        @{
+                            var qFrom = ViewContext.HttpContext.Request.Query["fromDate"].ToString();
+                            var qTo = ViewContext.HttpContext.Request.Query["toDate"].ToString();
+                            var today = DateTime.Today;
+                            var yesterday = DateTime.Today.AddDays(-1);
+                            var last7Start = DateTime.Today.AddDays(-6);
+                            var monthStart = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+                        }
+                        <div class="btn-group btn-group-sm me-2" role="group" aria-label="Quick date filters">
+                            <a class="btn btn-light" href="@Url.Action("BarOrderDashboard", "BOT", new { fromDate = today.ToString("yyyy-MM-dd"), toDate = today.ToString("yyyy-MM-dd") })">Today</a>
+                            <a class="btn btn-light" href="@Url.Action("BarOrderDashboard", "BOT", new { fromDate = yesterday.ToString("yyyy-MM-dd"), toDate = yesterday.ToString("yyyy-MM-dd") })">Yesterday</a>
+                            <a class="btn btn-light" href="@Url.Action("BarOrderDashboard", "BOT", new { fromDate = last7Start.ToString("yyyy-MM-dd"), toDate = today.ToString("yyyy-MM-dd") })">Last 7 Days</a>
+                            <a class="btn btn-light" href="@Url.Action("BarOrderDashboard", "BOT", new { fromDate = monthStart.ToString("yyyy-MM-dd"), toDate = today.ToString("yyyy-MM-dd") })">This Month</a>
+                        </div>
                         <label class="small mb-0">From</label>
-                        <input type="date" name="fromDate" class="form-control form-control-sm" value="@(ViewContext.HttpContext.Request.Query["fromDate"].ToString())" />
+                        <input type="date" name="fromDate" class="form-control form-control-sm" value="@qFrom" />
                         <label class="small mb-0">To</label>
-                        <input type="date" name="toDate" class="form-control form-control-sm" value="@(ViewContext.HttpContext.Request.Query["toDate"].ToString())" />
+                        <input type="date" name="toDate" class="form-control form-control-sm" value="@qTo" />
                         <button type="submit" class="btn btn-sm btn-light" title="Filter"><i class="fas fa-filter"></i></button>
                         <a asp-controller="BOT" asp-action="BarOrderDashboard" class="btn btn-sm btn-outline-light" title="Reset"><i class="fas fa-undo"></i></a>
                     </form>
@@ -231,10 +271,10 @@
                                                     @{
                                                         var encryptedCompletedOrderUrl = "/Order/Details?token=" + Uri.EscapeDataString(EncryptionService.EncryptParameters(new Dictionary<string, string> { ["id"] = order.Id.ToString(), ["fromBar"] = "true" }));
                                                     }
-                                                    <a href="@encryptedCompletedOrderUrl" class="btn btn-sm btn-outline-secondary" title="View Order">
+                                                    <a href="@encryptedCompletedOrderUrl" class="btn btn-sm btn-outline-secondary" title="View Order" target="_blank" rel="noopener noreferrer">
                                                         <i class="fas fa-eye"></i>
                                                     </a>
-                                                    <a href="/Payment/Index/@order.Id?fromBar=true" class="btn btn-sm btn-outline-success" title="Payment">
+                                                    <a href="/Payment/Index/@order.Id?fromBar=true" class="btn btn-sm btn-outline-success" title="Payment" target="_blank" rel="noopener noreferrer">
                                                         <i class="fas fa-credit-card"></i>
                                                     </a>
                                                 </div>
@@ -335,7 +375,17 @@
 @section Scripts {
     <script>
         $(document).ready(function () {
-            $('#activeOrders').DataTable({
+            const totalOpenOrders = @Model.OpenOrdersCount;
+            const totalInProgressOrders = @Model.InProgressOrdersCount;
+            const totalReadyOrders = @Model.ReadyOrdersCount;
+            const totalSalesAmount = @Model.TotalSales.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+
+            function parseCurrency(val) {
+                const n = parseFloat((val || '').toString().replace(/[^0-9.-]/g, ''));
+                return isNaN(n) ? 0 : n;
+            }
+
+            var activeTable = $('#activeOrders').DataTable({
                 order: [[5, 'desc']],
                 paging: false,
                 info: false,
@@ -343,7 +393,7 @@
                 scrollY: '28vh',
                 scrollCollapse: true
             });
-            $('#completedOrders').DataTable({
+            var completedTable = $('#completedOrders').DataTable({
                 order: [[0, 'desc']],
                 paging: false,
                 info: false,
@@ -351,7 +401,7 @@
                 scrollY: '28vh',
                 scrollCollapse: true
             });
-            $('#cancelledOrders').DataTable({
+            var cancelledTable = $('#cancelledOrders').DataTable({
                 order: [[0, 'desc']],
                 paging: false,
                 info: false,
@@ -360,8 +410,84 @@
                 scrollCollapse: true
             });
 
-            // Keep dashboard fresh - refresh every 2 minutes
-            setTimeout(function() { location.reload(); }, 120000);
+            function updateKpis() {
+                let filteredOpen = 0;
+                let filteredInProgress = 0;
+                let filteredReady = 0;
+
+                activeTable.rows({ search: 'applied' }).nodes().to$().each(function () {
+                    filteredOpen++;
+                    const statusText = ($(this).find('td').eq(4).text() || '').trim().toLowerCase();
+                    if (statusText.includes('progress')) filteredInProgress++;
+                    if (statusText.includes('ready')) filteredReady++;
+                });
+
+                let filteredSales = 0;
+                completedTable.rows({ search: 'applied' }).nodes().to$().each(function () {
+                    filteredSales += parseCurrency($(this).find('td').eq(4).text());
+                });
+
+                $('#kpiOpenCount').text(filteredOpen);
+                $('#kpiOpenMeta').text('Filtered ' + filteredOpen + ' / Total ' + totalOpenOrders);
+
+                $('#kpiProgressCount').text(filteredInProgress);
+                $('#kpiProgressMeta').text('Filtered ' + filteredInProgress + ' / Total ' + totalInProgressOrders);
+
+                $('#kpiReadyCount').text(filteredReady);
+                $('#kpiReadyMeta').text('Filtered ' + filteredReady + ' / Total ' + totalReadyOrders);
+
+                $('#kpiSalesAmount').text('₹' + filteredSales.toFixed(2));
+                $('#kpiSalesMeta').text('Filtered ₹' + filteredSales.toFixed(2) + ' / Total ₹' + Number(totalSalesAmount).toFixed(2));
+            }
+
+            activeTable.on('draw', updateKpis);
+            completedTable.on('draw', updateKpis);
+            cancelledTable.on('draw', updateKpis);
+            updateKpis();
+
+            // Keep dashboard fresh with user controls.
+            const refreshSecondsDefault = 120;
+            let refreshRemaining = refreshSecondsDefault;
+            let refreshPaused = false;
+            let refreshTicker = null;
+
+            function updateRefreshUi() {
+                if (refreshPaused) {
+                    $('#refreshCountdown').text('Auto refresh paused');
+                    $('#toggleAutoRefreshBtn').text('Resume Auto Refresh');
+                } else {
+                    $('#refreshCountdown').text('Refresh in ' + refreshRemaining + 's');
+                    $('#toggleAutoRefreshBtn').text('Pause Auto Refresh');
+                }
+            }
+
+            function startRefreshTicker() {
+                if (refreshTicker) clearInterval(refreshTicker);
+                refreshTicker = setInterval(function () {
+                    if (refreshPaused) return;
+                    refreshRemaining--;
+                    if (refreshRemaining <= 0) {
+                        location.reload();
+                        return;
+                    }
+                    updateRefreshUi();
+                }, 1000);
+            }
+
+            $('#toggleAutoRefreshBtn').on('click', function () {
+                refreshPaused = !refreshPaused;
+                if (!refreshPaused && refreshRemaining <= 0) {
+                    refreshRemaining = refreshSecondsDefault;
+                }
+                updateRefreshUi();
+            });
+
+            $('#refreshNowBtn').on('click', function () {
+                location.reload();
+            });
+
+            updateRefreshUi();
+            startRefreshTicker();
         });
     </script>
 

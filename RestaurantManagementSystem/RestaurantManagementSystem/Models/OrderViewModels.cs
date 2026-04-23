@@ -194,6 +194,7 @@ namespace RestaurantManagementSystem.Models
         public DateTime? CompletionTime { get; set; }
         public DateTime? DeliveryTime { get; set; }
         
+        public bool IsExtraCharge { get; set; } = false;
         public List<OrderItemModifierViewModel> Modifiers { get; set; } = new List<OrderItemModifierViewModel>();
         public List<KitchenItemComment> KitchenComments { get; set; } = new List<KitchenItemComment>();
     }

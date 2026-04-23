@@ -5681,7 +5681,8 @@ SELECT @result;", connection))
                         oi.Status,
                         oi.FireTime,
                         oi.CompletionTime,
-                        oi.DeliveryTime
+                        oi.DeliveryTime,
+                        ISNULL(mi.IsExtraCharge, 0) AS IsExtraCharge
                     FROM OrderItems oi
                     INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
                     LEFT JOIN CourseTypes ct ON oi.CourseId = ct.Id
@@ -5726,6 +5727,7 @@ SELECT @result;", connection))
                                 FireTime = reader.IsDBNull(11) ? null : (DateTime?)reader.GetDateTime(11),
                                 CompletionTime = reader.IsDBNull(12) ? null : (DateTime?)reader.GetDateTime(12),
                                 DeliveryTime = reader.IsDBNull(13) ? null : (DateTime?)reader.GetDateTime(13),
+                                IsExtraCharge = !reader.IsDBNull(14) && reader.GetBoolean(14),
                                 Modifiers = new List<OrderItemModifierViewModel>()
                             };
                             

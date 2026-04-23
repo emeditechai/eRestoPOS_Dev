@@ -14,35 +14,158 @@
 }
 
 <style>
-    /* ===== BOT Details — Mobile & Tablet Responsive ===== */
+    .navbar { z-index: 2000 !important; }
+    .bot-details-page {
+        background:
+            radial-gradient(circle at top right, rgba(59,130,246,.12), transparent 28%),
+            linear-gradient(180deg, #f8fbff 0%, #f2f7ff 100%);
+        border-radius: 20px;
+        padding: 1rem;
+    }
     .bot-details-header { flex-wrap: wrap; gap: .5rem; }
     .bot-details-header .btn-group-actions { display: flex; gap: .5rem; flex-shrink: 0; }
+    .bot-toolbar-shell {
+        background: rgba(255,255,255,.88);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        border-radius: 18px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+        padding: .95rem 1rem;
+        margin-bottom: 1rem;
+    }
+    .bot-details-page .card {
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+    }
+    .bot-details-page .card-body {
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    }
+    .bot-card-header-primary { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
+    .bot-card-header-success { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
+    .bot-card-header-info    { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
+    .bot-info-table th {
+        color: #2563eb;
+        font-weight: 700;
+        width: 42%;
+    }
+    .bot-info-table td {
+        color: #0f172a;
+        font-weight: 500;
+    }
+    .bot-amount-table tr.table-active {
+        background: linear-gradient(90deg, rgba(59,130,246,.08), rgba(6,182,212,.06));
+    }
+    .bot-items-card .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: .75rem;
+        flex-wrap: wrap;
+    }
+    .bot-items-meta {
+        font-size: .78rem;
+        font-weight: 600;
+        background: rgba(255,255,255,.18);
+        border: 1px solid rgba(255,255,255,.24);
+        padding: .28rem .7rem;
+        border-radius: 999px;
+    }
+    .bot-items-table {
+        margin-bottom: 0;
+    }
+    .bot-items-table thead th {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        color: #fff;
+        border-bottom: 0;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        white-space: nowrap;
+    }
+    .bot-items-table tbody tr {
+        transition: background-color .18s ease;
+    }
+    .bot-items-table tbody tr:hover {
+        background-color: rgba(59,130,246,.04);
+    }
+    .bot-item-name {
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .bot-item-note {
+        font-size: .82rem;
+        color: #64748b;
+    }
+    #voidModal {
+        z-index: 2600;
+    }
+    .modal-backdrop.show {
+        z-index: 2590;
+        background: rgba(15, 23, 42, 0.65);
+        backdrop-filter: blur(3px);
+    }
+    #voidModal .modal-dialog {
+        max-width: 640px;
+        margin-top: 5rem;
+    }
+    #voidModal .modal-content {
+        border: 0;
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 28px 60px rgba(15, 23, 42, 0.28);
+    }
+    #voidModal .modal-header {
+        background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+        color: #7f1d1d;
+        border-bottom: 1px solid rgba(220,38,38,.18);
+        padding: 1rem 1.25rem;
+    }
+    #voidModal .modal-body {
+        padding: 1rem 1.25rem 1.1rem;
+        background: linear-gradient(180deg, #fff 0%, #fff7f7 100%);
+    }
+    #voidModal .modal-footer {
+        border-top: 1px solid rgba(148, 163, 184, 0.16);
+        padding: .9rem 1.25rem 1.1rem;
+        background: #fff;
+    }
+    .void-warning-box {
+        border: 1px solid rgba(245, 158, 11, 0.28);
+        background: linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%);
+        border-radius: 14px;
+        padding: .9rem 1rem;
+        color: #7c2d12;
+    }
+    /* ===== BOT Details — Mobile & Tablet Responsive ===== */
     @@media (max-width: 575.98px) {
+        .bot-details-page { border-radius: 16px; padding: .75rem; }
         .bot-details-header h2 { font-size: 1.2rem; }
         .bot-details-header .btn { min-height: 42px; }
         .bot-status-actions .btn { min-height: 44px; font-size: .95rem; }
         .table-borderless th, .table-borderless td { padding: .35rem .5rem; font-size: .88rem; }
+        #voidModal .modal-footer { flex-direction: column-reverse; }
+        #voidModal .modal-footer .btn { width: 100%; }
     }
     @@media (max-width: 991.98px) {
         .bot-status-actions .btn { min-height: 44px; }
         .bot-card-header { font-size: .95rem; }
+        #voidModal .modal-dialog { max-width: calc(100vw - 1rem); margin: 1.25rem auto; }
     }
-    /* Unified card header colour */
-    .bot-card-header-primary { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
-    .bot-card-header-success { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
-    .bot-card-header-info    { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
 </style>
 
-<div class="container-fluid mt-3 mt-md-4">
-    <div class="d-flex align-items-center mb-3 mb-md-4 bot-details-header">
-        <h2 class="me-auto mb-0"><i class="fas fa-cocktail"></i> BOT Details - @Model.BOT_No</h2>
-        <div class="btn-group-actions">
-            <a href="@Url.Action("Dashboard")" class="btn btn-secondary">
-                <i class="fas fa-arrow-left"></i> <span class="d-none d-sm-inline">Back</span>
-            </a>
-            <a href="@Url.Action("Print", new { id = Model.BOT_ID })" class="btn btn-primary" target="_blank">
-                <i class="fas fa-print"></i> <span class="d-none d-sm-inline">Print</span>
-            </a>
+<div class="container-fluid mt-3 mt-md-4 bot-details-page">
+    <div class="bot-toolbar-shell">
+        <div class="d-flex align-items-center bot-details-header">
+            <h2 class="me-auto mb-0"><i class="fas fa-cocktail"></i> BOT Details - @Model.BOT_No</h2>
+            <div class="btn-group-actions">
+                <a href="@Url.Action("Dashboard")" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> <span class="d-none d-sm-inline">Back</span>
+                </a>
+                <a href="@Url.Action("Print", new { id = Model.BOT_ID })" class="btn btn-primary" target="_blank">
+                    <i class="fas fa-print"></i> <span class="d-none d-sm-inline">Print</span>
+                </a>
+            </div>
         </div>
     </div>
 
@@ -70,7 +193,7 @@
                     <h5 class="mb-0"><i class="fas fa-info-circle"></i> BOT Information</h5>
                 </div>
                 <div class="card-body">
-                    <table class="table table-borderless">
+                    <table class="table table-borderless bot-info-table">
                         <tr>
                             <th>BOT Number:</th>
                             <td><strong>@Model.BOT_No</strong></td>
@@ -140,7 +263,7 @@
                     <h5 class="mb-0"><i class="fas fa-rupee-sign"></i> Amount Details</h5>
                 </div>
                 <div class="card-body bot-status-actions">
-                    <table class="table table-borderless">
+                    <table class="table table-borderless bot-amount-table">
                         <tr>
                             <th>Subtotal:</th>
                             <td class="text-end"><strong>₹@Model.SubtotalAmount.ToString("N2")</strong></td>
@@ -195,14 +318,15 @@
     </div>
 
     <!-- BOT Items -->
-    <div class="card">
+    <div class="card bot-items-card">
         <div class="card-header text-white bot-card-header bot-card-header-info">
             <h5 class="mb-0"><i class="fas fa-list"></i> Beverage Items (@Model.Items.Count)</h5>
+            <span class="bot-items-meta">Review all beverage lines in one place</span>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
-            <table class="table table-hover">
-                <thead class="table-dark">
+            <table class="table table-hover bot-items-table">
+                <thead>
                     <tr>
                         <th>#</th>
                         <th>Item Name</th>
@@ -231,30 +355,30 @@
                             };
 
                             <tr>
-                                <td>@index</td>
+                                <td class="fw-semibold text-muted">@index</td>
                                 <td>
-                                    <strong>@item.MenuItemName</strong>
+                                    <div class="bot-item-name">@item.MenuItemName</div>
                                     @if (item.IsAlcoholic)
                                     {
-                                        <span class="badge bg-danger ms-2">Alcoholic</span>
+                                        <span class="badge bg-danger ms-0 mt-1">Alcoholic</span>
                                     }
                                 </td>
-                                <td>@item.Quantity</td>
+                                <td class="fw-semibold">@item.Quantity</td>
                                 <td>₹@item.UnitPrice.ToString("N2")</td>
-                                <td>₹@item.Amount.ToString("N2")</td>
+                                <td class="fw-semibold">₹@item.Amount.ToString("N2")</td>
                                 <td>₹@item.TaxAmount.ToString("N2") (@item.TaxRate%)</td>
                                 <td>
                                     @if (item.IsAlcoholic)
                                     {
-                                        <span class="text-danger">Excise/VAT</span>
+                                        <span class="text-danger fw-semibold">Excise/VAT</span>
                                     }
                                     else
                                     {
-                                        <span class="text-success">GST</span>
+                                        <span class="text-success fw-semibold">GST</span>
                                     }
                                 </td>
                                 <td><span class="badge @itemBadge">@item.StatusDisplay</span></td>
-                                <td>@(item.SpecialInstructions ?? "-")</td>
+                                <td><span class="bot-item-note">@(item.SpecialInstructions ?? "-")</span></td>
                             </tr>
                             index++;
                         }
@@ -262,7 +386,7 @@
                     else
                     {
                         <tr>
-                            <td colspan="9" class="text-center text-muted">No items found</td>
+                            <td colspan="9" class="text-center text-muted py-4">No items found</td>
                         </tr>
                     }
                 </tbody>
@@ -274,23 +398,23 @@
 
 <!-- Void Modal -->
 <div class="modal fade" id="voidModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
             <form method="post" action="@Url.Action("Void")">
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="botId" value="@Model.BOT_ID" />
-                <div class="modal-header bg-danger text-white">
-                    <h5 class="modal-title">Void BOT</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-ban me-2"></i>Void BOT</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="alert alert-warning">
-                        <i class="fas fa-exclamation-triangle"></i> 
+                    <div class="void-warning-box mb-3">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
                         Are you sure you want to void BOT <strong>@Model.BOT_No</strong>?
                     </div>
                     <div class="mb-3">
-                        <label for="reason" class="form-label">Reason for Void <span class="text-danger">*</span></label>
-                        <textarea class="form-control" id="reason" name="reason" rows="3" required></textarea>
+                        <label for="reason" class="form-label fw-semibold">Reason for Void <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="reason" name="reason" rows="4" required placeholder="Enter the reason for voiding this BOT"></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">

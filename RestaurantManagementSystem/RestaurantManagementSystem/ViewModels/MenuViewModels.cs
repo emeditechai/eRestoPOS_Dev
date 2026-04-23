@@ -87,6 +87,9 @@ namespace RestaurantManagementSystem.ViewModels
         [Display(Name = "Special")]
         public bool IsSpecial { get; set; }
 
+        [Display(Name = "Is Extra Charge")]
+        public bool IsExtraCharge { get; set; }
+
         [Display(Name = "Discount (%)")]
         [Range(0, 100, ErrorMessage = "Discount must be between 0 and 100 percent")]
         public decimal? DiscountPercentage { get; set; }

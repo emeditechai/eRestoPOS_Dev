@@ -3,16 +3,21 @@
     ViewData["Title"] = "Order Dashboard";
 }
 
-<div class="container-fluid p-3 order-dashboard-shell" style="background: linear-gradient(135deg, #1e293b 0%, #334155 50%, #0f172a 100%); min-height:100vh;">
+<div class="container-fluid p-3 order-dashboard-shell">
     <div class="d-flex justify-content-between align-items-center mb-4 order-dashboard-topbar">
-        <h1 class="order-dashboard-title" style="color: #22d3ee; text-shadow: 0 2px 10px rgba(34,211,238,0.3);">
+        <h1 class="order-dashboard-title">
             <i class="fas fa-utensils me-2"></i>@ViewData["Title"]
         </h1>
         <div class="d-flex align-items-center gap-2 order-dashboard-actions">
-            <a href="@Url.Action("Form", "Feedback")" class="btn" style="border-radius: 50%; width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(34,211,238,.4); background: linear-gradient(135deg, #06b6d4 0%, #22d3ee 100%); color: white; border: none;" target="_blank" rel="noopener noreferrer" title="Open Feedback Form">
+            <div class="order-refresh-tools me-1">
+                <small id="refreshCountdown" class="text-muted">Refresh in 120s</small>
+                <button type="button" id="toggleAutoRefreshBtn" class="btn btn-sm btn-outline-secondary">Pause Auto Refresh</button>
+                <button type="button" id="refreshNowBtn" class="btn btn-sm btn-outline-primary"><i class="fas fa-rotate-right me-1"></i>Refresh</button>
+            </div>
+            <a href="@Url.Action("Form", "Feedback")" class="btn btn-outline-primary rounded-circle order-dashboard-feedback-btn" target="_blank" rel="noopener noreferrer" title="Open Feedback Form">
                 <i class="fas fa-comment-dots"></i>
             </a>
-            <a asp-action="Create" class="btn text-white" style="background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%); box-shadow: 0 4px 15px rgba(59,130,246,.4); border: none;" target="_blank" rel="noopener noreferrer">
+            <a asp-action="Create" class="btn btn-primary" target="_blank" rel="noopener noreferrer">
                 <i class="fas fa-plus-circle"></i> New Order
             </a>
         </div>
@@ -34,11 +39,30 @@
         </div>
     }
 
-    @* Compact styling with teal theme *@
+    @* Compact styling with uniform app theme *@
     <style>
-        .order-dashboard-shell { overflow-x: hidden; }
+        .order-dashboard-shell {
+            overflow-x: hidden;
+            min-height: calc(100vh - 120px);
+            background:
+                radial-gradient(circle at 8% 10%, rgba(56, 189, 248, 0.12), transparent 28%),
+                radial-gradient(circle at 92% 12%, rgba(59, 130, 246, 0.10), transparent 26%),
+                linear-gradient(180deg, #f8fbff 0%, #f3f7fc 100%);
+            border-radius: 12px;
+        }
         .order-dashboard-title { margin: 0; }
         .order-dashboard-actions { flex-wrap: wrap; }
+        .order-refresh-tools {
+            display: inline-flex;
+            align-items: center;
+            gap: .5rem;
+            flex-wrap: wrap;
+            padding: .4rem .55rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #fff;
+        }
+        .order-dashboard-feedback-btn { width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center; }
         .card { border-radius: 8px; }
         .card-header { padding: .5rem .75rem; }
         .card-body { padding: .75rem; }
@@ -51,7 +75,76 @@
         .badge { font-size: .75rem; }
         .btn-group .btn { padding: .2rem .4rem; }
         .table-container { max-height: 28vh; overflow: auto; }
-        .food-metric-card { border-left: 4px solid #0d9488; }
+        .order-dashboard-title { color: #0f172a; font-size: 2rem; font-weight: 700; }
+        .order-metric-card {
+            border: 1px solid #dbe6f4;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.10);
+            overflow: hidden;
+        }
+        .order-metric-card .card-body {
+            background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, #f8fbff 100%);
+        }
+        .order-metric-card h5 { color: #475569; font-weight: 600; }
+        .order-metric-card h2 { color: #0f172a; }
+        .order-metric-card.order-metric-card--open {
+            border-left: 4px solid #3b82f6;
+            background: linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(99,102,241,0.06) 100%);
+        }
+        .order-metric-card.order-metric-card--progress {
+            border-left: 4px solid #f59e0b;
+            background: linear-gradient(135deg, rgba(245,158,11,0.13) 0%, rgba(249,115,22,0.07) 100%);
+        }
+        .order-metric-card.order-metric-card--ready {
+            border-left: 4px solid #10b981;
+            background: linear-gradient(135deg, rgba(16,185,129,0.13) 0%, rgba(14,165,233,0.07) 100%);
+        }
+        .order-metric-card.order-metric-card--sales {
+            border-left: 4px solid #8b5cf6;
+            background: linear-gradient(135deg, rgba(139,92,246,0.14) 0%, rgba(236,72,153,0.07) 100%);
+        }
+
+        .order-filter-card,
+        .order-panel-card {
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+            background: #ffffff;
+        }
+
+        .order-panel-header {
+            color: #fff;
+            border-bottom: 0;
+        }
+
+        .order-panel-header--active {
+            background: linear-gradient(90deg, #0ea5e9 0%, #0284c7 100%);
+        }
+        .order-panel-header--cancelled {
+            background: linear-gradient(90deg, #ef4444 0%, #f97316 100%);
+        }
+        .order-panel-header--completed {
+            background: linear-gradient(90deg, #0d9488 0%, #14b8a6 100%);
+        }
+
+        .order-table-head-active,
+        .order-table-head-cancelled,
+        .order-table-head-completed {
+            color: #fff;
+        }
+
+        .order-table-head-active { background: linear-gradient(90deg, #0369a1 0%, #0284c7 100%); }
+        .order-table-head-cancelled { background: linear-gradient(90deg, #b91c1c 0%, #ea580c 100%); }
+        .order-table-head-completed { background: linear-gradient(90deg, #0f766e 0%, #0d9488 100%); }
+
+        .order-record-badge {
+            background: rgba(255,255,255,.2);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,.3);
+        }
+
+        .order-filter-card {
+            background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+        }
+
         .dataTables_wrapper .dataTables_filter input,
         .dataTables_wrapper .dataTables_length select { min-height: 36px; }
 
@@ -77,6 +170,7 @@
             .order-dashboard-shell { padding: .75rem !important; }
             .order-dashboard-title { font-size: 1.8rem; line-height: 1.2; }
             .order-dashboard-actions { gap: .5rem !important; }
+            .order-refresh-tools { width: 100%; justify-content: flex-start; }
             .order-dashboard-actions .btn { min-height: 44px; }
             .order-dashboard-actions a.btn:last-child { flex: 1 1 100%; justify-content: center; }
             .metric-card .card-body { padding: .75rem; }
@@ -224,37 +318,41 @@
         }
     </style>
 
-    @* Metrics row with modern contrasting gradient theme *@
+    @* Metrics row *@
     <div class="row g-3 mb-3">
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card text-white metric-card food-metric-card" style="background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%); box-shadow: 0 8px 20px rgba(59,130,246,.3); border: none;">
+            <div class="card metric-card order-metric-card order-metric-card--open">
                 <div class="card-body">
-                    <h5 style="opacity: 0.9;">Open Orders</h5>
-                    <h2>@Model.OpenOrdersCount</h2>
+                    <h5>Open Orders</h5>
+                    <h2 id="kpiOpenCount">@Model.OpenOrdersCount</h2>
+                    <small class="text-muted" id="kpiOpenMeta">Filtered @Model.OpenOrdersCount / Total @Model.OpenOrdersCount</small>
                 </div>
             </div>
         </div>
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card text-white metric-card food-metric-card" style="background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); box-shadow: 0 8px 20px rgba(245,158,11,.3); border: none;">
+            <div class="card metric-card order-metric-card order-metric-card--progress">
                 <div class="card-body">
-                    <h5 style="opacity: 0.9;">In Progress</h5>
-                    <h2>@Model.InProgressOrdersCount</h2>
+                    <h5>In Progress</h5>
+                    <h2 id="kpiProgressCount">@Model.InProgressOrdersCount</h2>
+                    <small class="text-muted" id="kpiProgressMeta">Filtered @Model.InProgressOrdersCount / Total @Model.InProgressOrdersCount</small>
                 </div>
             </div>
         </div>
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card text-white metric-card food-metric-card" style="background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%); box-shadow: 0 8px 20px rgba(16,185,129,.3); border: none;">
+            <div class="card metric-card order-metric-card order-metric-card--ready">
                 <div class="card-body">
-                    <h5 style="opacity: 0.9;">Ready</h5>
-                    <h2>@Model.ReadyOrdersCount</h2>
+                    <h5>Ready</h5>
+                    <h2 id="kpiReadyCount">@Model.ReadyOrdersCount</h2>
+                    <small class="text-muted" id="kpiReadyMeta">Filtered @Model.ReadyOrdersCount / Total @Model.ReadyOrdersCount</small>
                 </div>
             </div>
         </div>
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card text-white metric-card food-metric-card" style="background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%); box-shadow: 0 8px 20px rgba(139,92,246,.3); border: none;">
+            <div class="card metric-card order-metric-card order-metric-card--sales">
                 <div class="card-body">
-                    <h5 style="opacity: 0.9;">Today's Sales</h5>
-                    <h2>₹@Model.TotalSales.ToString("F2")</h2>
+                    <h5>Today's Sales</h5>
+                    <h2 id="kpiSalesAmount">₹@Model.TotalSales.ToString("F2")</h2>
+                    <small class="text-muted" id="kpiSalesMeta">Filtered ₹@Model.TotalSales.ToString("F2") / Total ₹@Model.TotalSales.ToString("F2")</small>
                 </div>
             </div>
         </div>
@@ -268,10 +366,10 @@
     }
     <div class="row mb-3">
         <div class="col-12">
-            <div class="card" style="background: rgba(255,255,255,0.95); border: none; box-shadow: 0 8px 30px rgba(0,0,0,.15);">
+            <div class="card order-filter-card">
                 <div class="card-body d-flex align-items-center justify-content-between flex-wrap" style="gap: .75rem; padding: .75rem;">
                     <div class="d-flex align-items-center" style="gap:.5rem;">
-                        <span class="small fw-semibold" style="color:#0f172a;"><i class="fas fa-filter me-1"></i>Counter</span>
+                        <span class="small fw-semibold text-dark"><i class="fas fa-filter me-1"></i>Counter</span>
                         <select id="counterFilter" class="form-select form-select-sm" style="min-width: 220px;">
                             <option value="">All Counters</option>
                             @foreach (var c in counterOptions)
@@ -290,12 +388,12 @@
     @* Active Orders *@
     <div class="row">
         <div class="col-12">
-            <div class="card" style="background: rgba(255,255,255,0.95); border: none; box-shadow: 0 8px 30px rgba(0,0,0,.15);">
-                <div class="card-header d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); color: white; border: none;">
+            <div class="card order-panel-card">
+                <div class="card-header d-flex justify-content-between align-items-center order-panel-header order-panel-header--active">
                     <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Active Orders (All Pending Orders)</h5>
                     <div class="d-flex align-items-center" style="gap:.5rem">
                         <small>Food orders only</small>
-                        <span class="badge rounded-pill px-3" style="background: rgba(255,255,255,.2); backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255,255,255,.3);" title="Active orders">@((Model.ActiveOrders?.Count() ?? 0).ToString()) Records</span>
+                        <span class="badge rounded-pill px-3 order-record-badge" title="Active orders">@((Model.ActiveOrders?.Count() ?? 0).ToString()) Records</span>
                     </div>
                 </div>
                 <div class="card-body">
@@ -304,7 +402,7 @@
                         <div id="activeOrdersTypeFilter" class="mb-2"></div>
                         <div class="table-responsive table-container">
                             <table class="table table-striped table-hover" id="activeOrders">
-                                <thead class="sticky" style="background: linear-gradient(135deg, #1e40af 0%, #06b6d4 100%); color: white;">
+                                <thead class="sticky order-table-head-active">
                                     <tr class="text-center">
                                         <th>Order #</th>
                                         <th>Type</th>
@@ -363,10 +461,10 @@
                                             <td><strong>₹@order.TotalAmount.ToString("F2")</strong></td>
                                             <td>
                                                 <div class="btn-group">
-                                                    <a asp-action="Details" asp-route-id="@order.Id" asp-route-fromBar="false" class="btn btn-sm btn-outline-primary" title="View Order">
+                                                    <a asp-action="Details" asp-route-id="@order.Id" asp-route-fromBar="false" class="btn btn-sm btn-outline-primary" title="View Order" target="_blank" rel="noopener noreferrer">
                                                         <i class="fas fa-eye"></i>
                                                     </a>
-                                                    <a href="/Payment/Index/@order.Id" class="btn btn-sm btn-outline-success" title="Process Payment">
+                                                    <a href="/Payment/Index/@order.Id" class="btn btn-sm btn-outline-success" title="Process Payment" target="_blank" rel="noopener noreferrer">
                                                         <i class="fas fa-credit-card"></i>
                                                     </a>
                                                     <button type="button" class="btn btn-sm btn-outline-danger cancel-order-trigger" 
@@ -395,12 +493,12 @@
     @* Cancelled Orders Section *@
     <div class="row mt-3">
         <div class="col-12">
-            <div class="card" style="background: rgba(255,255,255,0.95); border: none; box-shadow: 0 8px 30px rgba(0,0,0,.15);">
-                <div class="card-header d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #dc2626 0%, #f97316 100%); color: white; border: none;">
+            <div class="card order-panel-card">
+                <div class="card-header d-flex justify-content-between align-items-center order-panel-header order-panel-header--cancelled">
                     <h5 class="mb-0"><i class="fas fa-ban me-2"></i>Cancelled Orders</h5>
                     <div class="d-flex align-items-center" style="gap:.5rem">
                         <small>Today's cancelled orders</small>
-                        <span class="badge rounded-pill px-3" style="background: rgba(255,255,255,.2); backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255,255,255,.3);" title="Cancelled orders">@((Model.CancelledOrders?.Count() ?? 0).ToString()) Records</span>
+                        <span class="badge rounded-pill px-3 order-record-badge" title="Cancelled orders">@((Model.CancelledOrders?.Count() ?? 0).ToString()) Records</span>
                     </div>
                 </div>
                 <div class="card-body">
@@ -408,7 +506,7 @@
                     {
                         <div class="table-responsive table-container">
                             <table class="table table-striped table-hover" id="cancelledOrders">
-                                <thead class="sticky" style="background: linear-gradient(135deg, #dc2626 0%, #f97316 100%); color: white;">
+                                <thead class="sticky order-table-head-cancelled">
                                     <tr class="text-center">
                                         <th>Order #</th>
                                         <th>Type</th>
@@ -466,14 +564,28 @@
     @* Completed Orders Section *@
     <div class="row mt-3">
         <div class="col-12">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center" style="background: linear-gradient(90deg, #0d9488 60%, #14b8a6 100%); color: white;">
+            <div class="card order-panel-card">
+                <div class="card-header d-flex justify-content-between align-items-center order-panel-header order-panel-header--completed">
                     <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Completed Orders</h5>
                     <form class="d-flex align-items-center" method="get" asp-action="Dashboard" style="gap:.5rem">
+                        @{
+                            var qFrom = ViewContext.HttpContext.Request.Query["fromDate"].ToString();
+                            var qTo = ViewContext.HttpContext.Request.Query["toDate"].ToString();
+                            var today = DateTime.Today;
+                            var yesterday = DateTime.Today.AddDays(-1);
+                            var last7Start = DateTime.Today.AddDays(-6);
+                            var monthStart = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+                        }
+                        <div class="btn-group btn-group-sm me-2" role="group" aria-label="Quick date filters">
+                            <a class="btn btn-light" href="@Url.Action("Dashboard", "Order", new { fromDate = today.ToString("yyyy-MM-dd"), toDate = today.ToString("yyyy-MM-dd") })">Today</a>
+                            <a class="btn btn-light" href="@Url.Action("Dashboard", "Order", new { fromDate = yesterday.ToString("yyyy-MM-dd"), toDate = yesterday.ToString("yyyy-MM-dd") })">Yesterday</a>
+                            <a class="btn btn-light" href="@Url.Action("Dashboard", "Order", new { fromDate = last7Start.ToString("yyyy-MM-dd"), toDate = today.ToString("yyyy-MM-dd") })">Last 7 Days</a>
+                            <a class="btn btn-light" href="@Url.Action("Dashboard", "Order", new { fromDate = monthStart.ToString("yyyy-MM-dd"), toDate = today.ToString("yyyy-MM-dd") })">This Month</a>
+                        </div>
                         <label class="small mb-0">From</label>
-                        <input type="date" name="fromDate" class="form-control form-control-sm" value="@(ViewContext.HttpContext.Request.Query["fromDate"].ToString())" />
+                        <input type="date" name="fromDate" class="form-control form-control-sm" value="@qFrom" />
                         <label class="small mb-0">To</label>
-                        <input type="date" name="toDate" class="form-control form-control-sm" value="@(ViewContext.HttpContext.Request.Query["toDate"].ToString())" />
+                        <input type="date" name="toDate" class="form-control form-control-sm" value="@qTo" />
                         <button type="submit" class="btn btn-sm btn-light" title="Filter"><i class="fas fa-filter"></i></button>
                         <a href="@Url.Action("Dashboard", "Order")" class="btn btn-sm btn-outline-light" title="Reset"><i class="fas fa-undo"></i></a>
                     </form>
@@ -483,7 +595,7 @@
                     {
                         <div class="table-responsive table-container">
                             <table class="table table-sm table-striped table-hover" id="completedOrders">
-                                <thead class="sticky" style="background: linear-gradient(90deg, #0d9488 60%, #14b8a6 100%); color: white;">
+                                <thead class="sticky order-table-head-completed">
                                     <tr class="text-center">
                                         <th>Order #</th>
                                         <th>Type</th>
@@ -502,10 +614,10 @@
                                             <td><strong>₹@order.TotalAmount.ToString("F2")</strong></td>
                                             <td>
                                                 <div class="btn-group">
-                                                    <a asp-action="Details" asp-route-id="@order.Id" asp-route-fromBar="false" class="btn btn-sm btn-outline-secondary" title="View Order">
+                                                    <a asp-action="Details" asp-route-id="@order.Id" asp-route-fromBar="false" class="btn btn-sm btn-outline-secondary" title="View Order" target="_blank" rel="noopener noreferrer">
                                                         <i class="fas fa-eye"></i>
                                                     </a>
-                                                    <a href="/Payment/Index/@order.Id" class="btn btn-sm btn-outline-success" title="Payment">
+                                                    <a href="/Payment/Index/@order.Id" class="btn btn-sm btn-outline-success" title="Payment" target="_blank" rel="noopener noreferrer">
                                                         <i class="fas fa-credit-card"></i>
                                                     </a>
                                                 </div>
@@ -556,6 +668,11 @@
 @section Scripts {
     <script>
         $(document).ready(function () {
+            const totalOpenOrders = @Model.OpenOrdersCount;
+            const totalInProgressOrders = @Model.InProgressOrdersCount;
+            const totalReadyOrders = @Model.ReadyOrdersCount;
+            const totalSalesAmount = @Model.TotalSales.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+
             var isMobileDashboard = window.matchMedia('(max-width: 767.98px)').matches;
             var isTabletDashboard = window.matchMedia('(max-width: 991.98px)').matches && !isMobileDashboard;
             var dashboardScrollY = isMobileDashboard ? '' : (isTabletDashboard ? '38vh' : '28vh');
@@ -616,6 +733,41 @@
                 apply();
             }
 
+            function parseCurrency(val) {
+                const n = parseFloat((val || '').toString().replace(/[^0-9.-]/g, ''));
+                return isNaN(n) ? 0 : n;
+            }
+
+            function updateKpis() {
+                let filteredOpen = 0;
+                let filteredInProgress = 0;
+                let filteredReady = 0;
+
+                activeTable.rows({ search: 'applied' }).nodes().to$().each(function () {
+                    filteredOpen++;
+                    const statusText = ($(this).find('td').eq(5).text() || '').trim().toLowerCase();
+                    if (statusText.includes('progress')) filteredInProgress++;
+                    if (statusText.includes('ready')) filteredReady++;
+                });
+
+                let filteredSales = 0;
+                completedTable.rows({ search: 'applied' }).nodes().to$().each(function () {
+                    filteredSales += parseCurrency($(this).find('td').eq(3).text());
+                });
+
+                $('#kpiOpenCount').text(filteredOpen);
+                $('#kpiOpenMeta').text('Filtered ' + filteredOpen + ' / Total ' + totalOpenOrders);
+
+                $('#kpiProgressCount').text(filteredInProgress);
+                $('#kpiProgressMeta').text('Filtered ' + filteredInProgress + ' / Total ' + totalInProgressOrders);
+
+                $('#kpiReadyCount').text(filteredReady);
+                $('#kpiReadyMeta').text('Filtered ' + filteredReady + ' / Total ' + totalReadyOrders);
+
+                $('#kpiSalesAmount').text('₹' + filteredSales.toFixed(2));
+                $('#kpiSalesMeta').text('Filtered ₹' + filteredSales.toFixed(2) + ' / Total ₹' + Number(totalSalesAmount).toFixed(2));
+            }
+
             var activeTable = $('#activeOrders').DataTable({
                 order: [[6, 'desc']],
                 paging: false,
@@ -674,14 +826,60 @@
                 activeTable.draw();
                 cancelledTable.draw();
                 completedTable.draw();
+                updateKpis();
             }
 
             $('#counterFilter').on('change', applyCounterFilter);
+
+            activeTable.on('draw', updateKpis);
+            completedTable.on('draw', updateKpis);
+
             // Apply default selected counter on initial load
             applyCounterFilter();
 
-            // Keep dashboard fresh
-            setTimeout(function() { location.reload(); }, 120000);
+            // Keep dashboard fresh with user controls.
+            const refreshSecondsDefault = 120;
+            let refreshRemaining = refreshSecondsDefault;
+            let refreshPaused = false;
+            let refreshTicker = null;
+
+            function updateRefreshUi() {
+                if (refreshPaused) {
+                    $('#refreshCountdown').text('Auto refresh paused');
+                    $('#toggleAutoRefreshBtn').text('Resume Auto Refresh');
+                } else {
+                    $('#refreshCountdown').text('Refresh in ' + refreshRemaining + 's');
+                    $('#toggleAutoRefreshBtn').text('Pause Auto Refresh');
+                }
+            }
+
+            function startRefreshTicker() {
+                if (refreshTicker) clearInterval(refreshTicker);
+                refreshTicker = setInterval(function () {
+                    if (refreshPaused) return;
+                    refreshRemaining--;
+                    if (refreshRemaining <= 0) {
+                        location.reload();
+                        return;
+                    }
+                    updateRefreshUi();
+                }, 1000);
+            }
+
+            $('#toggleAutoRefreshBtn').on('click', function () {
+                refreshPaused = !refreshPaused;
+                if (!refreshPaused && refreshRemaining <= 0) {
+                    refreshRemaining = refreshSecondsDefault;
+                }
+                updateRefreshUi();
+            });
+
+            $('#refreshNowBtn').on('click', function () {
+                location.reload();
+            });
+
+            updateRefreshUi();
+            startRefreshTicker();
         });
     </script>
 

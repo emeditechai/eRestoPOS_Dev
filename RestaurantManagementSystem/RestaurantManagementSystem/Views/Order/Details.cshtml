@@ -7,6 +7,30 @@
     /* Ensure top nav dropdowns appear above sticky side panels on order details page */
     .navbar { z-index: 2000 !important; }
     #orderDetailsApp .sticky-top { z-index: 100; }
+    #orderDetailsApp {
+      background:
+        radial-gradient(circle at top right, rgba(59,130,246,.12), transparent 28%),
+        linear-gradient(180deg, #f8fbff 0%, #f2f7ff 100%);
+      border-radius: 20px;
+      padding: 1rem;
+    }
+    #orderDetailsApp .card {
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+    }
+    .order-workspace-card .card-header {
+      background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+    }
+    .order-toolbar-shell {
+      background: rgba(255,255,255,.88);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 18px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+      padding: .9rem;
+    }
     /* Defensive: allow dropdown menus to overflow visible area */
     .navbar .dropdown-menu { position: absolute; }
     /* Disabled anchor-style buttons (payment link) */
@@ -118,6 +142,232 @@
       color: white;
       font-weight: 600;
     }
+    .order-items-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      flex-wrap: wrap;
+    }
+    .order-items-meta .badge {
+      font-size: .72rem;
+      font-weight: 600;
+    }
+    #orderItemsTable thead th {
+      border-bottom: 0;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    #orderItemsTable tbody tr {
+      transition: background-color .18s ease, transform .18s ease;
+    }
+    #orderItemsTable tbody tr:hover {
+      background-color: rgba(59, 130, 246, 0.04);
+    }
+    #orderItemsTable .existing-item-row td {
+      border-color: rgba(226, 232, 240, 0.85);
+    }
+    #orderItemsTable tfoot tr:last-child {
+      background: linear-gradient(90deg, rgba(59,130,246,.08), rgba(6,182,212,.06));
+    }
+    #fireItemsModal {
+      z-index: 2600;
+    }
+    .modal-backdrop.show {
+      z-index: 2590;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(3px);
+    }
+    #fireItemsModal .modal-dialog {
+      max-width: 760px;
+      margin-top: 5rem;
+    }
+    #fireItemsModal .modal-content {
+      border: 0;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 28px 60px rgba(15, 23, 42, 0.28);
+    }
+    #fireItemsModal .modal-header {
+      background: linear-gradient(135deg, #fff7ed 0%, #fff 55%, #eff6ff 100%);
+      border-bottom: 1px solid rgba(251, 146, 60, 0.18);
+      padding: 1rem 1.25rem;
+    }
+    #fireItemsModal .modal-title {
+      display: inline-flex;
+      align-items: center;
+      gap: .6rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    #fireItemsModal .modal-body {
+      padding: 1rem 1.25rem 1.1rem;
+      background: linear-gradient(180deg, #fff 0%, #f8fbff 100%);
+    }
+    #fireItemsModal .modal-footer {
+      border-top: 1px solid rgba(148, 163, 184, 0.16);
+      padding: .9rem 1.25rem 1.1rem;
+      background: #fff;
+    }
+    .fire-items-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .75rem;
+      padding: .85rem 1rem;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 14px;
+      background: rgba(255,255,255,.92);
+      margin-bottom: .9rem;
+    }
+    .fire-items-list {
+      max-height: 320px;
+      overflow: auto;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 16px;
+      background: #fff;
+      padding: .3rem;
+    }
+    .fire-item-row {
+      border: 0;
+      border-radius: 12px;
+      margin-bottom: .4rem;
+      padding: .7rem .8rem;
+      transition: background-color .18s ease, box-shadow .18s ease;
+    }
+    .fire-item-row:last-child {
+      margin-bottom: 0;
+    }
+    .fire-item-row:hover {
+      background-color: #f8fbff;
+      box-shadow: inset 0 0 0 1px rgba(59,130,246,.12);
+    }
+    .fire-item-name {
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .fire-item-subtext {
+      font-size: .82rem;
+      color: #64748b;
+    }
+    .fire-item-qty {
+      min-width: 52px;
+      text-align: center;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: .3rem .55rem;
+      background: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      color: #0f172a;
+    }
+    @@media (max-width: 991.98px) {
+      #orderDetailsApp {
+        border-radius: 16px;
+      }
+      .order-toolbar-shell {
+        padding: .75rem;
+      }
+      #fireItemsModal .modal-dialog {
+        max-width: calc(100vw - 1rem);
+        margin: 1.25rem auto;
+      }
+    }
+    @@media (max-width: 575.98px) {
+      .fire-items-toolbar {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      #fireItemsModal .modal-footer {
+        flex-direction: column-reverse;
+      }
+      #fireItemsModal .modal-footer .btn {
+        width: 100%;
+      }
+    }
+
+    /* ===== Modern Menu Item Autocomplete ===== */
+    .menu-ac-wrap { position: relative; }
+    .menu-ac-list {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      z-index: 9999;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: .75rem;
+      box-shadow: 0 12px 36px rgba(15,23,42,.16), 0 2px 8px rgba(15,23,42,.07);
+      max-height: 340px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: .3rem;
+    }
+    .menu-ac-list.ac-open { display: block; }
+    .menu-ac-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .55rem .8rem;
+      cursor: pointer;
+      border-radius: .55rem;
+      transition: background .12s;
+      min-height: 52px;
+      gap: .6rem;
+    }
+    .menu-ac-item:hover,
+    .menu-ac-item.ac-active { background: #eff6ff; }
+    .menu-ac-item-left { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+    .menu-ac-name {
+      font-weight: 600;
+      color: #1e293b;
+      font-size: .875rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .menu-ac-name mark {
+      background: #dbeafe;
+      color: #1d4ed8;
+      padding: 0 2px;
+      border-radius: 3px;
+      font-weight: 700;
+      font-style: normal;
+    }
+    .menu-ac-sub { display: flex; align-items: center; gap: .35rem; margin-top: 2px; flex-wrap: wrap; }
+    .menu-ac-plu {
+      font-size: .68rem;
+      font-weight: 600;
+      color: #64748b;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      padding: 0 .35rem;
+      line-height: 1.6;
+    }
+    .menu-ac-price {
+      font-weight: 700;
+      color: #059669;
+      font-size: .82rem;
+      white-space: nowrap;
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      padding: .2rem .55rem;
+      border-radius: .4rem;
+      flex-shrink: 0;
+    }
+    .menu-ac-empty {
+      padding: .9rem 1rem;
+      color: #94a3b8;
+      font-size: .875rem;
+      text-align: center;
+    }
+    @@media (max-width: 575.98px) {
+      .menu-ac-list { max-height: 260px; }
+      .menu-ac-item { min-height: 58px; padding: .65rem .9rem; }
+      .menu-ac-name { font-size: .9rem; }
+      .menu-ac-price { font-size: .8rem; }
+    }
   </style>
 }
 @{
@@ -205,6 +455,7 @@
   }
   <div class="row g-3">
     <div class="col-lg-8 col-12">
+      <div class="order-toolbar-shell mb-3">
       <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
         <form id="orderItemAddForm" class="row row-cols-auto g-2 align-items-end flex-grow-1" autocomplete="off">
           @Html.AntiForgeryToken()
@@ -232,9 +483,11 @@
                 }
             </select>
           </div>
-            <div class="col flex-grow-1" style="min-width:200px;">
+            <div class="col flex-grow-1 menu-ac-wrap" style="min-width:200px; position:relative;">
             <label for="menuItemInput" class="form-label small mb-1 fw-semibold">Menu Item <span class="badge bg-secondary" style="font-size: 0.65rem;">Space</span></label>
-            <input list="menuItems" id="menuItemInput" class="form-control form-control-sm" placeholder="Search menu (name)..." required disabled="@(isFullyPaid ? "disabled" : null)" />
+            <input id="menuItemInput" class="form-control form-control-sm" placeholder="Search menu (name)..." required autocomplete="off" disabled="@(isFullyPaid ? "disabled" : null)" />
+            <div id="menuAcList" class="menu-ac-list" role="listbox" aria-label="Menu items"></div>
+            @* Hidden datalist kept for resolveMenuItemByName lookup *@
             <datalist id="menuItems">
                 @foreach (var mi in Model.AvailableMenuItems)
                 {
@@ -245,7 +498,7 @@
                   <option value="@mi.Name" data-id="@mi.Id" data-price="@displayPrice.ToString("F2")" data-plu="@mi.PLUCode">@mi.PLUCode - @mi.Name (₹@displayPrice.ToString("F2"))</option>
                 }
             </datalist>
-          </div>
+            </div>
           <div class="col">
             <label for="menuItemQty" class="form-label small mb-1 fw-semibold">Qty <span class="badge bg-secondary" style="font-size: 0.65rem;">Enter</span></label>
             <input type="number" id="menuItemQty" class="form-control form-control-sm" min="1" value="1" required />
@@ -291,9 +544,10 @@
           </div>
         </div>
       </div>
-      <div class="card shadow-sm mb-3">
+      </div>
+      <div class="card shadow-sm mb-3 order-workspace-card">
         <div class="card-header d-flex justify-content-between align-items-center py-2">
-          <div class="small">
+          <div class="small order-items-meta">
             <strong class="order-number-text">Order #:</strong> <span class="order-number-text">@Model.OrderNumber</span>
             @if (!string.IsNullOrWhiteSpace(Model.GlobalBillNo))
             {
@@ -321,7 +575,7 @@
             @foreach (var it in Model.Items.Where(i=> i.Status != 5))
             {
               var isEditableLine = !isFullyPaid && it.Status == 0;
-              <tr data-order-item-id="@it.Id" data-menu-item-id="@it.MenuItemId" data-item-status="@it.Status" class="existing-item-row">
+              <tr data-order-item-id="@it.Id" data-menu-item-id="@it.MenuItemId" data-item-status="@it.Status" data-is-extra-charge="@it.IsExtraCharge.ToString().ToLower()" class="existing-item-row">
                 <td class="text-center"><input type="checkbox" class="fire-select" value="@it.Id" /></td>
                 <td>
                   <div class="fw-semibold">@it.MenuItemName</div>
@@ -470,36 +724,45 @@
       </div>
     </div>
   </div>
-  @if (Model.Items.Any(i=>i.Status==0))
+  @if (Model.Items.Any(i=>i.Status==0 && !i.IsExtraCharge))
   {
     <div class="modal fade" id="fireItemsModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
           <form id="fireItemsForm" asp-action="FireItems" method="post">
             @Html.AntiForgeryToken()
             <input type="hidden" name="OrderId" value="@Model.Id" />
             <input type="hidden" name="IsBarOrder" value="@isBarOrder.ToString().ToLower()" />
-            <div class="modal-header"><h5 class="modal-title">@(isBarOrder ? "Send Items To Bar" : "Send Items To Kitchen")</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="fas @(isBarOrder ? "fa-cocktail" : "fa-fire")"></i> @(isBarOrder ? "Send Items To Bar" : "Send Items To Kitchen")</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
             <div class="modal-body">
-              <div class="mb-2 d-flex justify-content-between align-items-center">
-                <span class="small text-muted">Select which un-fired items to send.</span>
+              <div class="fire-items-toolbar">
+                <div>
+                  <div class="fw-semibold text-dark">Choose pending items</div>
+                  <div class="small text-muted">Select which un-fired items should be sent now.</div>
+                </div>
                 <div class="form-check form-check-sm">
                   <input type="checkbox" class="form-check-input" id="fireSelectAll" />
                   <label for="fireSelectAll" class="form-check-label small">All</label>
                 </div>
               </div>
-              <div class="list-group small" style="max-height:260px;overflow:auto;">
-                @foreach (var ni in Model.Items.Where(i=>i.Status==0))
+              <div class="fire-items-list list-group small">
+                @foreach (var ni in Model.Items.Where(i=>i.Status==0 && !i.IsExtraCharge))
                 {
-                  <label class="list-group-item d-flex align-items-center gap-2 py-1">
+                  <label class="list-group-item fire-item-row d-flex align-items-center gap-3">
                     <input type="checkbox" class="form-check-input fire-item-checkbox" value="@ni.Id" name="SelectedItems" />
                     <span class="flex-grow-1 d-flex justify-content-between align-items-center">
-                      <span>@ni.MenuItemName</span>
-                      <span class="badge bg-light text-dark border" style="font-weight:500;">x @ni.Quantity</span>
+                      <span>
+                        <span class="fire-item-name">@ni.MenuItemName</span>
+                        <span class="d-block fire-item-subtext">Status: Pending to send</span>
+                      </span>
+                      <span class="fire-item-qty">x @ni.Quantity</span>
                     </span>
                   </label>
                 }
-                @if(!Model.Items.Any(i=>i.Status==0)){
+                @if(!Model.Items.Any(i=>i.Status==0 && !i.IsExtraCharge)){
                   <div class="text-muted fst-italic px-2 py-1">No pending items to fire.</div>
                 }
               </div>
@@ -803,6 +1066,124 @@
       });
       collapseEl.addEventListener('hide.bs.collapse', function() {
         chevron.style.transform = 'rotate(0deg)';
+      });
+    })();
+
+    // ===== Modern Menu Item Autocomplete =====
+    (function() {
+      const input = document.getElementById('menuItemInput');
+      const dataList = document.getElementById('menuItems');
+      const acList = document.getElementById('menuAcList');
+      if (!input || !dataList || !acList) return;
+
+      // Build item array from datalist options
+      function buildItems() {
+        return Array.from(dataList.querySelectorAll('option')).map(opt => ({
+          id: opt.getAttribute('data-id'),
+          name: opt.value || '',
+          plu: opt.getAttribute('data-plu') || '',
+          price: opt.getAttribute('data-price') || '0.00'
+        }));
+      }
+      let items = buildItems();
+
+      // Rebuild items array whenever datalist changes (group filter AJAX)
+      new MutationObserver(() => { items = buildItems(); }).observe(dataList, { childList: true });
+
+      let activeIdx = -1;
+      let isOpen = false;
+
+      function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+
+      function highlight(text, query) {
+        if (!query) return escHtml(text);
+        const idx = text.toLowerCase().indexOf(query.toLowerCase());
+        if (idx < 0) return escHtml(text);
+        return escHtml(text.slice(0, idx))
+          + '<mark>' + escHtml(text.slice(idx, idx + query.length)) + '</mark>'
+          + escHtml(text.slice(idx + query.length));
+      }
+
+      function openList(query) {
+        const q = (query || '').trim().toLowerCase();
+        const filtered = q.length === 0
+          ? items.slice(0, 50)
+          : items.filter(it =>
+              it.name.toLowerCase().includes(q) ||
+              it.plu.toLowerCase().startsWith(q)
+            ).slice(0, 60);
+
+        if (filtered.length === 0) {
+          acList.innerHTML = '<div class="menu-ac-empty"><i class="fas fa-search me-1"></i>No items found</div>';
+        } else {
+          acList.innerHTML = filtered.map((it, i) =>
+            `<div class="menu-ac-item" role="option" data-idx="${i}" data-name="${escHtml(it.name)}" data-plu="${escHtml(it.plu)}" data-price="${escHtml(it.price)}" data-id="${escHtml(it.id)}">
+              <div class="menu-ac-item-left">
+                <div class="menu-ac-name">${highlight(it.name, q)}</div>
+                <div class="menu-ac-sub">${it.plu ? `<span class="menu-ac-plu">${escHtml(it.plu)}</span>` : ''}</div>
+              </div>
+              <div class="menu-ac-price">&#8377;${escHtml(it.price)}</div>
+            </div>`
+          ).join('');
+        }
+        activeIdx = -1;
+        acList.classList.add('ac-open');
+        isOpen = true;
+      }
+
+      function closeList() {
+        acList.classList.remove('ac-open');
+        isOpen = false;
+        activeIdx = -1;
+      }
+
+      function selectItem(el) {
+        input.value = el.getAttribute('data-name');
+        closeList();
+        document.getElementById('menuItemQty')?.focus();
+      }
+
+      function setActive(idx) {
+        const rows = acList.querySelectorAll('.menu-ac-item');
+        rows.forEach(r => r.classList.remove('ac-active'));
+        if (idx >= 0 && idx < rows.length) {
+          rows[idx].classList.add('ac-active');
+          rows[idx].scrollIntoView({ block: 'nearest' });
+          activeIdx = idx;
+        } else { activeIdx = -1; }
+      }
+
+      input.addEventListener('input', () => { if (!input.disabled) openList(input.value); });
+      input.addEventListener('focus', () => { if (!input.disabled) openList(input.value); });
+
+      input.addEventListener('keydown', e => {
+        if (input.disabled) return;
+        const rows = acList.querySelectorAll('.menu-ac-item');
+        if (!isOpen) { if (e.key === 'ArrowDown') { e.preventDefault(); openList(input.value); } return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIdx + 1, rows.length - 1)); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(activeIdx - 1, 0)); }
+        else if (e.key === 'Enter') {
+          if (activeIdx >= 0 && rows[activeIdx]) { e.preventDefault(); e.stopPropagation(); selectItem(rows[activeIdx]); }
+        }
+        else if (e.key === 'Escape') { closeList(); }
+        else if (e.key === 'Tab') { if (activeIdx >= 0 && rows[activeIdx]) selectItem(rows[activeIdx]); closeList(); }
+      });
+
+      // Mouse / touch selection
+      acList.addEventListener('mousedown', e => {
+        const item = e.target.closest('.menu-ac-item');
+        if (item) { e.preventDefault(); selectItem(item); }
+      });
+      acList.addEventListener('touchend', e => {
+        const item = e.target.closest('.menu-ac-item');
+        if (item) { e.preventDefault(); selectItem(item); }
+      }, { passive: false });
+
+      // Close when clicking outside
+      document.addEventListener('click', e => {
+        if (!input.closest('.menu-ac-wrap').contains(e.target)) closeList();
       });
     })();
   </script>

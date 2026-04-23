@@ -4,37 +4,220 @@
 }
 
 <style>
-  /* ===== Process Payment — Mobile & Tablet Responsive ===== */
-  @@media (max-width: 575.98px) {
-    .pp-page { padding: .75rem !important; }
-    .pp-page h1 { font-size: 1.35rem; }
-    .pp-page p.fs-5 { font-size: 1rem !important; }
-    .pp-page .nav-tabs .nav-link { padding: .45rem .7rem; font-size: .88rem; }
-    .pp-page .card-body.p-4 { padding: .875rem !important; }
+    /* ===== Process Payment Compact + Responsive UI ===== */
+    .pp-page {
+        max-width: 1360px;
+        margin: 0 auto;
+        background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+    }
+    .pp-page h1 {
+        font-size: 1.55rem;
+        line-height: 1.15;
+    }
+    .pp-page p.fs-5 {
+        font-size: .96rem !important;
+        margin-top: .15rem;
+    }
+    .pp-page .nav-tabs {
+        border-bottom: 1px solid #dbe5f1;
+        gap: .2rem;
+    }
+    .pp-page .nav-tabs .nav-link {
+        border: 1px solid transparent;
+        border-top-left-radius: .7rem;
+        border-top-right-radius: .7rem;
+        padding: .55rem .95rem;
+        font-weight: 600;
+        color: #2563eb;
+    }
+    .pp-page .nav-tabs .nav-link.active {
+        background: #ffffff;
+        border-color: #dbe5f1 #dbe5f1 #ffffff;
+        color: #0f172a;
+        box-shadow: 0 -1px 0 #ffffff;
+    }
+    .pp-page .tab-content > .tab-pane > .card {
+        border: 1px solid rgba(148, 163, 184, 0.2) !important;
+        box-shadow: 0 8px 26px rgba(15, 23, 42, 0.06) !important;
+    }
+    .pp-page .card-header {
+        padding-top: .75rem !important;
+        padding-bottom: .75rem !important;
+    }
+    .pp-page .card-header h4 {
+        font-size: 1.05rem;
+        line-height: 1.2;
+    }
+    .pp-page .card-body.p-4 {
+        padding: 1rem !important;
+    }
+    .pp-page h5.fw-semibold {
+        font-size: 1.08rem;
+        margin-bottom: .6rem !important;
+        margin-top: .15rem !important;
+    }
+    .pp-page .mb-4 {
+        margin-bottom: .9rem !important;
+    }
+    .pp-page .alert {
+        margin-bottom: .7rem;
+        padding: .65rem .8rem;
+        border-radius: .55rem;
+    }
     .pp-page .input-group-lg .form-control,
     .pp-page .input-group-lg .input-group-text,
-    .pp-page .form-select-lg { font-size: 1rem !important; min-height: 44px; }
-    .pp-page .btn-lg.rounded-pill { min-height: 50px; font-size: 1rem; border-radius: .75rem !important; }
-    .pp-page .btn-group .btn { min-height: 42px; }
-    .pp-disc-input { width: 100% !important; max-width: 100% !important; }
-    #splitTable th, #splitTable td { font-size: .75rem; padding: .28rem .3rem; }
-  }
-  @@media (min-width: 576px) and (max-width: 991.98px) {
-    .pp-page .card-body.p-4 { padding: 1.25rem !important; }
-    .pp-disc-input { max-width: 240px !important; }
-  }
-  @@media (max-width: 991.98px) {
-    .pp-page .input-group-lg .form-control,
-    .pp-page .form-select-lg { min-height: 44px; }
-    .pp-page .btn-lg { min-height: 48px; }
-    .pp-page .btn-group .btn { min-height: 40px; }
-  }
-  /* Summary card on top on mobile */
-  @@media (max-width: 991.98px) {
-    .pp-summary-col { margin-bottom: 1rem; }
-  }
+    .pp-page .form-select-lg {
+        min-height: 42px;
+        font-size: 1rem;
+    }
+    .pp-page .form-control,
+    .pp-page .form-select {
+        border-radius: .55rem;
+    }
+    .pp-page .btn-group .btn {
+        min-height: 38px;
+        padding-top: .35rem;
+        padding-bottom: .35rem;
+    }
+    .pp-page .btn-lg {
+        min-height: 46px;
+        padding-top: .55rem !important;
+        padding-bottom: .55rem !important;
+        border-radius: .85rem !important;
+    }
+    .pp-disc-input {
+        max-width: 280px !important;
+    }
+
+    /* Compact summary cards */
+    .pp-page .pp-summary-col .card {
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        border-radius: .75rem;
+    }
+    .pp-page .pp-summary-col .card-body {
+        padding: .8rem !important;
+    }
+    .pp-page .pp-summary-col h4,
+    .pp-page .pp-summary-col .h5 {
+        font-size: 1.9rem;
+        margin-bottom: 0;
+    }
+    .pp-page .pp-summary-col h6,
+    .pp-page .pp-summary-col .text-muted {
+        font-size: .82rem;
+    }
+    .pp-page .pp-summary-col .fa-2x {
+        font-size: 1.4rem;
+    }
+
+    /* Desktop single-screen behavior */
+    @@media (min-width: 992px) {
+        .pp-page {
+            padding-top: .9rem !important;
+            padding-bottom: .9rem !important;
+        }
+        .pp-summary-col {
+            position: sticky;
+            top: .8rem;
+            align-self: flex-start;
+        }
+        .pp-page .d-grid.gap-2.mt-4 {
+            margin-top: .95rem !important;
+        }
+        #splitTable th,
+        #splitTable td {
+            padding: .34rem .4rem;
+            font-size: .84rem;
+            vertical-align: middle;
+        }
+        #splitTable .form-control-sm,
+        #splitTable .form-select-sm {
+            min-height: 32px;
+            font-size: .82rem;
+            padding-top: .2rem;
+            padding-bottom: .2rem;
+        }
+    }
+
+    /* Tablet */
+    @@media (min-width: 576px) and (max-width: 991.98px) {
+        .pp-page {
+            padding: .85rem !important;
+        }
+        .pp-page .card-body.p-4 {
+            padding: .9rem !important;
+        }
+        .pp-summary-col {
+            margin-bottom: .75rem;
+        }
+        .pp-disc-input {
+            max-width: 240px !important;
+        }
+        .pp-page .btn-lg {
+            min-height: 45px;
+            font-size: .98rem;
+        }
+        #splitTable th,
+        #splitTable td {
+            font-size: .78rem;
+            padding: .3rem .3rem;
+        }
+    }
+
+    /* Mobile */
+    @@media (max-width: 575.98px) {
+        .pp-page {
+            padding: .65rem !important;
+        }
+        .pp-page h1 {
+            font-size: 1.3rem;
+        }
+        .pp-page p.fs-5 {
+            font-size: .88rem !important;
+            margin-bottom: 0;
+        }
+        .pp-page .nav-tabs .nav-link {
+            padding: .45rem .62rem;
+            font-size: .84rem;
+        }
+        .pp-page .card-body.p-4 {
+            padding: .72rem !important;
+        }
+        .pp-page .input-group-lg .form-control,
+        .pp-page .input-group-lg .input-group-text,
+        .pp-page .form-select-lg {
+            min-height: 42px;
+            font-size: .95rem !important;
+        }
+        .pp-page .btn-group .btn {
+            min-height: 40px;
+            font-size: .86rem;
+        }
+        .pp-page .btn-lg {
+            min-height: 46px;
+            font-size: .94rem;
+            border-radius: .68rem !important;
+        }
+        .pp-page .pp-summary-col .card-body {
+            padding: .7rem !important;
+        }
+        .pp-disc-input {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        #splitTable th,
+        #splitTable td {
+            font-size: .72rem;
+            padding: .26rem .24rem;
+        }
+        #splitTable .form-control-sm,
+        #splitTable .form-select-sm {
+            min-height: 34px;
+            font-size: .74rem;
+        }
+    }
 </style>
-<div class="container-fluid p-3 p-md-4 pp-page">
+<div class="container-fluid p-2 p-md-3 pp-page">
     <div class="d-flex flex-wrap align-items-center gap-2 mb-3 mb-md-4">
         <div>
             <h1 class="mb-0 fw-bold">@ViewData["Title"]</h1>
@@ -48,7 +231,7 @@
     </div>
 
     <div class="row">
-        <div class="col-lg-10 mx-auto">
+        <div class="col-12 col-xxl-11 mx-auto">
             <ul class="nav nav-tabs" id="paymentTabs" role="tablist">
                 <li class="nav-item" role="presentation">
                     <button class="nav-link active" id="single-tab" data-bs-toggle="tab" data-bs-target="#singlePane" type="button" role="tab" aria-controls="singlePane" aria-selected="true">
@@ -63,7 +246,7 @@
             </ul>
             <div class="tab-content" id="paymentTabsContent">
                 <div class="tab-pane fade show active" id="singlePane" role="tabpanel" aria-labelledby="single-tab">
-                    <div class="card mb-4 shadow-sm border-0 rounded-3">
+                    <div class="card mb-3 shadow-sm border-0 rounded-3">
                         <div class="card-header bg-white py-3 border-0">
                             <h4 class="mb-0 fw-bold text-primary">Payment Details</h4>
                         </div>
@@ -82,7 +265,7 @@
                         <input type="hidden" id="SingleInclusiveGST" value="@(Model.IsInclusiveGST ? 1 : 0)" />
                         <input type="hidden" id="SingleGrossItemTotal" value="@Model.GrossItemTotal" />
 
-                        <div class="row g-4">
+                        <div class="row g-3">
                             <div class="col-12 col-lg-4 order-0 order-lg-1 pp-summary-col">
                                 <!-- Payment Summary Card -->
                                 <div class="card mb-4 bg-light rounded-3">
@@ -281,7 +464,7 @@
                 </div>
 
                 <div class="tab-pane fade" id="splitPane" role="tabpanel" aria-labelledby="split-tab">
-                    <div class="card mb-4 shadow-sm border-0 rounded-3">
+                    <div class="card mb-3 shadow-sm border-0 rounded-3">
                         <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
                             <h4 class="mb-0 fw-bold text-primary">Split Payment</h4>
                             <small class="text-muted">Order #@Model.OrderNumber</small>
@@ -297,7 +480,7 @@
                                 <input type="hidden" id="IsInclusiveGST" value="@(Model.IsInclusiveGST ? 1 : 0)" />
                                 <input type="hidden" id="GrossItemTotal" value="@Model.GrossItemTotal" />
 
-                                <div class="row g-4">
+                                <div class="row g-3">
                                     <div class="col-12 col-lg-4 order-0 order-lg-1 pp-summary-col">
                                         <!-- Summary -->
                                         <div class="card mb-3 bg-light">

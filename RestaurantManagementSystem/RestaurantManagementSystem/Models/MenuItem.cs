@@ -79,6 +79,9 @@ namespace RestaurantManagementSystem.Models
         [Display(Name = "Is Special")]
         public bool IsSpecial { get; set; }
 
+        [Display(Name = "Is Extra Charge")]
+        public bool IsExtraCharge { get; set; }
+
         [Display(Name = "Discount Percentage")]
         [Range(0, 100, ErrorMessage = "Discount must be between 0% and 100%")]
         public decimal? DiscountPercentage { get; set; }
