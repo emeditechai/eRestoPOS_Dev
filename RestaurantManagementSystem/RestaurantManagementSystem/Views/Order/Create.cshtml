@@ -156,7 +156,11 @@
                                     {
                                         <div class="alert alert-success">
                                             <i class="fas fa-check-circle"></i> Table selected from dashboard: 
-                                            @(Model.AvailableTables.FirstOrDefault(t => t.Id == Model.SelectedTableId)?.TableName ?? "Unknown Table")
+                                            @((ViewBag.SelectedTableName as string) ?? Model.AvailableTables.FirstOrDefault(t => t.Id == Model.SelectedTableId)?.TableName ?? "Unknown Table")
+                                            @if (!string.IsNullOrWhiteSpace(Model.CustomerName))
+                                            {
+                                                <span class="ms-1 text-muted">- Guest: @Model.CustomerName</span>
+                                            }
                                         </div>
                                         <input type="hidden" asp-for="SelectedTableId" />
                                     }

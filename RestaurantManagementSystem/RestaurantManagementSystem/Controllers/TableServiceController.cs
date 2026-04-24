@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.Extensions.Configuration;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -285,10 +286,18 @@ namespace RestaurantManagementSystem.Controllers
                 CurrentTurnovers = new List<ActiveTableViewModel>(),
                 UnoccupiedTables = new List<TableViewModel>()
             };
+
+            var activeBranchId = User.GetActiveBranchId();
             
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+
+                var hasTablesBranch = ColumnExists(connection, "Tables", "BranchId");
+                var hasReservationsBranch = ColumnExists(connection, "Reservations", "BranchId");
+                var hasWaitlistBranch = ColumnExists(connection, "Waitlist", "BranchId");
+                var hasOrdersBranch = ColumnExists(connection, "Orders", "BranchId");
+                var tableBranchFilter = hasTablesBranch && activeBranchId.HasValue ? " AND t.BranchId = @ActiveBranchId" : string.Empty;
                 
                 // Get table counts including merged table logic
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -302,8 +311,13 @@ namespace RestaurantManagementSystem.Controllers
                         FROM OrderTables ot
                         INNER JOIN Orders o ON ot.OrderId = o.Id AND o.Status IN (0, 1, 2)
                     ) ot ON t.Id = ot.TableId
-                    WHERE t.IsActive = 1", connection))
+                    WHERE t.IsActive = 1" + tableBranchFilter, connection))
                 {
+                    if (hasTablesBranch && activeBranchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
+                    }
+
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         if (reader.Read())
@@ -320,8 +334,13 @@ namespace RestaurantManagementSystem.Controllers
                     SELECT COUNT(*)
                     FROM Reservations
                     WHERE CAST(ReservationDate AS DATE) = CAST(GETDATE() AS DATE)
-                    AND Status IN (0, 1, 6)", connection)) // Pending, Confirmed, Waitlisted
+                    AND Status IN (0, 1, 6)" + (hasReservationsBranch && activeBranchId.HasValue ? " AND BranchId = @ActiveBranchId" : string.Empty), connection)) // Pending, Confirmed, Waitlisted
                 {
+                    if (hasReservationsBranch && activeBranchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
+                    }
+
                     model.ReservationCount = (int)command.ExecuteScalar();
                 }
                 
@@ -329,8 +348,13 @@ namespace RestaurantManagementSystem.Controllers
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT COUNT(*)
                     FROM Waitlist
-                    WHERE Status = 0", connection)) // 0 = Waiting
+                    WHERE Status = 0" + (hasWaitlistBranch && activeBranchId.HasValue ? " AND BranchId = @ActiveBranchId" : string.Empty), connection)) // 0 = Waiting
                 {
+                    if (hasWaitlistBranch && activeBranchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
+                    }
+
                     model.WaitlistCount = (int)command.ExecuteScalar();
                 }
                 
@@ -351,8 +375,14 @@ namespace RestaurantManagementSystem.Controllers
                     LEFT JOIN ServerAssignments sa ON tb.Id = sa.TableId AND sa.IsActive = 1
                     LEFT JOIN Users u ON sa.ServerId = u.Id
                     WHERE t.Status < 5 -- Not departed
+                    " + (hasTablesBranch && activeBranchId.HasValue ? " AND tb.BranchId = @ActiveBranchId" : string.Empty) + @"
                     ORDER BY t.SeatedAt DESC", connection))
                 {
+                    if (hasTablesBranch && activeBranchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
+                    }
+
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -419,8 +449,14 @@ namespace RestaurantManagementSystem.Controllers
                                                             ) ASC
                     ) nr
                     WHERE t.IsActive = 1
+                    " + (hasTablesBranch && activeBranchId.HasValue ? " AND t.BranchId = @ActiveBranchId" : string.Empty) + @"
                     ORDER BY t.Section, t.TableName", connection))
                 {
+                    if (hasTablesBranch && activeBranchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
+                    }
+
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -444,12 +480,19 @@ namespace RestaurantManagementSystem.Controllers
                 
                 // 1. Average Table Turnover Time (completed turnovers today)
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
-                    SELECT AVG(DATEDIFF(MINUTE, SeatedAt, DepartedAt))
-                    FROM TableTurnovers
-                    WHERE Status = 5 -- Departed
-                    AND CAST(SeatedAt AS DATE) = CAST(GETDATE() AS DATE)
-                    AND DepartedAt IS NOT NULL", connection))
+                    SELECT AVG(DATEDIFF(MINUTE, tt.SeatedAt, tt.DepartedAt))
+                    FROM TableTurnovers tt
+                    INNER JOIN Tables t ON tt.TableId = t.Id
+                    WHERE tt.Status = 5 -- Departed
+                    AND CAST(tt.SeatedAt AS DATE) = CAST(GETDATE() AS DATE)
+                    AND tt.DepartedAt IS NOT NULL
+                    " + (hasTablesBranch && activeBranchId.HasValue ? " AND t.BranchId = @ActiveBranchId" : string.Empty), connection))
                 {
+                    if (hasTablesBranch && activeBranchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
+                    }
+
                     var result = command.ExecuteScalar();
                     model.AverageTurnoverTime = result == DBNull.Value ? 0 : Convert.ToDecimal(result);
                 }
@@ -462,8 +505,14 @@ namespace RestaurantManagementSystem.Controllers
                     FROM Orders o
                     LEFT JOIN TableTurnovers tt ON o.TableTurnoverId = tt.Id
                     WHERE CAST(o.CreatedAt AS DATE) = CAST(GETDATE() AS DATE)
-                    AND o.Status != 4", connection)) // Exclude cancelled orders
+                    AND o.Status != 4
+                    " + (hasOrdersBranch && activeBranchId.HasValue ? " AND o.BranchId = @ActiveBranchId" : string.Empty), connection)) // Exclude cancelled orders
                 {
+                    if (hasOrdersBranch && activeBranchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
+                    }
+
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         if (reader.Read())
@@ -484,9 +533,15 @@ namespace RestaurantManagementSystem.Controllers
                     FROM Orders o
                     WHERE CAST(o.CreatedAt AS DATE) = CAST(GETDATE() AS DATE)
                     AND o.Status != 4 -- Exclude cancelled
+                    " + (hasOrdersBranch && activeBranchId.HasValue ? " AND o.BranchId = @ActiveBranchId" : string.Empty) + @"
                     GROUP BY DATEPART(HOUR, o.CreatedAt)
                     ORDER BY OrderCount DESC", connection))
                 {
+                    if (hasOrdersBranch && activeBranchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
+                    }
+
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         var peakHoursList = new List<PeakHourData>();
@@ -520,6 +575,7 @@ namespace RestaurantManagementSystem.Controllers
                         ISNULL(SUM(o.TotalAmount), 0) AS TotalRevenue
                     FROM Users u
                     LEFT JOIN ServerAssignments sa ON u.Id = sa.ServerId AND sa.IsActive = 1
+                    LEFT JOIN Tables tbFilter ON sa.TableId = tbFilter.Id
                     LEFT JOIN TableTurnovers tt ON sa.TableId = tt.TableId AND tt.Status < 5
                     LEFT JOIN Orders o ON tt.Id = o.TableTurnoverId 
                         AND CAST(o.CreatedAt AS DATE) = CAST(GETDATE() AS DATE)
@@ -530,10 +586,16 @@ namespace RestaurantManagementSystem.Controllers
                         INNER JOIN Roles r ON ur.RoleId = r.Id
                         WHERE ur.UserId = u.Id AND r.Name IN ('Server', 'Waiter', 'Staff')
                     )
+                    " + (hasTablesBranch && activeBranchId.HasValue ? " AND tbFilter.BranchId = @ActiveBranchId" : string.Empty) + @"
                     GROUP BY u.Id, u.FirstName, u.LastName
                     HAVING COUNT(DISTINCT sa.TableId) > 0 OR COUNT(DISTINCT o.Id) > 0
                     ORDER BY ActiveTables DESC, TotalRevenue DESC", connection))
                 {
+                    if (hasTablesBranch && activeBranchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
+                    }
+
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())
@@ -558,12 +620,14 @@ namespace RestaurantManagementSystem.Controllers
         {
             var tables = new List<SelectListItem>();
             string diagnostics = null;
+            var activeBranchId = User.GetActiveBranchId();
 
             try
             {
                 using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                 {
                     connection.Open();
+                    var hasTablesBranch = ColumnExists(connection, "Tables", "BranchId");
 
                     // Return currently available tables OR today's reserved tables (Pending/Confirmed)
                     string sql = @"
@@ -572,6 +636,7 @@ namespace RestaurantManagementSystem.Controllers
                         LEFT JOIN OrderTables ot ON t.Id = ot.TableId
                         LEFT JOIN Orders o ON ot.OrderId = o.Id AND o.Status IN (0, 1, 2)
                         WHERE t.Status = 0 AND ot.TableId IS NULL -- Available and not assigned to active order
+                          AND t.IsActive = 1" + (hasTablesBranch && activeBranchId.HasValue ? " AND t.BranchId = @ActiveBranchId" : string.Empty) + @"
 
                         UNION
 
@@ -580,12 +645,17 @@ namespace RestaurantManagementSystem.Controllers
                         INNER JOIN Reservations r ON r.TableId = t2.Id
                         WHERE CAST(r.ReservationTime AS DATE) = CAST(GETDATE() AS DATE)
                           AND r.Status IN (0, 1) -- Pending or Confirmed
-                          AND t2.IsActive = 1
+                          AND t2.IsActive = 1" + (hasTablesBranch && activeBranchId.HasValue ? " AND t2.BranchId = @ActiveBranchId" : string.Empty) + @"
 
                         ORDER BY 2";
 
                     using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(sql, connection))
                     {
+                        if (hasTablesBranch && activeBranchId.HasValue)
+                        {
+                            command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
+                        }
+
                         using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                         {
                             int count = 0;
@@ -866,10 +936,12 @@ namespace RestaurantManagementSystem.Controllers
         private List<ActiveTableViewModel> GetActiveTables()
         {
             var activeTables = new List<ActiveTableViewModel>();
+            var activeBranchId = User.GetActiveBranchId();
             
             using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
             {
                 connection.Open();
+                var hasTablesBranch = ColumnExists(connection, "Tables", "BranchId");
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
                     SELECT
                         o.Id AS OrderId,
@@ -903,8 +975,14 @@ namespace RestaurantManagementSystem.Controllers
                         GROUP BY ot2.OrderId
                     ) merged ON o.Id = merged.OrderId
                     WHERE o.Status IN (0, 1, 2) -- Active orders: New, In Progress, Ready
+                    " + (hasTablesBranch && activeBranchId.HasValue ? " AND t.BranchId = @ActiveBranchId" : string.Empty) + @"
                     ORDER BY t.TableName", connection))
                 {
+                    if (hasTablesBranch && activeBranchId.HasValue)
+                    {
+                        command.Parameters.AddWithValue("@ActiveBranchId", activeBranchId.Value);
+                    }
+
                     using (Microsoft.Data.SqlClient.SqlDataReader reader = command.ExecuteReader())
                     {
                         while (reader.Read())

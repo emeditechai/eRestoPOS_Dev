@@ -45,9 +45,7 @@
                                 <label asp-for="Section" class="form-label mb-0">Area/Section <span class="text-danger">*</span></label>
                                 <a class="small" href="@Url.Action("TableSections", "Reservation")">Manage Sections</a>
                             </div>
-                            <select asp-for="Section" class="form-select" asp-items="ViewBag.SectionOptions" required>
-                                <option value="">-- Select Section --</option>
-                            </select>
+                            <select asp-for="Section" class="form-select" asp-items="ViewBag.SectionOptions" required></select>
                             <span asp-validation-for="Section" class="text-danger"></span>
                         </div>
 

@@ -161,6 +161,7 @@ VALUES
     ('NAV_REPORTS_FEEDBACK', 'NAV_REPORTS', 'Feedback Survey Report', NULL, NULL, 'Reports', 'FeedbackSurveyReport', NULL, NULL, 'fas fa-poll-h compact-icon text-primary', 11, 1, 1, NULL, NULL, 0),
     ('NAV_REPORTS_FINANCIAL', 'NAV_REPORTS', 'Financial Summary', NULL, NULL, 'Reports', 'Financial', NULL, NULL, 'fas fa-calculator compact-icon text-primary', 12, 1, 1, NULL, NULL, 0),
     ('NAV_REPORTS_PROFITLOSS', 'NAV_REPORTS', 'P&L Analysis', 'Profit & Loss Analysis Report with BOM-based ingredient costing', NULL, 'Reports', 'ProfitLoss', NULL, NULL, 'fas fa-chart-line compact-icon text-success', 13, 1, 1, NULL, NULL, 0),
+    ('NAV_REPORTS_WAITLIST_GUESTS', 'NAV_REPORTS', 'Waitlist Guest Report', 'Waitlist and seated guest operational report by date range', NULL, 'Reports', 'WaitlistGuestReport', NULL, NULL, 'fas fa-chair compact-icon text-info', 14, 1, 1, NULL, NULL, 0),
     -- ── Stocks ──────────────────────────────────────────────────────────────
     ('NAV_STOCKS',     NULL,          'Stocks',     'Stock and inventory masters', NULL, NULL, NULL, NULL, NULL, 'fas fa-boxes compact-icon', 11, 1, 1, '#22c55e', NULL, 0),
     ('NAV_STOCKS_UOM', 'NAV_STOCKS',  'UOM Master', 'Unit of Measurement master for BOM', NULL, 'Uom', 'Index', NULL, NULL, 'fas fa-ruler-combined compact-icon text-primary', 1, 1, 1, NULL, NULL, 0);

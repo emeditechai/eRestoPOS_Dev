@@ -55,4 +55,50 @@ namespace RestaurantManagementSystem.ViewModels
         public decimal TotalRoundOff { get; set; }
         public decimal TotalReceiptAmount { get; set; }
     }
+
+    public class WaitlistGuestReportViewModel
+    {
+        public WaitlistGuestReportFilter Filter { get; set; } = new WaitlistGuestReportFilter();
+        public List<WaitlistGuestReportRow> Rows { get; set; } = new List<WaitlistGuestReportRow>();
+        public WaitlistGuestReportSummary Summary { get; set; } = new WaitlistGuestReportSummary();
+        public List<SelectListItem> Branches { get; set; } = new List<SelectListItem>();
+        public bool IsMainBranchAdmin { get; set; }
+        public string SelectedBranchLabel { get; set; } = "Active Branch";
+    }
+
+    public class WaitlistGuestReportFilter
+    {
+        public DateTime? StartDate { get; set; }
+        public DateTime? EndDate { get; set; }
+        public List<int> SelectedBranchIds { get; set; } = new List<int>();
+    }
+
+    public class WaitlistGuestReportRow
+    {
+        public int WaitlistId { get; set; }
+        public DateTime AddedAt { get; set; }
+        public string GuestName { get; set; } = string.Empty;
+        public string PhoneNumber { get; set; } = string.Empty;
+        public int PartySize { get; set; }
+        public int QuotedWaitTime { get; set; }
+        public string StatusText { get; set; } = string.Empty;
+        public DateTime? NotifiedAt { get; set; }
+        public DateTime? SeatedAt { get; set; }
+        public string TableNumber { get; set; } = string.Empty;
+        public string BranchName { get; set; } = string.Empty;
+        public string Notes { get; set; } = string.Empty;
+        public int? ActualWaitMinutes { get; set; }
+        public bool SeatedWithoutTable { get; set; }
+    }
+
+    public class WaitlistGuestReportSummary
+    {
+        public int TotalGuests { get; set; }
+        public int WaitingGuests { get; set; }
+        public int NotifiedGuests { get; set; }
+        public int SeatedGuests { get; set; }
+        public int SeatedWithoutTableGuests { get; set; }
+        public decimal AverageQuotedWaitTime { get; set; }
+        public decimal AverageActualWaitTime { get; set; }
+    }
 }

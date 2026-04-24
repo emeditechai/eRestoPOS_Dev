@@ -479,11 +479,13 @@ namespace RestaurantManagementSystem.Controllers
             {
                 // Get available tables for potentially seating waitlisted guests
                 ViewBag.AvailableTables = GetAllTables().Where(t => t.Status == TableStatus.Available).ToList();
+                ViewBag.RecentlySeated = GetRecentlySeatedWaitlist(8);
             }
             catch (Exception ex)
             {
                 
                 ViewBag.AvailableTables = new List<Table>();
+                ViewBag.RecentlySeated = new List<WaitlistEntry>();
                 ViewBag.ErrorMessage = ViewBag.ErrorMessage ?? "Could not load available tables. Some functionality may be limited.";
             }
             
@@ -506,6 +508,13 @@ namespace RestaurantManagementSystem.Controllers
             {
                 TempData["ErrorMessage"] = "Please select an active branch first.";
                 return RedirectToAction("Waitlist");
+            }
+
+            model.PhoneNumber = (model.PhoneNumber ?? string.Empty).Trim();
+
+            if (!System.Text.RegularExpressions.Regex.IsMatch(model.PhoneNumber, @"^\d{10}$"))
+            {
+                ModelState.AddModelError("PhoneNumber", "Phone number must be exactly 10 digits.");
             }
 
             if (!ModelState.IsValid)
@@ -595,14 +604,62 @@ namespace RestaurantManagementSystem.Controllers
 
         // POST: Assign Table to Waitlist Entry
         [HttpPostAttribute]
-        public IActionResult AssignTableToWaitlist(int waitlistId, int tableId)
+        public IActionResult AssignTableToWaitlist(int waitlistId, int? tableId, string assignmentMode = "only")
         {
             var waitlistEntry = GetWaitlistEntryById(waitlistId);
-            var table = GetTableById(tableId);
-
-            if (waitlistEntry == null || table == null)
+            if (waitlistEntry == null)
             {
-                TempData["ErrorMessage"] = "Waitlist entry or table not found.";
+                TempData["ErrorMessage"] = "Waitlist entry not found.";
+                return RedirectToAction("Waitlist");
+            }
+
+            var assignWithTable = string.Equals(assignmentMode, "table", StringComparison.OrdinalIgnoreCase);
+            if (!assignWithTable && !tableId.HasValue)
+            {
+                using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
+                {
+                    con.Open();
+                    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        UPDATE Waitlist
+                        SET Status = @Status,
+                            TableId = NULL,
+                            NotifiedAt = CASE WHEN NotifiedAt IS NULL THEN @NowAt ELSE NotifiedAt END,
+                            SeatedAt = @NowAt
+                        WHERE Id = @Id", con))
+                    {
+                        cmd.Parameters.AddWithValue("@Status", (int)WaitlistStatus.Seated);
+                        cmd.Parameters.AddWithValue("@NowAt", DateTime.Now);
+                        cmd.Parameters.AddWithValue("@Id", waitlistId);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                TempData["ResultMessage"] = $"{waitlistEntry.GuestName} assigned successfully and marked as seated without table.";
+                return RedirectToAction("Waitlist");
+            }
+
+            if (!tableId.HasValue)
+            {
+                TempData["ErrorMessage"] = "Please select a table for Assign + Table.";
+                return RedirectToAction("Waitlist");
+            }
+
+            var table = GetTableById(tableId.Value);
+            if (table == null)
+            {
+                TempData["ErrorMessage"] = "Selected table not found.";
+                return RedirectToAction("Waitlist");
+            }
+
+            if (table.Status != TableStatus.Available)
+            {
+                TempData["ErrorMessage"] = $"Table {table.TableNumber} is no longer available.";
+                return RedirectToAction("Waitlist");
+            }
+
+            if (table.Capacity < waitlistEntry.PartySize)
+            {
+                TempData["ErrorMessage"] = $"Table {table.TableNumber} capacity ({table.Capacity}) is less than party size ({waitlistEntry.PartySize}).";
                 return RedirectToAction("Waitlist");
             }
 
@@ -614,36 +671,49 @@ namespace RestaurantManagementSystem.Controllers
                     try
                     {
                         // Update waitlist entry
-                        using (var cmd = new Microsoft.Data.SqlClient.SqlCommand("UPDATE Waitlist SET Status = @Status, TableId = @TableId, SeatedAt = @SeatedAt WHERE Id = @Id", con, transaction))
+                        using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                            UPDATE Waitlist
+                            SET Status = @Status,
+                                TableId = @TableId,
+                                NotifiedAt = CASE WHEN NotifiedAt IS NULL THEN @NowAt ELSE NotifiedAt END,
+                                SeatedAt = @NowAt
+                            WHERE Id = @Id", con, transaction))
                         {
                             cmd.Parameters.AddWithValue("@Status", (int)WaitlistStatus.Seated);
-                            cmd.Parameters.AddWithValue("@TableId", tableId);
-                            cmd.Parameters.AddWithValue("@SeatedAt", DateTime.Now);
+                            cmd.Parameters.AddWithValue("@TableId", tableId.Value);
+                            cmd.Parameters.AddWithValue("@NowAt", DateTime.Now);
                             cmd.Parameters.AddWithValue("@Id", waitlistId);
                             cmd.ExecuteNonQuery();
                         }
 
                         // Update table status
-                        using (var cmd = new Microsoft.Data.SqlClient.SqlCommand("UPDATE Tables SET Status = @Status, LastOccupiedAt = @LastOccupiedAt WHERE Id = @Id", con, transaction))
+                        using (var cmd = new Microsoft.Data.SqlClient.SqlCommand("UPDATE Tables SET Status = @Status, LastOccupiedAt = @LastOccupiedAt WHERE Id = @Id AND Status = @AvailableStatus", con, transaction))
                         {
                             cmd.Parameters.AddWithValue("@Status", (int)TableStatus.Occupied);
                             cmd.Parameters.AddWithValue("@LastOccupiedAt", DateTime.Now);
-                            cmd.Parameters.AddWithValue("@Id", tableId);
-                            cmd.ExecuteNonQuery();
+                            cmd.Parameters.AddWithValue("@Id", tableId.Value);
+                            cmd.Parameters.AddWithValue("@AvailableStatus", (int)TableStatus.Available);
+                            var updated = cmd.ExecuteNonQuery();
+                            if (updated == 0)
+                            {
+                                throw new InvalidOperationException("Selected table is no longer available.");
+                            }
                         }
 
                         transaction.Commit();
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
                         transaction.Rollback();
-                        TempData["ErrorMessage"] = "Error assigning table. Please try again.";
+                        TempData["ErrorMessage"] = $"Error assigning table: {ex.Message}";
                         return RedirectToAction("Waitlist");
                     }
                 }
             }
 
-            TempData["ResultMessage"] = $"Table {table.TableNumber} assigned to {waitlistEntry.GuestName}";
+            TempData["ResultMessage"] = $"Table {table.TableNumber} assigned to {waitlistEntry.GuestName}. Next step: start the order.";
+            TempData["PostAssignTableId"] = table.Id;
+            TempData["PostAssignGuestName"] = waitlistEntry.GuestName;
             return RedirectToAction("Waitlist");
         }
 
@@ -1955,6 +2025,66 @@ END
                 }
             }
             return entry;
+        }
+
+        private List<WaitlistEntry> GetRecentlySeatedWaitlist(int take = 8)
+        {
+            var items = new List<WaitlistEntry>();
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+            {
+                return items;
+            }
+
+            using (var con = new Microsoft.Data.SqlClient.SqlConnection(_config.GetConnectionString("DefaultConnection")))
+            {
+                con.Open();
+                using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                    SELECT TOP (@Take)
+                        w.Id, w.GuestName, w.PhoneNumber, w.PartySize, w.AddedAt,
+                        w.QuotedWaitTime, w.NotifyWhenReady, w.Notes, w.Status,
+                        w.NotifiedAt, w.SeatedAt, w.TableId
+                    FROM Waitlist w
+                    WHERE w.Status IN (2, 3, 4) -- Seated, Left, NoResponse
+                      AND CAST(ISNULL(w.SeatedAt, w.AddedAt) AS DATE) = CAST(GETDATE() AS DATE)
+                      AND (
+                          (COL_LENGTH('dbo.Waitlist', 'BranchId') IS NOT NULL AND w.BranchId = @BranchId)
+                          OR
+                          (COL_LENGTH('dbo.Waitlist', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NOT NULL AND EXISTS (
+                              SELECT 1 FROM dbo.Tables tScope WHERE tScope.Id = w.TableId AND tScope.BranchId = @BranchId
+                          ))
+                          OR
+                          (COL_LENGTH('dbo.Waitlist', 'BranchId') IS NULL AND COL_LENGTH('dbo.Tables', 'BranchId') IS NULL)
+                      )
+                    ORDER BY ISNULL(w.SeatedAt, w.AddedAt) DESC", con))
+                {
+                    cmd.Parameters.AddWithValue("@Take", take);
+                    cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            items.Add(new WaitlistEntry
+                            {
+                                Id = reader.GetInt32(0),
+                                GuestName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                                PhoneNumber = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                                PartySize = reader.GetInt32(3),
+                                AddedAt = reader.GetDateTime(4),
+                                QuotedWaitTime = reader.GetInt32(5),
+                                NotifyWhenReady = reader.GetBoolean(6),
+                                Notes = reader.IsDBNull(7) ? null : reader.GetString(7),
+                                Status = (WaitlistStatus)reader.GetInt32(8),
+                                NotifiedAt = reader.IsDBNull(9) ? null : (DateTime?)reader.GetDateTime(9),
+                                SeatedAt = reader.IsDBNull(10) ? null : (DateTime?)reader.GetDateTime(10),
+                                TableId = reader.IsDBNull(11) ? null : (int?)reader.GetInt32(11)
+                            });
+                        }
+                    }
+                }
+            }
+
+            return items;
         }
 
         private List<Table> GetAllTables()

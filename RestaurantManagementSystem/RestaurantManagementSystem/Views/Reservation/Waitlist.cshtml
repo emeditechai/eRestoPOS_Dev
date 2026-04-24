@@ -5,19 +5,137 @@
 
 <div class="container-fluid p-2">
     <style>
-        /* Ensure dropdown menus inside the responsive table are visible and above other elements */
+        .waitlist-shell {
+            background: linear-gradient(180deg, #f8fbff 0%, #f1f6ff 100%);
+            border: 1px solid rgba(191, 219, 254, .55);
+            border-radius: 16px;
+            padding: .75rem;
+        }
+        .waitlist-header-title { color: #0f172a; }
+        .waitlist-subtitle { color: #64748b; }
+        .wl-kpi {
+            border: 0;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        }
+        .wl-kpi .card-body {
+            padding: .75rem .9rem;
+            color: #fff;
+        }
+        .wl-kpi h6 { font-size: .8rem; margin-bottom: .15rem; opacity: .92; }
+        .wl-kpi h4 { margin: 0; font-weight: 800; }
+        .wl-kpi--waiting .card-body { background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%); }
+        .wl-kpi--notified .card-body { background: linear-gradient(135deg, #f59e0b 0%, #fb7185 100%); }
+        .wl-kpi--overdue .card-body { background: linear-gradient(135deg, #ef4444 0%, #f97316 100%); }
+        .wl-kpi--avg .card-body { background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); }
+        .wl-kpi--tables .card-body { background: linear-gradient(135deg, #059669 0%, #14b8a6 100%); }
+
+        .waitlist-flow {
+            border: 1px solid #dbeafe;
+            border-radius: 12px;
+            background: #fff;
+            padding: .6rem .75rem;
+        }
+        .waitlist-flow .step {
+            display: inline-flex;
+            align-items: center;
+            gap: .35rem;
+            padding: .2rem .55rem;
+            border-radius: 999px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            font-size: .76rem;
+            font-weight: 700;
+            margin-right: .35rem;
+            margin-bottom: .25rem;
+        }
+        .waitlist-flow .step-number {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #2563eb;
+            color: #fff;
+            font-size: .68rem;
+            font-weight: 700;
+        }
+
         .table-responsive { overflow: visible; }
-        .table-responsive .dropdown-menu { z-index: 2050; }
-        /* Slightly increase button hit area and make icons vertically centered */
+        .table-responsive .dropdown-menu { z-index: 3000; }
         .btn-xs { padding: .15rem .4rem; font-size: .8rem; }
         .fw-medium { font-weight: 600; }
+        .wait-pill {
+            padding: .2rem .5rem;
+            border-radius: 999px;
+            font-size: .72rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: .25rem;
+        }
+        .wait-pill.wait-pill--ok { background: #dcfce7; color: #15803d; }
+        .wait-pill.wait-pill--warn { background: #fef3c7; color: #b45309; }
+        .wait-pill.wait-pill--over { background: #fee2e2; color: #b91c1c; }
+
+        .waitlist-row-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: .3rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .waitlist-card {
+            border: 1px solid #dbe6f4;
+            border-radius: 14px;
+            overflow: visible;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07);
+        }
+        .waitlist-card .card-body,
+        .waitlist-card .table-responsive,
+        .waitlist-card .dataTables_wrapper {
+            overflow: visible !important;
+        }
+        .waitlist-row-actions .dropdown-menu {
+            z-index: 3100;
+        }
+        .waitlist-card .card-header {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .available-table-item {
+            border: 1px solid rgba(148, 163, 184, .22);
+            border-radius: 10px;
+            margin-bottom: .45rem;
+            background: #fff;
+        }
+        @@media (max-width: 991.98px) {
+            .waitlist-shell { padding: .55rem; }
+            .waitlist-header-actions { width: 100%; justify-content: flex-start !important; margin-top: .5rem; }
+            .waitlist-row-actions { justify-content: flex-start; }
+        }
     </style>
-    <div class="d-flex justify-content-between align-items-center mb-2">
+
+    @{
+        var waitingCount = Model.Count(x => x.Status == WaitlistStatus.Waiting);
+        var notifiedCount = Model.Count(x => x.Status == WaitlistStatus.Notified);
+        var overdueCount = Model.Count(x => x.IsWaitTimeExceeded);
+        var avgWait = Model.Any() ? (int)Math.Round(Model.Average(x => x.ElapsedWaitTime)) : 0;
+        var availableTables = ViewBag.AvailableTables as List<Table> ?? new List<Table>();
+        var recentlySeated = ViewBag.RecentlySeated as List<WaitlistEntry> ?? new List<WaitlistEntry>();
+        var postAssignTableId = TempData["PostAssignTableId"] as int?;
+        var postAssignGuestName = TempData["PostAssignGuestName"]?.ToString();
+    }
+
+    <div class="waitlist-shell">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap">
         <div>
-            <h5 class="mb-0 fw-bold">Waitlist Management</h5>
-            <div class="text-muted small">Manage guest waiting list</div>
+            <h5 class="mb-0 fw-bold waitlist-header-title">Waitlist Management</h5>
+            <div class="small waitlist-subtitle">Simple queue flow: Add guest, notify at table-ready time, then seat.</div>
         </div>
-        <div>
+        <div class="d-flex align-items-center gap-1 waitlist-header-actions">
             <a asp-action="Dashboard" class="btn btn-sm btn-outline-secondary me-1">
                 <i class="bi bi-speedometer"></i> Dashboard
             </a>
@@ -27,9 +145,46 @@
         </div>
     </div>
 
+    <div class="row g-2 mb-2">
+        <div class="col-6 col-md-4 col-xl">
+            <div class="card wl-kpi wl-kpi--waiting"><div class="card-body"><h6>Waiting</h6><h4>@waitingCount</h4></div></div>
+        </div>
+        <div class="col-6 col-md-4 col-xl">
+            <div class="card wl-kpi wl-kpi--notified"><div class="card-body"><h6>Notified</h6><h4>@notifiedCount</h4></div></div>
+        </div>
+        <div class="col-6 col-md-4 col-xl">
+            <div class="card wl-kpi wl-kpi--overdue"><div class="card-body"><h6>Overdue</h6><h4>@overdueCount</h4></div></div>
+        </div>
+        <div class="col-6 col-md-4 col-xl">
+            <div class="card wl-kpi wl-kpi--avg"><div class="card-body"><h6>Avg Wait</h6><h4>@avgWait min</h4></div></div>
+        </div>
+        <div class="col-12 col-md-8 col-xl">
+            <div class="card wl-kpi wl-kpi--tables"><div class="card-body"><h6>Available Tables</h6><h4>@availableTables.Count</h4></div></div>
+        </div>
+    </div>
+
+    <div class="waitlist-flow mb-2">
+        <span class="step"><span class="step-number">1</span>Add Guest</span>
+        <span class="step"><span class="step-number">2</span>Track Wait Time</span>
+        <span class="step"><span class="step-number">3</span>Notify Guest</span>
+        <span class="step"><span class="step-number">4</span>Assign / Seat Guest</span>
+    </div>
+
     @if (TempData["ResultMessage"] != null)
     {
         <div class="alert alert-info py-1 px-2 mb-2 small">@TempData["ResultMessage"]</div>
+    }
+
+    @if (postAssignTableId.HasValue)
+    {
+        <div class="alert alert-success d-flex justify-content-between align-items-center flex-wrap gap-2 py-2 px-3 mb-2">
+            <div>
+                <strong>Guest seated:</strong> @postAssignGuestName on table ready for order.
+            </div>
+            <a class="btn btn-sm btn-success" href="@Url.Action("Create", "Order", new { tableId = postAssignTableId.Value })" target="_blank" rel="noopener noreferrer">
+                <i class="bi bi-receipt me-1"></i> Start Order
+            </a>
+        </div>
     }
     
     @if (TempData["ErrorMessage"] != null)
@@ -44,7 +199,7 @@
 
     <div class="row g-2">
         <div class="col-md-9">
-            <div class="card shadow-sm border-0">
+            <div class="card waitlist-card border-0">
                 <div class="card-header bg-white border-bottom py-2 px-3 d-flex justify-content-between align-items-center">
                     <h6 class="mb-0 fw-bold text-warning">
                         <i class="bi bi-list-ul me-1"></i> Current Waitlist
@@ -79,62 +234,72 @@
                                         <td class="px-2 py-1 text-center">@entry.PartySize</td>
                                         <td class="px-2 py-1 small">@entry.AddedAt.ToString("h:mm tt")</td>
                                         <td class="px-2 py-1">
-                                            <span class="@(entry.ElapsedWaitTime > entry.QuotedWaitTime ? "text-danger fw-bold" : "small")">
-                                                @entry.ElapsedWaitTime min
-                                            </span> 
-                                            <span class="small text-muted">/ @entry.QuotedWaitTime min</span>
+                                            @if (entry.IsWaitTimeExceeded)
+                                            {
+                                                <span class="wait-pill wait-pill--over"><i class="bi bi-exclamation-triangle"></i>@entry.ElapsedWaitTime min / @entry.QuotedWaitTime</span>
+                                            }
+                                            else if (entry.ElapsedWaitTime >= Math.Max(1, entry.QuotedWaitTime - 5))
+                                            {
+                                                <span class="wait-pill wait-pill--warn"><i class="bi bi-clock-history"></i>@entry.ElapsedWaitTime min / @entry.QuotedWaitTime</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="wait-pill wait-pill--ok"><i class="bi bi-clock"></i>@entry.ElapsedWaitTime min / @entry.QuotedWaitTime</span>
+                                            }
                                         </td>
                                         <td class="px-2 py-1">
                                             <span class="badge @GetStatusBadgeClass(entry.Status)">@entry.Status</span>
                                         </td>
                                         <td class="px-2 py-1 text-center">
-                                            <div class="dropdown">
-                                                <button class="btn btn-xs btn-outline-secondary dropdown-toggle px-1 py-0" type="button" data-bs-toggle="dropdown" data-bs-boundary="viewport">
-                                                    <i class="bi bi-three-dots"></i>
+                                            <div class="waitlist-row-actions">
+                                                @if (entry.Status == WaitlistStatus.Waiting)
+                                                {
+                                                    <form asp-action="UpdateWaitlistStatus" method="post" class="m-0">
+                                                        <input type="hidden" name="id" value="@entry.Id" />
+                                                        <input type="hidden" name="status" value="@((int)WaitlistStatus.Notified)" />
+                                                        <button type="submit" class="btn btn-xs btn-warning" title="Notify guest"><i class="bi bi-bell me-1"></i>Notify</button>
+                                                    </form>
+                                                }
+
+                                                <button type="button"
+                                                        class="btn btn-xs btn-success"
+                                                        data-bs-toggle="modal"
+                                                        data-bs-target="#assignTableModal"
+                                                        onclick="setWaitlistMeta(@entry.Id, '@entry.GuestName.Replace("'", "\\'")', @entry.PartySize)">
+                                                    <i class="bi bi-grid me-1"></i>Assign
                                                 </button>
-                                                <ul class="dropdown-menu dropdown-menu-end">
-                                                    @if (entry.Status == WaitlistStatus.Waiting)
-                                                    {
+
+                                                <div class="dropdown">
+                                                    <button class="btn btn-xs btn-outline-secondary dropdown-toggle px-1 py-0" type="button" data-bs-toggle="dropdown" data-bs-boundary="viewport" title="More actions">
+                                                        <i class="bi bi-three-dots"></i>
+                                                    </button>
+                                                    <ul class="dropdown-menu dropdown-menu-end">
                                                         <li>
                                                             <form asp-action="UpdateWaitlistStatus" method="post" class="m-0">
                                                                 <input type="hidden" name="id" value="@entry.Id" />
-                                                                <input type="hidden" name="status" value="@((int)WaitlistStatus.Notified)" />
-                                                                <button type="submit" class="dropdown-item py-1"><i class="bi bi-bell me-2"></i>Notify</button>
+                                                                <input type="hidden" name="status" value="@((int)WaitlistStatus.Left)" />
+                                                                <button type="submit" class="dropdown-item py-1"><i class="bi bi-box-arrow-right me-2"></i>Guest Left</button>
                                                             </form>
                                                         </li>
-                                                    }
-                                                    
-                                                    <li>
-                                                        <button type="button" class="dropdown-item py-1" data-bs-toggle="modal" data-bs-target="#assignTableModal" onclick="setWaitlistId(@entry.Id)">
-                                                            <i class="bi bi-grid me-2"></i>Assign Table
-                                                        </button>
-                                                    </li>
 
-                                                    <li>
-                                                        <form asp-action="UpdateWaitlistStatus" method="post" class="m-0">
-                                                            <input type="hidden" name="id" value="@entry.Id" />
-                                                            <input type="hidden" name="status" value="@((int)WaitlistStatus.Left)" />
-                                                            <button type="submit" class="dropdown-item py-1"><i class="bi bi-box-arrow-right me-2"></i>Left</button>
-                                                        </form>
-                                                    </li>
-                                                    
-                                                    <li>
-                                                        <form asp-action="UpdateWaitlistStatus" method="post" class="m-0">
-                                                            <input type="hidden" name="id" value="@entry.Id" />
-                                                            <input type="hidden" name="status" value="@((int)WaitlistStatus.NoResponse)" />
-                                                            <button type="submit" class="dropdown-item py-1"><i class="bi bi-x-circle me-2"></i>No Response</button>
-                                                        </form>
-                                                    </li>
-                                                    
-                                                    <li><hr class="dropdown-divider my-1"></li>
-                                                    
-                                                    <li>
-                                                        <form asp-action="RemoveFromWaitlist" method="post" class="m-0">
-                                                            <input type="hidden" name="id" value="@entry.Id" />
-                                                            <button type="submit" class="dropdown-item py-1 text-danger"><i class="bi bi-trash me-2"></i>Remove</button>
-                                                        </form>
-                                                    </li>
-                                                </ul>
+                                                        <li>
+                                                            <form asp-action="UpdateWaitlistStatus" method="post" class="m-0">
+                                                                <input type="hidden" name="id" value="@entry.Id" />
+                                                                <input type="hidden" name="status" value="@((int)WaitlistStatus.NoResponse)" />
+                                                                <button type="submit" class="dropdown-item py-1"><i class="bi bi-x-circle me-2"></i>No Response</button>
+                                                            </form>
+                                                        </li>
+
+                                                        <li><hr class="dropdown-divider my-1"></li>
+
+                                                        <li>
+                                                            <form asp-action="RemoveFromWaitlist" method="post" class="m-0">
+                                                                <input type="hidden" name="id" value="@entry.Id" />
+                                                                <button type="submit" class="dropdown-item py-1 text-danger"><i class="bi bi-trash me-2"></i>Remove Entry</button>
+                                                            </form>
+                                                        </li>
+                                                    </ul>
+                                                </div>
                                             </div>
                                         </td>
                                     </tr>
@@ -163,22 +328,22 @@
         </div>
         
         <div class="col-md-3">
-            <div class="card shadow-sm border-0">
+            <div class="card waitlist-card border-0">
                 <div class="card-header bg-white border-bottom py-2 px-3 d-flex justify-content-between align-items-center">
                     <h6 class="mb-0 fw-bold text-success">
                         <i class="bi bi-grid-3x3 me-1"></i> Available Tables
                     </h6>
                     <span class="badge bg-success rounded-pill">
-                        @(ViewBag.AvailableTables != null ? ((List<Table>)ViewBag.AvailableTables).Count : 0)
+                        @availableTables.Count
                     </span>
                 </div>
                 <div class="card-body p-2">
                     <div class="list-group list-group-flush">
-                        @if (ViewBag.AvailableTables != null && ((List<Table>)ViewBag.AvailableTables).Any())
+                        @if (availableTables.Any())
                         {
-                            foreach (var table in ViewBag.AvailableTables)
+                            foreach (var table in availableTables)
                             {
-                                <div class="list-group-item border-0 px-2 py-1 d-flex justify-content-between align-items-center">
+                                <div class="list-group-item border-0 px-2 py-1 d-flex justify-content-between align-items-center available-table-item">
                                     <div>
                                         <div class="fw-medium">Table @table.TableNumber</div>
                                         <div class="small text-muted">@table.Capacity seats</div>
@@ -187,7 +352,7 @@
                                             <div class="small text-muted">@table.Section</div>
                                         }
                                     </div>
-                                    <button class="btn btn-xs btn-outline-success px-1 py-0" 
+                                        <button class="btn btn-xs btn-outline-success px-1 py-0"
                                             data-bs-toggle="modal" 
                                             data-bs-target="#assignTableModal" 
                                             onclick="setPreselectedTable(@table.Id)">
@@ -206,6 +371,47 @@
                     </div>
                 </div>
             </div>
+
+            <div class="card waitlist-card border-0 mt-2">
+                <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0 fw-bold text-primary"><i class="bi bi-check2-circle me-1"></i> Recently Seated</h6>
+                    <span class="badge bg-primary rounded-pill">@recentlySeated.Count</span>
+                </div>
+                <div class="card-body p-2">
+                    @if (recentlySeated.Any())
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var x in recentlySeated.Take(6))
+                            {
+                                <div class="list-group-item border-0 px-2 py-1">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="fw-medium">@x.GuestName</span>
+                                        <div class="d-flex align-items-center gap-1">
+                                            @if (!x.TableId.HasValue)
+                                            {
+                                                <span class="badge bg-secondary">No Table</span>
+                                            }
+                                            <span class="badge @GetStatusBadgeClass(x.Status)">@x.Status</span>
+                                        </div>
+                                    </div>
+                                    <div class="small text-muted">
+                                        Party @x.PartySize
+                                        @if (!x.TableId.HasValue)
+                                        {
+                                            <span> • Allowed to seat without table</span>
+                                        }
+                                        • @(x.SeatedAt?.ToString("h:mm tt") ?? x.AddedAt.ToString("h:mm tt"))
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center text-muted small py-2">No seated activity today.</div>
+                    }
+                </div>
+            </div>
         </div>
     </div>
 
@@ -222,40 +428,87 @@
                 <div class="modal-body p-3">
                     <form asp-action="AssignTableToWaitlist" method="post" id="assignTableForm">
                         <input type="hidden" name="waitlistId" id="waitlistIdInput" />
+                        <input type="hidden" name="assignmentMode" id="assignmentModeInput" value="only" />
+                        <div class="alert alert-light border py-2 px-2 small mb-2" id="assignGuestMeta" style="display:none;"></div>
                         <div class="mb-2">
-                            <label for="tableId" class="form-label small fw-bold">Select Table</label>
-                            <select name="tableId" id="tableId" class="form-select form-select-sm" required>
-                                <option value="">-- Select a Table --</option>
-                                @if (ViewBag.AvailableTables != null)
+                            <label for="tableId" class="form-label small fw-bold">Select Table (Optional)</label>
+                            <select name="tableId" id="tableId" class="form-select form-select-sm">
+                                <option value="">-- Assign Without Table --</option>
+                                @if (availableTables.Any())
                                 {
-                                    foreach (var table in ViewBag.AvailableTables)
+                                    foreach (var table in availableTables)
                                     {
-                                        <option value="@table.Id">Table @table.TableNumber (Seats @table.Capacity)</option>
+                                        <option value="@table.Id" data-capacity="@table.Capacity">Table @table.TableNumber (Seats @table.Capacity)</option>
                                     }
                                 }
                             </select>
+                            <div class="form-text small">Assign Only will also move the guest to seated history. Choose a table when seating with table.</div>
                         </div>
                     </form>
                 </div>
                 <div class="modal-footer py-1">
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" form="assignTableForm" class="btn btn-sm btn-success">
-                        <i class="bi bi-check2"></i> Assign
+                    <button type="submit" form="assignTableForm" class="btn btn-sm btn-primary" onclick="return setAssignmentMode('only')">
+                        <i class="bi bi-person-check"></i> Assign Only
+                    </button>
+                    <button type="submit" form="assignTableForm" class="btn btn-sm btn-success" onclick="return setAssignmentMode('table')">
+                        <i class="bi bi-grid"></i> Assign + Table
                     </button>
                 </div>
             </div>
         </div>
     </div>
 </div>
+    </div>
 
 @section Scripts {
     <script>
-        function setWaitlistId(id) {
+        function setWaitlistMeta(id, guestName, partySize) {
             document.getElementById('waitlistIdInput').value = id;
+            const meta = document.getElementById('assignGuestMeta');
+            if (meta) {
+                meta.style.display = 'block';
+                meta.innerHTML = `<strong>${guestName}</strong> • Party size <strong>${partySize}</strong>`;
+            }
+
+            const select = document.getElementById('tableId');
+            if (select) {
+                select.value = '';
+                Array.from(select.options).forEach(opt => {
+                    if (!opt.value) return;
+                    const cap = parseInt(opt.getAttribute('data-capacity') || '0');
+                    opt.hidden = cap > 0 && cap < partySize;
+                });
+            }
         }
         
         function setPreselectedTable(tableId) {
             document.getElementById('tableId').value = tableId;
+            const modeInput = document.getElementById('assignmentModeInput');
+            if (modeInput) {
+                modeInput.value = 'table';
+            }
+        }
+
+        function setAssignmentMode(mode) {
+            const modeInput = document.getElementById('assignmentModeInput');
+            const select = document.getElementById('tableId');
+            if (modeInput) {
+                modeInput.value = mode;
+            }
+
+            if (mode === 'table' && (!select || !select.value)) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Table Required',
+                    text: 'Please select a table for Assign + Table.',
+                    timer: 1800,
+                    showConfirmButton: false
+                });
+                return false;
+            }
+
+            return true;
         }
         
         $(document).ready(function () {
@@ -265,6 +518,7 @@
                 "info": false,
                 "searching": true,
                 "autoWidth": false,
+                "order": [[4, "asc"]],
                 "language": {
                     "search": "_INPUT_",
                     "searchPlaceholder": "Search waitlist..."
@@ -273,6 +527,25 @@
             });
             $('.dataTables_filter input').addClass('form-control form-control-sm');
             $('.dataTables_filter').addClass('pt-1 pb-2');
+
+            // Ensure modal resets state when closed
+            $('#assignTableModal').on('hidden.bs.modal', function () {
+                const meta = document.getElementById('assignGuestMeta');
+                if (meta) {
+                    meta.style.display = 'none';
+                    meta.innerHTML = '';
+                }
+                document.getElementById('waitlistIdInput').value = '';
+                const modeInput = document.getElementById('assignmentModeInput');
+                if (modeInput) {
+                    modeInput.value = 'only';
+                }
+                const select = document.getElementById('tableId');
+                if (select) {
+                    select.value = '';
+                    Array.from(select.options).forEach(opt => opt.hidden = false);
+                }
+            });
         });
     </script>
 }

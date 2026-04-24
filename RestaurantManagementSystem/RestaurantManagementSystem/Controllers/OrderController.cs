@@ -613,6 +613,45 @@ SELECT @result;", connection))
             {
                 connection.Open();
                 bool hasTableBranchColumn = ColumnExistsInTable("Tables", "BranchId");
+
+                if (tableId.HasValue)
+                {
+                    using (var tableCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        SELECT TOP 1 TableName
+                        FROM Tables
+                        WHERE Id = @TableId " + (hasTableBranchColumn ? "AND BranchId = @BranchId" : string.Empty), connection))
+                    {
+                        tableCmd.Parameters.AddWithValue("@TableId", tableId.Value);
+                        if (hasTableBranchColumn)
+                        {
+                            tableCmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                        }
+
+                        ViewBag.SelectedTableName = tableCmd.ExecuteScalar()?.ToString() ?? string.Empty;
+                    }
+
+                    // Prefill guest details from latest seated waitlist entry for this table.
+                    using (var waitGuestCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+                        SELECT TOP 1 GuestName, PhoneNumber
+                        FROM Waitlist
+                        WHERE TableId = @TableId
+                          AND Status = 2
+                        ORDER BY ISNULL(SeatedAt, AddedAt) DESC", connection))
+                    {
+                        waitGuestCmd.Parameters.AddWithValue("@TableId", tableId.Value);
+                        using (var waitGuestReader = waitGuestCmd.ExecuteReader())
+                        {
+                            if (waitGuestReader.Read())
+                            {
+                                var guestName = waitGuestReader.IsDBNull(0) ? string.Empty : waitGuestReader.GetString(0);
+                                var guestPhone = waitGuestReader.IsDBNull(1) ? string.Empty : waitGuestReader.GetString(1);
+
+                                if (!string.IsNullOrWhiteSpace(guestName)) model.CustomerName = guestName;
+                                if (!string.IsNullOrWhiteSpace(guestPhone)) model.CustomerPhone = guestPhone;
+                            }
+                        }
+                    }
+                }
                 
                 // Get available tables
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -644,9 +683,28 @@ SELECT @result;", connection))
                 
                 // Get occupied tables with turnover info
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
-                    SELECT tt.Id, t.Id, t.TableName, tt.GuestName, tt.PartySize, tt.Status
+                    SELECT tt.Id,
+                           t.Id,
+                           t.TableName,
+                           CASE
+                               WHEN NULLIF(LTRIM(RTRIM(tt.GuestName)), '') IS NULL OR LTRIM(RTRIM(tt.GuestName)) IN ('Walk-in', 'Walk in')
+                                   THEN ISNULL(NULLIF(LTRIM(RTRIM(wl.GuestName)), ''), ISNULL(NULLIF(LTRIM(RTRIM(tt.GuestName)), ''), 'Walk-in'))
+                               ELSE tt.GuestName
+                           END AS GuestName,
+                           CASE
+                               WHEN ISNULL(tt.PartySize, 0) <= 0 THEN ISNULL(wl.PartySize, 2)
+                               ELSE tt.PartySize
+                           END AS PartySize,
+                           tt.Status
                     FROM TableTurnovers tt
                     INNER JOIN Tables t ON tt.TableId = t.Id
+                    OUTER APPLY (
+                        SELECT TOP 1 w.GuestName, w.PartySize
+                        FROM Waitlist w
+                        WHERE w.TableId = t.Id
+                          AND w.Status = 2
+                        ORDER BY ISNULL(w.SeatedAt, w.AddedAt) DESC
+                    ) wl
                     WHERE tt.Status < 5 " + (hasTableBranchColumn ? "AND t.BranchId = @BranchId " : "") + @"-- Not departed
                     ORDER BY t.TableName", connection))
                 {
@@ -1053,9 +1111,28 @@ SELECT @result;", connection))
                 
                 // Get occupied tables with turnover info
                 using (Microsoft.Data.SqlClient.SqlCommand command = new Microsoft.Data.SqlClient.SqlCommand(@"
-                    SELECT tt.Id, t.Id, t.TableName, tt.GuestName, tt.PartySize, tt.Status
+                    SELECT tt.Id,
+                           t.Id,
+                           t.TableName,
+                           CASE
+                               WHEN NULLIF(LTRIM(RTRIM(tt.GuestName)), '') IS NULL OR LTRIM(RTRIM(tt.GuestName)) IN ('Walk-in', 'Walk in')
+                                   THEN ISNULL(NULLIF(LTRIM(RTRIM(wl.GuestName)), ''), ISNULL(NULLIF(LTRIM(RTRIM(tt.GuestName)), ''), 'Walk-in'))
+                               ELSE tt.GuestName
+                           END AS GuestName,
+                           CASE
+                               WHEN ISNULL(tt.PartySize, 0) <= 0 THEN ISNULL(wl.PartySize, 2)
+                               ELSE tt.PartySize
+                           END AS PartySize,
+                           tt.Status
                     FROM TableTurnovers tt
                     INNER JOIN Tables t ON tt.TableId = t.Id
+                    OUTER APPLY (
+                        SELECT TOP 1 w.GuestName, w.PartySize
+                        FROM Waitlist w
+                        WHERE w.TableId = t.Id
+                          AND w.Status = 2
+                        ORDER BY ISNULL(w.SeatedAt, w.AddedAt) DESC
+                    ) wl
                     WHERE tt.Status < 5 -- Not departed
                     ORDER BY t.TableName", connection))
                 {

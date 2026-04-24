@@ -39,6 +39,7 @@ namespace RestaurantManagementSystem.Controllers
             public const string CashClosing = "NAV_REPORTS_CASHCLOSING";
             public const string Feedback = "NAV_REPORTS_FEEDBACK";
             public const string ProfitLoss = "NAV_REPORTS_PROFITLOSS";
+            public const string WaitlistGuests = "NAV_REPORTS_WAITLIST_GUESTS";
         }
 
         public ReportsController(IConfiguration configuration, IDayClosingService dayClosingService, RolePermissionService permissionService)
@@ -1574,6 +1575,353 @@ namespace RestaurantManagementSystem.Controllers
             }
             document.Close();
             return stream.ToArray();
+        }
+
+        [RequirePermission(MenuCodes.WaitlistGuests, PermissionAction.View)]
+        public async Task<IActionResult> WaitlistGuestReport()
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
+            ViewData["Title"] = "Waitlist & Seated Guest Report";
+            var model = new WaitlistGuestReportViewModel
+            {
+                Filter = new WaitlistGuestReportFilter
+                {
+                    StartDate = DateTime.Today,
+                    EndDate = DateTime.Today
+                }
+            };
+
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin)
+                model.Branches = await LoadAllBranchesAsync();
+
+            await PopulateWaitlistGuestBranchLabelAsync(model, activeBranchId.Value);
+            await LoadWaitlistGuestReportAsync(model, activeBranchId.Value);
+            await SetViewPermissionsAsync(MenuCodes.WaitlistGuests);
+            return View(model);
+        }
+
+        [HttpPost]
+        [RequirePermission(MenuCodes.WaitlistGuests, PermissionAction.View)]
+        public async Task<IActionResult> WaitlistGuestReport(WaitlistGuestReportFilter filter)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
+            ViewData["Title"] = "Waitlist & Seated Guest Report";
+            var model = new WaitlistGuestReportViewModel
+            {
+                Filter = filter ?? new WaitlistGuestReportFilter()
+            };
+
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin)
+                model.Branches = await LoadAllBranchesAsync();
+
+            await PopulateWaitlistGuestBranchLabelAsync(model, activeBranchId.Value);
+            await LoadWaitlistGuestReportAsync(model, activeBranchId.Value);
+            await SetViewPermissionsAsync(MenuCodes.WaitlistGuests);
+            return View(model);
+        }
+
+        [HttpGet]
+        [RequirePermission(MenuCodes.WaitlistGuests, PermissionAction.Export)]
+        public async Task<IActionResult> WaitlistGuestReportExcel(DateTime? startDate, DateTime? endDate, string? branchIds = null)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
+            var selectedIdList = string.IsNullOrWhiteSpace(branchIds)
+                ? new List<int>()
+                : branchIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => int.TryParse(s.Trim(), out var v) ? v : 0).Where(v => v > 0).ToList();
+
+            var model = new WaitlistGuestReportViewModel
+            {
+                Filter = new WaitlistGuestReportFilter
+                {
+                    StartDate = startDate?.Date ?? DateTime.Today,
+                    EndDate = endDate?.Date ?? DateTime.Today,
+                    SelectedBranchIds = selectedIdList
+                }
+            };
+
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin)
+                model.Branches = await LoadAllBranchesAsync();
+
+            await PopulateWaitlistGuestBranchLabelAsync(model, activeBranchId.Value);
+            await LoadWaitlistGuestReportAsync(model, activeBranchId.Value);
+
+            var fileName = BuildWaitlistGuestReportExportFileName(model.Filter, "xlsx");
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            sb.AppendLine("<?mso-application progid=\"Excel.Sheet\"?>");
+            sb.AppendLine("<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\"");
+            sb.AppendLine(" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\">");
+            sb.AppendLine("<Styles>");
+            sb.AppendLine("<Style ss:ID=\"H\"><Interior ss:Color=\"#0f766e\" ss:Pattern=\"Solid\"/><Font ss:Color=\"#FFFFFF\" ss:Bold=\"1\" ss:Size=\"10\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"B\"><Font ss:Bold=\"1\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"N\"><NumberFormat ss:Format=\"#,##0\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"D\"><NumberFormat ss:Format=\"yyyy-mm-dd hh:mm\"/></Style>");
+            sb.AppendLine("<Style ss:ID=\"BN\"><Font ss:Bold=\"1\"/><NumberFormat ss:Format=\"#,##0\"/></Style>");
+            sb.AppendLine("</Styles>");
+            sb.AppendLine("<Worksheet ss:Name=\"Waitlist Report\">");
+            sb.AppendLine("<Table>");
+
+            int colCount = model.IsMainBranchAdmin ? 12 : 11;
+            sb.AppendLine($"<Row><Cell ss:MergeAcross=\"{colCount - 1}\" ss:StyleID=\"B\"><Data ss:Type=\"String\">Waitlist & Seated Guest Report — {(model.Filter.StartDate ?? DateTime.Today):dd-MMM-yyyy} to {(model.Filter.EndDate ?? DateTime.Today):dd-MMM-yyyy}</Data></Cell></Row>");
+            sb.AppendLine($"<Row><Cell ss:MergeAcross=\"{colCount - 1}\"><Data ss:Type=\"String\">Branches: {System.Security.SecurityElement.Escape(model.SelectedBranchLabel)}</Data></Cell></Row>");
+            sb.AppendLine($"<Row><Cell ss:MergeAcross=\"{colCount - 1}\"><Data ss:Type=\"String\">Total Guests: {model.Summary.TotalGuests} | Waiting: {model.Summary.WaitingGuests} | Notified: {model.Summary.NotifiedGuests} | Seated: {model.Summary.SeatedGuests} | No Table Seated: {model.Summary.SeatedWithoutTableGuests}</Data></Cell></Row>");
+
+            sb.Append("<Row ss:StyleID=\"H\">");
+            void AddHeaderCell(string s) => sb.Append($"<Cell><Data ss:Type=\"String\">{System.Security.SecurityElement.Escape(s)}</Data></Cell>");
+            AddHeaderCell("Added At");
+            AddHeaderCell("Guest Name");
+            AddHeaderCell("Phone");
+            AddHeaderCell("Party Size");
+            AddHeaderCell("Quoted Wait");
+            AddHeaderCell("Actual Wait");
+            AddHeaderCell("Status");
+            AddHeaderCell("Notified At");
+            AddHeaderCell("Seated At");
+            AddHeaderCell("Table");
+            if (model.IsMainBranchAdmin) AddHeaderCell("Branch");
+            AddHeaderCell("Notes");
+            sb.AppendLine("</Row>");
+
+            foreach (var row in model.Rows)
+            {
+                sb.Append("<Row>");
+                void AddStr(string? v) => sb.Append($"<Cell><Data ss:Type=\"String\">{System.Security.SecurityElement.Escape(v ?? "")}</Data></Cell>");
+                void AddNum(int? v, string style = "N")
+                {
+                    if (v.HasValue) sb.Append($"<Cell ss:StyleID=\"{style}\"><Data ss:Type=\"Number\">{v.Value}</Data></Cell>");
+                    else sb.Append("<Cell><Data ss:Type=\"String\"></Data></Cell>");
+                }
+                AddStr(row.AddedAt.ToString("yyyy-MM-dd HH:mm"));
+                AddStr(row.GuestName);
+                AddStr(row.PhoneNumber);
+                AddNum(row.PartySize);
+                AddNum(row.QuotedWaitTime);
+                AddNum(row.ActualWaitMinutes);
+                AddStr(row.SeatedWithoutTable ? row.StatusText + " (No Table)" : row.StatusText);
+                AddStr(row.NotifiedAt?.ToString("yyyy-MM-dd HH:mm") ?? "");
+                AddStr(row.SeatedAt?.ToString("yyyy-MM-dd HH:mm") ?? "");
+                AddStr(string.IsNullOrWhiteSpace(row.TableNumber) ? "-" : row.TableNumber);
+                if (model.IsMainBranchAdmin) AddStr(row.BranchName);
+                AddStr(row.Notes);
+                sb.AppendLine("</Row>");
+            }
+
+            sb.Append("<Row ss:StyleID=\"B\">");
+            int spanCols = model.IsMainBranchAdmin ? 4 : 4;
+            sb.Append($"<Cell ss:MergeAcross=\"{spanCols - 1}\"><Data ss:Type=\"String\">AVERAGES</Data></Cell>");
+            sb.Append($"<Cell ss:StyleID=\"BN\"><Data ss:Type=\"Number\">{model.Summary.AverageQuotedWaitTime}</Data></Cell>");
+            sb.Append($"<Cell ss:StyleID=\"BN\"><Data ss:Type=\"Number\">{model.Summary.AverageActualWaitTime}</Data></Cell>");
+            for (int i = 0; i < (model.IsMainBranchAdmin ? 6 : 5); i++)
+            {
+                sb.Append("<Cell><Data ss:Type=\"String\"></Data></Cell>");
+            }
+            sb.AppendLine("</Row>");
+
+            sb.AppendLine("</Table></Worksheet></Workbook>");
+            var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+            return File(bytes, "application/vnd.ms-excel", fileName);
+        }
+
+        [HttpGet]
+        [RequirePermission(MenuCodes.WaitlistGuests, PermissionAction.Export)]
+        public async Task<IActionResult> WaitlistGuestReportPdf(DateTime? startDate, DateTime? endDate, string? branchIds = null)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue) return RedirectNoBranch();
+
+            var selectedIdList = string.IsNullOrWhiteSpace(branchIds)
+                ? new List<int>()
+                : branchIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => int.TryParse(s.Trim(), out var v) ? v : 0).Where(v => v > 0).ToList();
+
+            var model = new WaitlistGuestReportViewModel
+            {
+                Filter = new WaitlistGuestReportFilter
+                {
+                    StartDate = startDate?.Date ?? DateTime.Today,
+                    EndDate = endDate?.Date ?? DateTime.Today,
+                    SelectedBranchIds = selectedIdList
+                }
+            };
+
+            model.IsMainBranchAdmin = await IsMainBranchAdminAsync(activeBranchId.Value);
+            if (model.IsMainBranchAdmin)
+                model.Branches = await LoadAllBranchesAsync();
+
+            await PopulateWaitlistGuestBranchLabelAsync(model, activeBranchId.Value);
+            await LoadWaitlistGuestReportAsync(model, activeBranchId.Value);
+            var pdfBytes = BuildWaitlistGuestReportPdf(model);
+            return File(pdfBytes, "application/pdf", BuildWaitlistGuestReportExportFileName(model.Filter, "pdf"));
+        }
+
+        private static string BuildWaitlistGuestReportExportFileName(WaitlistGuestReportFilter filter, string extension)
+        {
+            var from = (filter.StartDate ?? DateTime.Today).ToString("yyyy-MM-dd");
+            var to = (filter.EndDate ?? DateTime.Today).ToString("yyyy-MM-dd");
+            return $"WaitlistGuestReport_{from}_to_{to}.{extension}";
+        }
+
+        private static byte[] BuildWaitlistGuestReportPdf(WaitlistGuestReportViewModel model)
+        {
+            using var stream = new MemoryStream();
+            using var document = SKDocument.CreatePdf(stream);
+
+            const float pageWidth = 842f;
+            const float pageHeight = 595f;
+            const float margin = 22f;
+
+            var regularTypeface = SKTypeface.Default;
+            var boldTypeface = SKTypeface.FromFamilyName(regularTypeface?.FamilyName, SKFontStyle.Bold) ?? regularTypeface;
+
+            using var headerFont = new SKFont(boldTypeface, 15);
+            using var subFont = new SKFont(regularTypeface, 8);
+            using var labelFont = new SKFont(boldTypeface, 7.5f);
+            using var textFont = new SKFont(regularTypeface, 7.5f);
+
+            var headerPaint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
+            var labelPaint = new SKPaint { Color = SKColors.White, IsAntialias = true };
+            var textPaint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
+            var mutedPaint = new SKPaint { Color = SKColors.DimGray, IsAntialias = true };
+            var linePaint = new SKPaint { Color = SKColors.LightGray, StrokeWidth = 0.5f, IsAntialias = true };
+            var thdBgPaint = new SKPaint { Color = new SKColor(15, 118, 110) };
+
+            float rowH = 13f;
+            float contentWidth = pageWidth - 2 * margin;
+            float[] colWidths = model.IsMainBranchAdmin
+                ? new float[] { 64, 80, 64, 38, 34, 34, 50, 64, 64, 42, 60, 116 }
+                : new float[] { 68, 88, 72, 42, 38, 38, 55, 68, 68, 48, 135 };
+            string[] headers = model.IsMainBranchAdmin
+                ? new[] { "Added", "Guest", "Phone", "Party", "Quote", "Actual", "Status", "Notified", "Seated", "Table", "Branch", "Notes" }
+                : new[] { "Added", "Guest", "Phone", "Party", "Quote", "Actual", "Status", "Notified", "Seated", "Table", "Notes" };
+
+            var totalW = colWidths.Sum();
+            if (totalW > contentWidth)
+            {
+                var scale = contentWidth / totalW;
+                for (int i = 0; i < colWidths.Length; i++) colWidths[i] *= scale;
+            }
+
+            int rowIndex = 0;
+            int pageNumber = 0;
+            while (rowIndex < model.Rows.Count || rowIndex == 0)
+            {
+                pageNumber++;
+                using var canvas = document.BeginPage(pageWidth, pageHeight);
+                float y = margin;
+
+                canvas.DrawText("Waitlist & Seated Guest Report", margin, y + 14, SKTextAlign.Left, headerFont, headerPaint);
+                string period = $"Period: {(model.Filter.StartDate ?? DateTime.Today):dd-MMM-yyyy} to {(model.Filter.EndDate ?? DateTime.Today):dd-MMM-yyyy}  |  Branches: {model.SelectedBranchLabel}  |  Total: {model.Summary.TotalGuests}  |  Seated: {model.Summary.SeatedGuests}  |  No Table Seated: {model.Summary.SeatedWithoutTableGuests}";
+                canvas.DrawText(period, margin, y + 27, SKTextAlign.Left, subFont, mutedPaint);
+                canvas.DrawText($"Generated: {DateTime.Now:dd-MMM-yyyy HH:mm}  |  Page {pageNumber}", pageWidth - margin, y + 27, SKTextAlign.Right, subFont, mutedPaint);
+                y += 38f;
+
+                float x = margin;
+                canvas.DrawRect(SKRect.Create(margin, y, contentWidth, rowH + 2), thdBgPaint);
+                for (int c = 0; c < headers.Length; c++)
+                {
+                    canvas.DrawText(headers[c], x + 2, y + rowH - 2, SKTextAlign.Left, labelFont, labelPaint);
+                    x += colWidths[c];
+                }
+                y += rowH + 2;
+                canvas.DrawLine(margin, y, margin + contentWidth, y, linePaint);
+
+                int rowsPerPage = Math.Max(1, (int)((pageHeight - margin - y - 16f) / rowH));
+                int end = Math.Min(model.Rows.Count, rowIndex + rowsPerPage);
+
+                for (int i = rowIndex; i < end; i++)
+                {
+                    var row = model.Rows[i];
+                    x = margin;
+                    string[] cells = model.IsMainBranchAdmin
+                        ? new[]
+                        {
+                            row.AddedAt.ToString("dd-MMM HH:mm"),
+                            row.GuestName,
+                            row.PhoneNumber,
+                            row.PartySize.ToString(),
+                            row.QuotedWaitTime.ToString(),
+                            row.ActualWaitMinutes?.ToString() ?? "-",
+                            row.SeatedWithoutTable ? row.StatusText + "*" : row.StatusText,
+                            row.NotifiedAt?.ToString("dd-MMM HH:mm") ?? "-",
+                            row.SeatedAt?.ToString("dd-MMM HH:mm") ?? "-",
+                            string.IsNullOrWhiteSpace(row.TableNumber) ? "-" : row.TableNumber,
+                            row.BranchName,
+                            string.IsNullOrWhiteSpace(row.Notes) ? "-" : row.Notes
+                        }
+                        : new[]
+                        {
+                            row.AddedAt.ToString("dd-MMM HH:mm"),
+                            row.GuestName,
+                            row.PhoneNumber,
+                            row.PartySize.ToString(),
+                            row.QuotedWaitTime.ToString(),
+                            row.ActualWaitMinutes?.ToString() ?? "-",
+                            row.SeatedWithoutTable ? row.StatusText + "*" : row.StatusText,
+                            row.NotifiedAt?.ToString("dd-MMM HH:mm") ?? "-",
+                            row.SeatedAt?.ToString("dd-MMM HH:mm") ?? "-",
+                            string.IsNullOrWhiteSpace(row.TableNumber) ? "-" : row.TableNumber,
+                            string.IsNullOrWhiteSpace(row.Notes) ? "-" : row.Notes
+                        };
+
+                    for (int c = 0; c < cells.Length; c++)
+                    {
+                        var value = cells[c] ?? string.Empty;
+                        if (value.Length > 22 && c == cells.Length - 1) value = value.Substring(0, 22) + "...";
+                        if (value.Length > 18 && c == 1) value = value.Substring(0, 18) + "...";
+                        canvas.DrawText(value, x + 2, y + rowH - 3, SKTextAlign.Left, textFont, textPaint);
+                        x += colWidths[c];
+                    }
+
+                    y += rowH;
+                    canvas.DrawLine(margin, y, margin + contentWidth, y, linePaint);
+                }
+
+                if (model.Rows.Count == 0)
+                {
+                    canvas.DrawText("No waitlist records found for the selected date range.", margin, y + 14, SKTextAlign.Left, textFont, textPaint);
+                }
+
+                document.EndPage();
+                rowIndex = end;
+                if (rowIndex >= model.Rows.Count) break;
+            }
+
+            document.Close();
+            return stream.ToArray();
+        }
+
+        private async Task PopulateWaitlistGuestBranchLabelAsync(WaitlistGuestReportViewModel model, int activeBranchId)
+        {
+            if (model.IsMainBranchAdmin)
+            {
+                if (model.Filter.SelectedBranchIds == null || model.Filter.SelectedBranchIds.Count == 0)
+                {
+                    model.SelectedBranchLabel = "All Branches";
+                    return;
+                }
+
+                var names = model.Branches
+                    .Where(branch => int.TryParse(branch.Value, out var branchId) && model.Filter.SelectedBranchIds.Contains(branchId))
+                    .Select(branch => branch.Text)
+                    .Where(text => !string.IsNullOrWhiteSpace(text))
+                    .ToList();
+
+                model.SelectedBranchLabel = names.Count == 0 ? "Selected Branches" : string.Join(", ", names);
+                return;
+            }
+
+            var branchName = await GetBranchNameAsync(activeBranchId);
+            model.SelectedBranchLabel = string.IsNullOrWhiteSpace(branchName) ? "Active Branch" : branchName;
         }
 
         private async Task LoadGSTBreakupReportAsync(GSTBreakupReportViewModel model, int? branchId = null)
@@ -3513,6 +3861,92 @@ WHERE o.OrderNumber IN ({string.Join(",", paramNames)})";
             {
                 ViewBag.PnLError = $"Error loading report: {ex.Message}";
                 Console.WriteLine($"[ProfitLoss] Error: {ex.Message}");
+            }
+        }
+
+        private async Task LoadWaitlistGuestReportAsync(WaitlistGuestReportViewModel model, int activeBranchId)
+        {
+            model.Filter ??= new WaitlistGuestReportFilter();
+            if (!model.Filter.StartDate.HasValue && !model.Filter.EndDate.HasValue)
+            {
+                model.Filter.StartDate = DateTime.Today;
+                model.Filter.EndDate = DateTime.Today;
+            }
+            else if (!model.Filter.StartDate.HasValue && model.Filter.EndDate.HasValue)
+            {
+                model.Filter.StartDate = model.Filter.EndDate.Value.Date;
+            }
+            else if (model.Filter.StartDate.HasValue && !model.Filter.EndDate.HasValue)
+            {
+                model.Filter.EndDate = model.Filter.StartDate.Value.Date;
+            }
+
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var branchIds = model.IsMainBranchAdmin && model.Filter.SelectedBranchIds.Any()
+                    ? string.Join(",", model.Filter.SelectedBranchIds)
+                    : string.Empty;
+
+                using var command = new SqlCommand("dbo.usp_GetWaitlistGuestReport", connection)
+                {
+                    CommandType = CommandType.StoredProcedure,
+                    CommandTimeout = 90
+                };
+
+                command.Parameters.AddWithValue("@StartDate", model.Filter.StartDate?.Date ?? DateTime.Today);
+                command.Parameters.AddWithValue("@EndDate", model.Filter.EndDate?.Date ?? DateTime.Today);
+                command.Parameters.AddWithValue("@BranchId", model.IsMainBranchAdmin ? DBNull.Value : activeBranchId);
+                command.Parameters.AddWithValue("@BranchIds", string.IsNullOrWhiteSpace(branchIds) ? DBNull.Value : branchIds);
+
+                model.Rows.Clear();
+                model.Summary = new WaitlistGuestReportSummary();
+
+                using var reader = await command.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    model.Summary = new WaitlistGuestReportSummary
+                    {
+                        TotalGuests = reader.IsDBNull(reader.GetOrdinal("TotalGuests")) ? 0 : reader.GetInt32(reader.GetOrdinal("TotalGuests")),
+                        WaitingGuests = reader.IsDBNull(reader.GetOrdinal("WaitingGuests")) ? 0 : reader.GetInt32(reader.GetOrdinal("WaitingGuests")),
+                        NotifiedGuests = reader.IsDBNull(reader.GetOrdinal("NotifiedGuests")) ? 0 : reader.GetInt32(reader.GetOrdinal("NotifiedGuests")),
+                        SeatedGuests = reader.IsDBNull(reader.GetOrdinal("SeatedGuests")) ? 0 : reader.GetInt32(reader.GetOrdinal("SeatedGuests")),
+                        SeatedWithoutTableGuests = reader.IsDBNull(reader.GetOrdinal("SeatedWithoutTableGuests")) ? 0 : reader.GetInt32(reader.GetOrdinal("SeatedWithoutTableGuests")),
+                        AverageQuotedWaitTime = reader.IsDBNull(reader.GetOrdinal("AverageQuotedWaitTime")) ? 0 : Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("AverageQuotedWaitTime"))),
+                        AverageActualWaitTime = reader.IsDBNull(reader.GetOrdinal("AverageActualWaitTime")) ? 0 : Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("AverageActualWaitTime")))
+                    };
+                }
+
+                if (await reader.NextResultAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        model.Rows.Add(new WaitlistGuestReportRow
+                        {
+                            WaitlistId = reader.IsDBNull(reader.GetOrdinal("WaitlistId")) ? 0 : reader.GetInt32(reader.GetOrdinal("WaitlistId")),
+                            AddedAt = reader.GetDateTime(reader.GetOrdinal("AddedAt")),
+                            GuestName = reader.IsDBNull(reader.GetOrdinal("GuestName")) ? string.Empty : reader.GetString(reader.GetOrdinal("GuestName")),
+                            PhoneNumber = reader.IsDBNull(reader.GetOrdinal("PhoneNumber")) ? string.Empty : reader.GetString(reader.GetOrdinal("PhoneNumber")),
+                            PartySize = reader.IsDBNull(reader.GetOrdinal("PartySize")) ? 0 : reader.GetInt32(reader.GetOrdinal("PartySize")),
+                            QuotedWaitTime = reader.IsDBNull(reader.GetOrdinal("QuotedWaitTime")) ? 0 : reader.GetInt32(reader.GetOrdinal("QuotedWaitTime")),
+                            StatusText = reader.IsDBNull(reader.GetOrdinal("StatusText")) ? string.Empty : reader.GetString(reader.GetOrdinal("StatusText")),
+                            NotifiedAt = reader.IsDBNull(reader.GetOrdinal("NotifiedAt")) ? null : reader.GetDateTime(reader.GetOrdinal("NotifiedAt")),
+                            SeatedAt = reader.IsDBNull(reader.GetOrdinal("SeatedAt")) ? null : reader.GetDateTime(reader.GetOrdinal("SeatedAt")),
+                            TableNumber = reader.IsDBNull(reader.GetOrdinal("TableNumber")) ? string.Empty : reader.GetString(reader.GetOrdinal("TableNumber")),
+                            BranchName = reader.IsDBNull(reader.GetOrdinal("BranchName")) ? string.Empty : reader.GetString(reader.GetOrdinal("BranchName")),
+                            Notes = reader.IsDBNull(reader.GetOrdinal("Notes")) ? string.Empty : reader.GetString(reader.GetOrdinal("Notes")),
+                            ActualWaitMinutes = reader.IsDBNull(reader.GetOrdinal("ActualWaitMinutes")) ? null : reader.GetInt32(reader.GetOrdinal("ActualWaitMinutes")),
+                            SeatedWithoutTable = !reader.IsDBNull(reader.GetOrdinal("SeatedWithoutTable")) && Convert.ToBoolean(reader.GetValue(reader.GetOrdinal("SeatedWithoutTable")))
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading Waitlist Guest Report: {ex.Message}");
+                TempData["ErrorMessage"] = $"Error loading waitlist report: {ex.Message}";
             }
         }
 

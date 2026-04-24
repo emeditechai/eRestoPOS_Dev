@@ -4,13 +4,45 @@
 }
 
 <div class="container">
+    <style>
+        .wl-form-shell {
+            background: linear-gradient(180deg, #f8fbff 0%, #f1f6ff 100%);
+            border: 1px solid rgba(191, 219, 254, .6);
+            border-radius: 16px;
+            padding: .9rem;
+        }
+        .wl-form-card {
+            border: 1px solid #dbe6f4;
+            border-radius: 14px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        }
+        .wl-form-title {
+            color: #0f172a;
+            font-weight: 700;
+        }
+        .wl-flow-tip {
+            border: 1px solid #dbeafe;
+            border-radius: 10px;
+            padding: .5rem .65rem;
+            background: #fff;
+            color: #475569;
+            font-size: .85rem;
+        }
+        .wait-preset-btn {
+            min-width: 64px;
+        }
+    </style>
+    <div class="wl-form-shell">
     <div class="row mb-3">
         <div class="col">
-            <h2>Add to Waitlist</h2>
+            <h2 class="wl-form-title"><i class="bi bi-person-plus-fill me-2 text-primary"></i>Add to Waitlist</h2>
+            <div class="wl-flow-tip">
+                <strong>Standard flow:</strong> Add guest with accurate party size and quote time, then notify from Waitlist when table is ready.
+            </div>
         </div>
     </div>
 
-    <div class="card">
+    <div class="card wl-form-card">
         <div class="card-body">
             <form asp-action="SaveWaitlist" method="post">
                 <input type="hidden" asp-for="Id" />
@@ -18,28 +50,35 @@
                 <div class="row">
                     <div class="col-md-6">
                         <div class="mb-3">
-                            <label asp-for="GuestName" class="form-label">Guest Name</label>
-                            <input asp-for="GuestName" class="form-control" required />
+                            <label asp-for="GuestName" class="form-label">Guest Name <span class="text-danger">*</span></label>
+                            <input asp-for="GuestName" class="form-control" required placeholder="Enter primary guest name" />
                             <span asp-validation-for="GuestName" class="text-danger"></span>
                         </div>
 
                         <div class="mb-3">
-                            <label asp-for="PhoneNumber" class="form-label">Phone Number</label>
-                            <input asp-for="PhoneNumber" class="form-control" required />
+                            <label asp-for="PhoneNumber" class="form-label">Phone Number <span class="text-danger">*</span></label>
+                            <input asp-for="PhoneNumber" class="form-control" required placeholder="10-digit mobile number" maxlength="10" inputmode="numeric" pattern="[0-9]{10}" title="Enter exactly 10 digits" />
+                            <div class="form-text">Enter exactly 10 numeric digits.</div>
                             <span asp-validation-for="PhoneNumber" class="text-danger"></span>
                         </div>
 
                         <div class="mb-3">
-                            <label asp-for="PartySize" class="form-label">Party Size</label>
-                            <input asp-for="PartySize" class="form-control" type="number" min="1" max="50" required />
+                            <label asp-for="PartySize" class="form-label">Party Size <span class="text-danger">*</span></label>
+                            <input asp-for="PartySize" class="form-control" type="number" min="1" max="50" required placeholder="Number of guests" />
                             <span asp-validation-for="PartySize" class="text-danger"></span>
                         </div>
                     </div>
 
                     <div class="col-md-6">
                         <div class="mb-3">
-                            <label asp-for="QuotedWaitTime" class="form-label">Quoted Wait Time (minutes)</label>
-                            <input asp-for="QuotedWaitTime" class="form-control" type="number" min="5" max="240" required />
+                            <label asp-for="QuotedWaitTime" class="form-label">Quoted Wait Time (minutes) <span class="text-danger">*</span></label>
+                            <input asp-for="QuotedWaitTime" class="form-control" type="number" min="5" max="240" required id="quotedWaitInput" />
+                            <div class="d-flex gap-2 flex-wrap mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary wait-preset-btn" data-minutes="10">10m</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary wait-preset-btn" data-minutes="20">20m</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary wait-preset-btn" data-minutes="30">30m</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary wait-preset-btn" data-minutes="45">45m</button>
+                            </div>
                             <span asp-validation-for="QuotedWaitTime" class="text-danger"></span>
                         </div>
 
@@ -59,13 +98,34 @@
 
                 <div class="mb-3">
                     <a asp-action="Waitlist" class="btn btn-secondary">Cancel</a>
-                    <button type="submit" class="btn btn-primary">Add to Waitlist</button>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-plus-circle me-1"></i>Add to Waitlist</button>
                 </div>
             </form>
         </div>
+    </div>
     </div>
 </div>
 
 @section Scripts {
     @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const quotedInput = document.getElementById('quotedWaitInput');
+            const phoneInput = document.getElementById('PhoneNumber');
+
+            document.querySelectorAll('.wait-preset-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    if (!quotedInput) return;
+                    quotedInput.value = this.getAttribute('data-minutes');
+                    quotedInput.focus();
+                });
+            });
+
+            if (phoneInput) {
+                phoneInput.addEventListener('input', function () {
+                    this.value = this.value.replace(/\D/g, '').slice(0, 10);
+                });
+            }
+        });
+    </script>
 }

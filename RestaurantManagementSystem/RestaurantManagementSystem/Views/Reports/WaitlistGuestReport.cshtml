@@ -1,0 +1,264 @@
+@model RestaurantManagementSystem.ViewModels.WaitlistGuestReportViewModel
+@using RestaurantManagementSystem.Models.Authorization
+@{
+    ViewData["Title"] = "Waitlist & Seated Guest Report";
+    var reportPermissions = ViewBag.ReportPermissions as PermissionSet ?? new PermissionSet();
+}
+
+<style>
+    .report-shell-header {
+        background: linear-gradient(135deg, #0f766e 0%, #0ea5a4 55%, #38bdf8 100%);
+        padding: 1.5rem;
+        border-radius: .65rem .65rem 0 0;
+        color: white;
+        box-shadow: 0 8px 24px rgba(15, 118, 110, 0.22);
+    }
+    .report-shell-header h4 { margin: 0; font-weight: 800; }
+    .report-shell-header .subtitle { opacity: .92; font-size: .95rem; margin-top: .25rem; }
+    .report-tile {
+        padding: 1rem;
+        border-radius: .7rem;
+        color: white;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+        min-height: 108px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .report-tile .label { font-size: .8rem; font-weight: 700; opacity: .9; margin-bottom: .2rem; }
+    .report-tile .value { font-size: 1.55rem; font-weight: 800; line-height: 1.1; }
+    .tile-blue { background: linear-gradient(135deg, #2563eb, #38bdf8); }
+    .tile-amber { background: linear-gradient(135deg, #d97706, #f59e0b); }
+    .tile-green { background: linear-gradient(135deg, #059669, #34d399); }
+    .tile-slate { background: linear-gradient(135deg, #475569, #64748b); }
+    .tile-rose { background: linear-gradient(135deg, #e11d48, #fb7185); }
+    .tile-indigo { background: linear-gradient(135deg, #4f46e5, #818cf8); }
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: .25rem;
+        padding: .2rem .55rem;
+        border-radius: 999px;
+        font-size: .76rem;
+        font-weight: 700;
+    }
+    .status-waiting { background: #e2e8f0; color: #334155; }
+    .status-notified { background: #fef3c7; color: #b45309; }
+    .status-seated { background: #dcfce7; color: #15803d; }
+    .status-left, .status-noresponse { background: #fee2e2; color: #b91c1c; }
+    .report-note-badge { background: #e2e8f0; color: #475569; }
+    @@media print { .no-print { display: none !important; } }
+</style>
+
+<div class="card shadow-sm mb-4">
+    <div class="report-shell-header">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+            <div>
+                <h4><i class="fas fa-chair me-2"></i>Waitlist & Seated Guest Report</h4>
+                <div class="subtitle">Operational waitlist tracking with seating conversion details across the selected date range.</div>
+                <div class="subtitle"><strong>Branches:</strong> @Model.SelectedBranchLabel</div>
+            </div>
+            <div><i class="fas fa-users fa-3x opacity-50"></i></div>
+        </div>
+    </div>
+
+    <div class="card-body">
+        <div class="alert alert-info mb-4 py-2">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>Coverage:</strong> Entries added in the selected period with current waitlist status, notification timestamps, seated details, and no-table seating visibility.
+        </div>
+
+        <form asp-action="WaitlistGuestReport" method="post" id="waitlistGuestFilterForm" class="mb-4">
+            <div class="row g-3 align-items-end">
+                <div class="col-lg-2 col-md-3 col-sm-6">
+                    <label asp-for="Filter.StartDate" class="form-label fw-semibold">From Date</label>
+                    <input asp-for="Filter.StartDate" class="form-control" type="date" />
+                </div>
+                <div class="col-lg-2 col-md-3 col-sm-6">
+                    <label asp-for="Filter.EndDate" class="form-label fw-semibold">To Date</label>
+                    <input asp-for="Filter.EndDate" class="form-control" type="date" />
+                </div>
+                @if (Model.IsMainBranchAdmin)
+                {
+                    <div class="col-lg-3 col-md-6">
+                        <label class="form-label fw-semibold">Branches</label>
+                        <div class="dropdown">
+                            <button class="btn btn-outline-info dropdown-toggle w-100 text-start" type="button"
+                                    data-bs-auto-close="outside" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-code-branch me-1"></i>
+                                <span id="branchDropdownLabel">All Branches</span>
+                            </button>
+                            <div class="dropdown-menu p-2" style="min-width:220px">
+                                <div class="d-flex gap-2 mb-1">
+                                    <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(true)">All</button>
+                                    <span>&middot;</span>
+                                    <button type="button" class="btn btn-sm btn-link p-0 small" onclick="selectAllBranches(false)">None</button>
+                                </div>
+                                <hr class="my-1">
+                                @foreach (var b in Model.Branches)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input branch-chk" type="checkbox" name="Filter.SelectedBranchIds"
+                                               value="@b.Value" id="bchk_@b.Value"
+                                               @(Model.Filter.SelectedBranchIds.Contains(int.Parse(b.Value)) ? "checked" : "")>
+                                        <label class="form-check-label" for="bchk_@b.Value">@b.Text</label>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 align-items-center border-top pt-3 mt-3 no-print">
+                <button type="submit" class="btn btn-success">
+                    <i class="fas fa-sync-alt me-1"></i>Refresh Report
+                </button>
+                @if (reportPermissions.CanExport)
+                {
+                    <button type="button" id="exportExcelBtn" class="btn btn-outline-success">
+                        <i class="fas fa-file-excel me-1"></i>Excel
+                    </button>
+                    <button type="button" id="exportPdfBtn" class="btn btn-outline-danger">
+                        <i class="fas fa-file-pdf me-1"></i>PDF
+                    </button>
+                }
+                <button type="button" id="printBtn" class="btn btn-outline-primary">
+                    <i class="fas fa-print me-1"></i>Print
+                </button>
+            </div>
+        </form>
+
+        <div class="row g-3 mb-4">
+            <div class="col-lg-2 col-md-4 col-sm-6"><div class="report-tile tile-blue"><div class="label">Total Guests</div><div class="value">@Model.Summary.TotalGuests</div></div></div>
+            <div class="col-lg-2 col-md-4 col-sm-6"><div class="report-tile tile-slate"><div class="label">Waiting</div><div class="value">@Model.Summary.WaitingGuests</div></div></div>
+            <div class="col-lg-2 col-md-4 col-sm-6"><div class="report-tile tile-amber"><div class="label">Notified</div><div class="value">@Model.Summary.NotifiedGuests</div></div></div>
+            <div class="col-lg-2 col-md-4 col-sm-6"><div class="report-tile tile-green"><div class="label">Seated</div><div class="value">@Model.Summary.SeatedGuests</div></div></div>
+            <div class="col-lg-2 col-md-4 col-sm-6"><div class="report-tile tile-rose"><div class="label">Seated Without Table</div><div class="value">@Model.Summary.SeatedWithoutTableGuests</div></div></div>
+            <div class="col-lg-2 col-md-4 col-sm-6"><div class="report-tile tile-indigo"><div class="label">Avg Actual Wait</div><div class="value">@Model.Summary.AverageActualWaitTime.ToString("0") min</div></div></div>
+        </div>
+
+        @if (Model.Rows.Any())
+        {
+            <div class="alert alert-success mb-3 py-2">
+                <i class="fas fa-filter me-2"></i>
+                <strong>Period:</strong> @Model.Filter.StartDate?.ToString("dd-MMM-yyyy") to @Model.Filter.EndDate?.ToString("dd-MMM-yyyy")
+                &nbsp;|&nbsp;<strong>Branches:</strong> @Model.SelectedBranchLabel
+                &nbsp;|&nbsp;<strong>Records:</strong> @Model.Rows.Count
+            </div>
+        }
+
+        <div class="table-responsive">
+            <table class="table table-striped table-hover table-sm align-middle" id="waitlistGuestReportTable">
+                <thead class="table-dark">
+                    <tr>
+                        <th class="text-nowrap">Added At</th>
+                        <th>Guest</th>
+                        <th>Phone</th>
+                        <th class="text-center">Party</th>
+                        <th class="text-center">Quoted</th>
+                        <th class="text-center">Actual</th>
+                        <th>Status</th>
+                        <th class="text-nowrap">Notified At</th>
+                        <th class="text-nowrap">Seated At</th>
+                        <th>Table</th>
+                        @if (Model.IsMainBranchAdmin) { <th>Branch</th> }
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @if (!Model.Rows.Any())
+                {
+                    <tr>
+                        <td colspan="@(Model.IsMainBranchAdmin ? 12 : 11)" class="text-center text-muted py-5">
+                            <i class="fas fa-search fa-2x mb-2 d-block"></i>
+                            No waitlist records found for the selected date range.
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    foreach (var row in Model.Rows)
+                    {
+                        var statusClass = row.StatusText switch
+                        {
+                            "Waiting" => "status-pill status-waiting",
+                            "Notified" => "status-pill status-notified",
+                            "Seated" => "status-pill status-seated",
+                            "Left" => "status-pill status-left",
+                            "No Response" => "status-pill status-noresponse",
+                            _ => "status-pill status-waiting"
+                        };
+
+                        <tr>
+                            <td class="text-nowrap">@row.AddedAt.ToString("dd-MMM-yyyy HH:mm")</td>
+                            <td class="fw-semibold">@row.GuestName</td>
+                            <td>@row.PhoneNumber</td>
+                            <td class="text-center">@row.PartySize</td>
+                            <td class="text-center">@row.QuotedWaitTime min</td>
+                            <td class="text-center">@(row.ActualWaitMinutes.HasValue ? row.ActualWaitMinutes + " min" : "-")</td>
+                            <td>
+                                <span class="@statusClass">@row.StatusText</span>
+                                @if (row.SeatedWithoutTable)
+                                {
+                                    <span class="badge report-note-badge ms-1">No Table</span>
+                                }
+                            </td>
+                            <td class="text-nowrap">@(row.NotifiedAt?.ToString("dd-MMM-yyyy HH:mm") ?? "-")</td>
+                            <td class="text-nowrap">@(row.SeatedAt?.ToString("dd-MMM-yyyy HH:mm") ?? "-")</td>
+                            <td>@(!string.IsNullOrWhiteSpace(row.TableNumber) ? row.TableNumber : "-")</td>
+                            @if (Model.IsMainBranchAdmin) { <td>@(string.IsNullOrWhiteSpace(row.BranchName) ? "-" : row.BranchName)</td> }
+                            <td class="small">@(string.IsNullOrWhiteSpace(row.Notes) ? "-" : row.Notes)</td>
+                        </tr>
+                    }
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function buildExportParams() {
+            const p = new URLSearchParams();
+            const from = document.querySelector('[name="Filter.StartDate"]')?.value || '';
+            const to = document.querySelector('[name="Filter.EndDate"]')?.value || '';
+            if (from) p.set('startDate', from);
+            if (to) p.set('endDate', to);
+            const checked = Array.from(document.querySelectorAll('.branch-chk:checked')).map(cb => cb.value);
+            if (checked.length) p.set('branchIds', checked.join(','));
+            return p.toString();
+        }
+
+        document.getElementById('exportExcelBtn')?.addEventListener('click', function () {
+            const qs = buildExportParams();
+            window.open('@Url.Action("WaitlistGuestReportExcel", "Reports")' + (qs ? '?' + qs : ''), '_blank');
+        });
+
+        document.getElementById('exportPdfBtn')?.addEventListener('click', function () {
+            const qs = buildExportParams();
+            window.open('@Url.Action("WaitlistGuestReportPdf", "Reports")' + (qs ? '?' + qs : ''), '_blank');
+        });
+
+        document.getElementById('printBtn')?.addEventListener('click', function () {
+            window.print();
+        });
+
+        function selectAllBranches(checked) {
+            document.querySelectorAll('.branch-chk').forEach(cb => cb.checked = checked);
+            updateBranchLabel();
+        }
+
+        function updateBranchLabel() {
+            const total = document.querySelectorAll('.branch-chk').length;
+            const checked = document.querySelectorAll('.branch-chk:checked').length;
+            const label = document.getElementById('branchDropdownLabel');
+            if (!label) return;
+            label.textContent = (checked === 0 || checked === total) ? 'All Branches' : checked + ' Branch(es) Selected';
+        }
+
+        document.querySelectorAll('.branch-chk').forEach(cb => cb.addEventListener('change', updateBranchLabel));
+        updateBranchLabel();
+    </script>
+}
