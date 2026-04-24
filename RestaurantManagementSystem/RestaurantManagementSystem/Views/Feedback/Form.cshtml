@@ -27,7 +27,7 @@
     {
         <div class="row mb-3">
             <div class="col">
-                <div class="alert alert-light border d-flex flex-wrap justify-content-between align-items-center">
+                <div class="alert alert-light border d-flex flex-wrap justify-content-between align-items-center feedback-restaurant-banner">
                     <div class="me-3">
                         <div class="fw-semibold">@ViewBag.Restaurant.Name</div>
                         <div class="small text-muted">@ViewBag.Restaurant.Address</div>
@@ -83,7 +83,8 @@
                 </div>
                 <div class="col-md-4">
                     <label class="form-label">Restaurant Location</label>
-                    <input asp-for="Location" class="form-control" placeholder="e.g., Main Branch" />
+                    <input asp-for="Location" class="form-control" placeholder="Auto-filled from branch" readonly />
+                    <div class="form-text">Auto-filled from the active branch.</div>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Visit Date</label>
@@ -235,41 +236,48 @@
 </div>
 
 <style>
+    body {
+        background: #eef5ff;
+    }
     /* Only style the content area, not header/footer */
     .feedback-form-wrapper {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background:
+            radial-gradient(circle at 10% 10%, rgba(56, 189, 248, 0.16), transparent 28%),
+            radial-gradient(circle at 92% 12%, rgba(59, 130, 246, 0.14), transparent 26%),
+            linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
         min-height: calc(100vh - 200px);
         padding: 30px 0;
     }
     .feedback-form-container {
         background: rgba(255,255,255,0.98);
-        border-radius: 20px;
+        border: 1px solid rgba(191, 219, 254, .85);
+        border-radius: 24px;
         padding: 40px;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.14), 0 8px 18px rgba(59, 130, 246, 0.10);
         max-width: 1200px;
         margin: 0 auto;
     }
     h2 {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
         font-weight: 700;
     }
     .card {
-        border: none;
-        border-radius: 15px;
+        border: 1px solid rgba(219, 230, 244, .95);
+        border-radius: 18px;
         overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        box-shadow: 0 12px 30px rgba(15,23,42,0.08);
     }
     .feedback-form {
         overflow: visible;
     }
     .card-body {
-        background: linear-gradient(to bottom, #ffffff 0%, #f8f9ff 100%);
+        background: linear-gradient(to bottom, #ffffff 0%, #f8fbff 100%);
     }
     .card-footer {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
         color: white;
         border: none;
     }
@@ -277,9 +285,12 @@
         color: rgba(255,255,255,0.9);
     }
     .alert-light {
-        background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
-        border: none;
-        color: #333;
+        background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 100%);
+        border: 1px solid rgba(125, 211, 252, .45);
+        color: #0f172a;
+    }
+    .feedback-restaurant-banner {
+        border-radius: 16px;
     }
     .star-rating .star { 
         cursor:pointer; 
@@ -298,11 +309,11 @@
         border-radius: 20px;
     }
     .tag-btn.active { 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
         color:#fff; 
-        border-color:#667eea;
+        border-color:#2563eb;
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(102,126,234,0.4);
+        box-shadow: 0 4px 12px rgba(37,99,235,0.28);
     }
     .tag-btn:hover {
         transform: translateY(-2px);
@@ -310,26 +321,32 @@
     }
     .form-label {
         font-weight: 600;
-        color: #667eea;
+        color: #2563eb;
+    }
+    .form-control,
+    .table,
+    .btn,
+    .form-check-input {
+        border-radius: .8rem;
     }
     .form-control:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 0.2rem rgba(102,126,234,0.25);
+        border-color: #60a5fa;
+        box-shadow: 0 0 0 0.2rem rgba(59,130,246,0.16);
     }
     .btn-primary {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
         border: none;
         padding: 12px 30px;
         font-weight: 600;
         transition: all 0.3s;
-        box-shadow: 0 4px 15px rgba(102,126,234,0.4);
+        box-shadow: 0 4px 15px rgba(37,99,235,0.28);
     }
     .btn-primary:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(102,126,234,0.6);
+        box-shadow: 0 6px 20px rgba(37,99,235,0.42);
     }
     .table thead {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
         color: white;
     }
     .table thead th {
@@ -352,16 +369,16 @@
     }
     .section-title {
         font-weight: 700;
-        color: #4f5cd7;
+        color: #2563eb;
     }
     hr {
-        border-color: rgba(118,75,162,0.15);
+        border-color: rgba(37,99,235,0.12);
     }
     .sticky-submit {
         position: sticky;
         bottom: 0;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        box-shadow: 0 -8px 30px rgba(0,0,0,0.15);
+        background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
+        box-shadow: 0 -8px 30px rgba(15,23,42,0.16);
         padding: 18px 28px;
         border-top-left-radius: 20px;
         border-top-right-radius: 20px;
@@ -373,7 +390,25 @@
     .sticky-submit .btn-primary {
         min-width: 185px;
         font-size: 1rem;
-        box-shadow: 0 6px 20px rgba(102,126,234,0.65);
+        box-shadow: 0 6px 20px rgba(37,99,235,0.38);
+    }
+    @@media (max-width: 767.98px) {
+        .feedback-form-wrapper {
+            padding: 16px 10px;
+        }
+        .feedback-form-container {
+            padding: 18px;
+            border-radius: 18px;
+        }
+        .sticky-submit {
+            flex-direction: column;
+            align-items: stretch !important;
+            gap: .75rem;
+            padding: 14px 16px;
+        }
+        .sticky-submit .btn-primary {
+            width: 100%;
+        }
     }
 </style>
 

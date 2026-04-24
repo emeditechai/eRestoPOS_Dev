@@ -90,19 +90,72 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
+        private async Task<string> GetBranchDisplayNameAsync(int? branchId)
+        {
+            var claimBranchName = User.GetActiveBranchName();
+            if (branchId.HasValue && User.GetActiveBranchId() == branchId && !string.IsNullOrWhiteSpace(claimBranchName))
+            {
+                return claimBranchName;
+            }
+
+            if (!branchId.HasValue)
+            {
+                return claimBranchName ?? string.Empty;
+            }
+
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                await con.OpenAsync();
+
+                var hasBranchName = await HasColumnAsync(con, "Branches", "BranchName");
+                if (!hasBranchName)
+                {
+                    return claimBranchName ?? string.Empty;
+                }
+
+                var hasBranchLocationId = await HasColumnAsync(con, "Branches", "BranchLocationId");
+                var hasLocationName = await HasColumnAsync(con, "BranchLocations", "LocationName");
+
+                var sql = hasBranchLocationId && hasLocationName
+                    ? @"SELECT TOP 1
+                            CASE
+                                WHEN ISNULL(bl.LocationName, '') <> '' THEN ISNULL(b.BranchName, '') + ' - ' + bl.LocationName
+                                ELSE ISNULL(b.BranchName, '')
+                            END
+                        FROM dbo.Branches b
+                        LEFT JOIN dbo.BranchLocations bl ON bl.LocationId = b.BranchLocationId
+                        WHERE b.BranchId = @BranchId"
+                    : "SELECT TOP 1 ISNULL(BranchName, '') FROM dbo.Branches WHERE BranchId = @BranchId";
+
+                using var cmd = new SqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+
+                var result = await cmd.ExecuteScalarAsync();
+                return result?.ToString() ?? claimBranchName ?? string.Empty;
+            }
+            catch
+            {
+                return claimBranchName ?? string.Empty;
+            }
+        }
+
         // GET: /Feedback/Form
         [HttpGet]
         [AllowAnonymous]
         public async Task<IActionResult> Form(int? branchId = null)
         {
             var activeBranchId = ResolveBranchId(branchId);
+            var activeBranchName = await GetBranchDisplayNameAsync(activeBranchId);
             var model = new GuestFeedback
             {
                 VisitDate = DateTime.Today,
-                OverallRating = 5
+                OverallRating = 5,
+                Location = activeBranchName
             };
 
             ViewBag.ActiveBranchId = activeBranchId;
+            ViewBag.ActiveBranchName = activeBranchName;
             await LoadRestaurantHeaderAsync(activeBranchId);
             return View(model);
         }
@@ -114,7 +167,14 @@ namespace RestaurantManagementSystem.Controllers
         public async Task<IActionResult> Submit(GuestFeedback model, int? branchId = null)
         {
             var activeBranchId = ResolveBranchId(branchId);
+            var activeBranchName = await GetBranchDisplayNameAsync(activeBranchId);
             ViewBag.ActiveBranchId = activeBranchId;
+            ViewBag.ActiveBranchName = activeBranchName;
+
+            if (string.IsNullOrWhiteSpace(model.Location))
+            {
+                model.Location = activeBranchName;
+            }
 
             if (!activeBranchId.HasValue)
             {

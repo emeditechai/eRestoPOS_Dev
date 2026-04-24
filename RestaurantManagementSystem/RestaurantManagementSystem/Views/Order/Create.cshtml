@@ -5,6 +5,70 @@
 }
 
 <style>
+    .co-page-shell {
+        background:
+            radial-gradient(circle at 8% 12%, rgba(56, 189, 248, 0.14), transparent 28%),
+            radial-gradient(circle at 92% 10%, rgba(59, 130, 246, 0.12), transparent 24%),
+            linear-gradient(180deg, #f8fbff 0%, #f3f7fc 100%);
+        border-radius: 18px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.55);
+    }
+    .co-card {
+        border-radius: 1.15rem !important;
+        box-shadow: 0 22px 48px rgba(15, 23, 42, 0.10), 0 8px 18px rgba(59, 130, 246, 0.08) !important;
+        overflow: hidden;
+    }
+    .co-card .card-header {
+        background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%) !important;
+        position: relative;
+    }
+    .co-card .card-header::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at top right, rgba(255,255,255,.22), transparent 34%);
+        pointer-events: none;
+    }
+    .co-card .card-body {
+        background: linear-gradient(180deg, rgba(255,255,255,.98) 0%, #f8fbff 100%) !important;
+    }
+    .co-section-title {
+        display: inline-flex;
+        align-items: center;
+        gap: .45rem;
+        color: #0f172a !important;
+        font-size: 1rem !important;
+        font-weight: 700 !important;
+        letter-spacing: .01em;
+        margin-bottom: .75rem !important;
+        padding-bottom: .35rem;
+        border-bottom: 2px solid rgba(37, 99, 235, 0.14);
+    }
+    .co-form-row > .col-12 > .form-label,
+    .co-form-row > .col-12 > div > .form-label {
+        font-weight: 600;
+        color: #334155;
+    }
+    .co-card .form-select,
+    .co-card .form-control {
+        border-radius: .8rem;
+        border-color: #d7e3f4;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+    }
+    .co-card .form-select:focus,
+    .co-card .form-control:focus {
+        border-color: #60a5fa;
+        box-shadow: 0 0 0 .22rem rgba(59,130,246,.12);
+    }
+    .merge-tables-box {
+        border-color: #dbe6f4 !important;
+        border-radius: .9rem !important;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
+    }
+    .co-footer {
+        border-top: 1px solid rgba(219, 230, 244, 0.9);
+        padding-top: 1rem;
+    }
     /* ===== Create Order - Mobile & Tablet Responsive ===== */
     @@media (max-width: 575.98px) {
         .co-wrapper { padding-top: .75rem !important; padding-bottom: .75rem !important; }
@@ -34,7 +98,7 @@
     }
 </style>
 
-<div class="container-fluid container-lg co-wrapper py-3 py-md-4 py-lg-5">
+<div class="container-fluid container-lg co-wrapper co-page-shell py-3 py-md-4 py-lg-5">
     <div class="row justify-content-center">
         <div class="col-12 col-md-10 col-lg-7">
             <div class="card shadow border-0 co-card" style="border-radius:1rem;">
@@ -67,7 +131,7 @@
                         <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
                         <div class="row g-3 co-form-row">
                             <div class="col-12 col-md-6">
-                                <div class="mb-2 text-secondary fw-bold co-section-title" style="font-size:1.1rem;">Order Info</div>
+                                <div class="mb-2 text-secondary fw-bold co-section-title"><i class="fas fa-clipboard-list text-primary"></i>Order Info</div>
                                 <label asp-for="OrderType" class="form-label">Order Type</label>
                                 <select asp-for="OrderType" class="form-select" id="orderType">
                                     @{
@@ -125,7 +189,7 @@
                                     <div class="mt-3" id="mergeTablesWrapper">
                                         <label class="form-label">Merge Additional Tables</label>
                                         <div class="form-text mb-2">Check any extra tables to merge into this order (capacity combined).</div>
-                                        <div class="border rounded p-2 merge-tables-box" style="max-height:180px; overflow-y:auto; background:#fdfdfd;">
+                                        <div class="border rounded p-2 merge-tables-box" style="max-height:180px; overflow-y:auto;">
                                             @if (Model.AvailableTables.Any())
                                             {
                                                 <div class="fw-bold small text-uppercase text-secondary mb-1">Available</div>
@@ -162,7 +226,7 @@
                                 </div>
 
                                 <div id="roomServiceSection" class="mt-3 d-none">
-                                    <div class="mb-2 text-secondary fw-bold" style="font-size:1.1rem;">Room Service Details</div>
+                                    <div class="mb-2 text-secondary fw-bold co-section-title"><i class="fas fa-bed text-primary"></i>Room Service Details</div>
 
                                     <div class="mb-3">
                                         <label asp-for="HBranchId" class="form-label">Hotel Branch</label>
@@ -191,7 +255,7 @@
                                 </div>
                             </div>
                             <div class="col-12 col-md-6">
-                                <div class="mb-2 text-secondary fw-bold co-section-title" style="font-size:1.1rem;">Special Instructions</div>
+                                <div class="mb-2 text-secondary fw-bold co-section-title"><i class="fas fa-pen-to-square text-primary"></i>Special Instructions</div>
                                 <label asp-for="SpecialInstructions" class="form-label">Instructions</label>
                                 <textarea asp-for="SpecialInstructions" class="form-control" rows="5"></textarea>
                                 <span asp-validation-for="SpecialInstructions" class="text-danger"></span>
