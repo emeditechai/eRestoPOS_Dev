@@ -362,7 +362,7 @@ GO
 IF OBJECT_ID(N'dbo.usp_GetClosingStockReport', N'P') IS NOT NULL DROP PROCEDURE dbo.usp_GetClosingStockReport;
 GO
 CREATE PROCEDURE dbo.usp_GetClosingStockReport
-    @BranchId INT,
+    @BranchId INT = NULL,   -- NULL = all branches (main-branch admin only)
     @AsOfDate DATE,
     @GodownId INT = NULL
 AS
@@ -371,6 +371,7 @@ BEGIN
     SELECT
         i.IngredientsName               AS ItemName,
         ISNULL(i.Code,'')               AS ItemCode,
+        ISNULL(i.ItemCategory,'')       AS ItemCategory,
         g.GodownName,
         ISNULL(SUM(CASE WHEN sl.TransactionType = 'OPENING' THEN sl.InQuantity ELSE 0 END), 0)        AS OpeningQty,
         ISNULL(SUM(CASE WHEN sl.TransactionType IN ('GRN','PURCHASE')  THEN sl.InQuantity ELSE 0 END), 0) AS PurchaseQty,
@@ -387,10 +388,10 @@ BEGIN
     FROM dbo.StockLedger sl
     INNER JOIN dbo.Ingredients i    ON i.Id  = sl.ItemId
     INNER JOIN dbo.Godowns g        ON g.Id  = sl.GodownId
-    WHERE sl.BranchId       = @BranchId
+    WHERE (@BranchId IS NULL OR sl.BranchId = @BranchId)
       AND sl.TransactionDate <= @AsOfDate
       AND (@GodownId IS NULL  OR sl.GodownId = @GodownId)
-    GROUP BY i.IngredientsName, i.Code, g.GodownName
+    GROUP BY i.IngredientsName, i.Code, i.ItemCategory, g.GodownName
     HAVING ISNULL(SUM(sl.InQuantity - sl.OutQuantity), 0) <> 0
     ORDER BY g.GodownName, i.IngredientsName;
 END
@@ -402,7 +403,7 @@ GO
 IF OBJECT_ID(N'dbo.usp_GetStockValuationReport', N'P') IS NOT NULL DROP PROCEDURE dbo.usp_GetStockValuationReport;
 GO
 CREATE PROCEDURE dbo.usp_GetStockValuationReport
-    @BranchId INT,
+    @BranchId INT = NULL,   -- NULL = all branches (main-branch admin only)
     @GodownId INT = NULL
 AS
 BEGIN
@@ -413,6 +414,7 @@ BEGIN
         cs.ItemId,
         i.IngredientsName   AS ItemName,
         ISNULL(i.Code,'')   AS ItemCode,
+        ISNULL(i.ItemCategory,'') AS ItemCategory,
         ISNULL(u.UOMCode,'') AS UOMCode,
         cs.BalanceQty,
         cs.AverageCost,
@@ -421,7 +423,7 @@ BEGIN
     INNER JOIN dbo.Ingredients i    ON i.Id    = cs.ItemId
     INNER JOIN dbo.Godowns g        ON g.Id    = cs.GodownId
     LEFT  JOIN dbo.UomMaster u      ON u.UOMId = i.PurchaseUOMId
-    WHERE cs.BranchId = @BranchId
+    WHERE (@BranchId IS NULL OR cs.BranchId = @BranchId)
       AND (@GodownId IS NULL OR cs.GodownId = @GodownId)
       AND cs.BalanceQty <> 0
     ORDER BY g.GodownName, i.IngredientsName;

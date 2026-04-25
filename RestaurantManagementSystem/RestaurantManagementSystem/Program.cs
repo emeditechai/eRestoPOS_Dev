@@ -11,6 +11,7 @@ using RestaurantManagementSystem.Utilities;
 using System.Globalization;
 using Microsoft.AspNetCore.Localization;
 using System.Collections.Generic;
+using QuestPDF.Infrastructure;
 
 namespace RestaurantManagementSystem
 {
@@ -18,6 +19,9 @@ namespace RestaurantManagementSystem
     {
         public static void Main(string[] args)
         {
+            // QuestPDF community licence (free for revenue < $1M USD / year)
+            QuestPDF.Settings.License = LicenseType.Community;
+
             var builder = WebApplication.CreateBuilder(args);
 
             // Add services to the container.

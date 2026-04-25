@@ -9,90 +9,271 @@
     var selType   = (string)(ViewBag.TxnType  ?? "");
     var dateFrom  = (string)(ViewBag.FromDate ?? DateTime.Today.AddDays(-30).ToString("yyyy-MM-dd"));
     var dateTo    = (string)(ViewBag.ToDate   ?? DateTime.Today.ToString("yyyy-MM-dd"));
+
+    // Sort ascending for ledger (oldest first → newest last)
+    var sortedModel = Model
+        .OrderBy(x => x.TransactionDate)
+        .ThenBy(x => x.LedgerId)
+        .ToList();
+
+    // Group by calendar date
+    var groupedByDate = sortedModel
+        .GroupBy(x => x.TransactionDate.Date)
+        .ToList();
+
+    // Grand totals
+    decimal grandInQty  = sortedModel.Sum(x => x.InQuantity);
+    decimal grandInVal  = sortedModel.Sum(x => x.InQuantity  * x.UnitCost);
+    decimal grandOutQty = sortedModel.Sum(x => x.OutQuantity);
+    decimal grandOutVal = sortedModel.Sum(x => x.OutQuantity * x.UnitCost);
+    var     lastRow     = sortedModel.LastOrDefault();
+    decimal grandBalQty = lastRow?.BalanceQty ?? 0;
+    decimal grandBalVal = lastRow != null ? lastRow.BalanceQty * lastRow.AverageCost : 0;
+    string  grandUom    = lastRow?.UOMCode ?? "";
+
+    // Single-item mode: hide Item/Godown columns in Particulars
+    bool   singleItem       = selItem > 0;
+    string selectedItemName = singleItem
+        ? (items.FirstOrDefault(i => i.Value == selItem.ToString())?.Text ?? "")
+        : "";
+    string selectedGodownName = selGodown > 0
+        ? (godowns.FirstOrDefault(g => g.Value == selGodown.ToString())?.Text ?? "")
+        : "";
 }
 
 <style>
-    .badge-sale-consumption  { background-color:#ede7f6; color:#6f42c1; }
-    .badge-production-bom    { background-color:#fff3e0; color:#e65100; }
+/* ─── Print ──────────────────────────────────────────────────── */
+@@media print {
+    .no-print            { display: none !important; }
+    .card                { border: 1px solid #ccc !important; box-shadow: none !important; }
+    .ledger-wrap         { overflow: visible !important; }
+    body, .container-fluid { font-size: 10px !important; }
+    .stat-card           { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .row-date-header td,
+    .row-day-total td,
+    .row-grand-total td  { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* ─── Summary Stats ──────────────────────────────────────────── */
+.stat-card {
+    border-radius: 12px;
+    padding: 14px 18px;
+    position: relative;
+    overflow: hidden;
+    border: none;
+}
+.stat-card .bg-icon {
+    position: absolute; right: 12px; top: 8px;
+    font-size: 2.2rem; opacity: 0.12;
+}
+.stat-card .sc-label {
+    font-size: 0.68rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 4px;
+}
+.stat-card .sc-value { font-size: 1.25rem; font-weight: 800; line-height: 1.15; }
+.stat-card .sc-sub   { font-size: 0.7rem; margin-top: 3px; opacity: 0.8; }
+
+/* ─── Ledger Table ───────────────────────────────────────────── */
+.ledger-table {
+    font-size: 0.78rem;
+    border-collapse: collapse;
+    width: 100%;
+}
+.ledger-table th,
+.ledger-table td {
+    padding: 5px 9px;
+    vertical-align: middle;
+    border: 1px solid #d1d5db;
+}
+/* Top-level header (dark navy) */
+.ledger-table thead .th-main {
+    background: #1e3a5f;
+    color: #fff;
+    text-align: center;
+    white-space: nowrap;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+}
+/* Sub-header (lighter shade per section) */
+.ledger-table thead .th-sub {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+}
+.th-in-sub  { background: #14532d; color: #d1fae5; }
+.th-out-sub { background: #7f1d1d; color: #fee2e2; }
+.th-bal-sub { background: #1e3a5f; color: #dbeafe; }
+
+/* ─── Date Group Header ──────────────────────────────────────── */
+.row-date-header td {
+    background: #eff6ff !important;
+    color: #1e3a5f;
+    font-weight: 700;
+    font-size: 0.76rem;
+    letter-spacing: 0.03em;
+    border-top: 2px solid #93c5fd;
+    border-bottom: 1px solid #bfdbfe;
+    padding: 7px 9px;
+}
+
+/* ─── Normal Transaction Rows ────────────────────────────────── */
+.row-txn { transition: background 0.1s; }
+.row-txn:hover td { background: #f0f9ff; }
+.row-txn td       { border-color: #e5e7eb; }
+
+/* ─── Day Total Row (Amber / Gold) ──────────────────────────── */
+.row-day-total td {
+    background: #fffbeb !important;
+    color: #78350f;
+    font-weight: 700;
+    border-top: 2px solid #fbbf24;
+    border-bottom: 2px solid #fbbf24;
+    border-color: #fcd34d;
+    font-size: 0.75rem;
+}
+
+/* ─── Grand Total ────────────────────────────────────────────── */
+.row-grand-total td {
+    background: #1e3a5f !important;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.8rem;
+    border-color: #1e3a5f;
+    border-top: 3px solid #60a5fa;
+}
+
+/* ─── Transaction Type Badges ────────────────────────────────── */
+.txn-badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+}
+.tbg-opening   { background: #dbeafe; color: #1d4ed8; }
+.tbg-grn       { background: #dcfce7; color: #15803d; }
+.tbg-tfin      { background: #e0f2fe; color: #0369a1; }
+.tbg-tfout     { background: #fef9c3; color: #a16207; }
+.tbg-damage    { background: #fee2e2; color: #b91c1c; }
+.tbg-sale      { background: #ede9fe; color: #6d28d9; }
+.tbg-bom       { background: #fff7ed; color: #c2410c; }
+.tbg-other     { background: #f3f4f6; color: #374151; }
+
+/* ─── Number cells ───────────────────────────────────────────── */
+.num  { text-align: right; font-variant-numeric: tabular-nums; }
+.muted-dash { color: #d1d5db; }
+
+/* ─── Collapsible date groups ────────────────────────────────── */
+.row-date-header { cursor: pointer; user-select: none; }
+.row-date-header:hover td { background: #dbeafe !important; }
+.grp-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: rgba(59,130,246,0.15);
+    color: #3b82f6;
+    font-size: 0.65rem;
+    margin-right: 8px;
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+}
+.row-date-header.collapsed .grp-chevron { transform: rotate(-90deg); }
+.row-date-header td { vertical-align: middle; }
+.grp-collapsed-summary { display: none; font-size: 0.7rem; color: #6b7280; margin-left: 6px; }
+.row-date-header.collapsed .grp-collapsed-summary { display: inline; }
+.row-date-header.collapsed .grp-entry-count       { display: none; }
+
+/* ─── Filter card ────────────────────────────────────────────── */
+.filter-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+                letter-spacing: 0.05em; color: #6b7280; margin-bottom: 3px; }
 </style>
 
 <div class="container-fluid px-0">
-    <div class="d-flex align-items-center justify-content-between mb-3">
+
+    <!-- ── Page Header ─────────────────────────────────────────────────── -->
+    <div class="d-flex align-items-start justify-content-between mb-3 no-print">
         <div>
-            <h4 class="mb-0 fw-bold"><i class="fas fa-book-open me-2 text-primary"></i>Stock Ledger</h4>
-            <small class="text-muted">Item-wise stock movement with running balance</small>
+            <h4 class="mb-0 fw-bold">
+                <i class="fas fa-book-open me-2 text-primary"></i>Stock Ledger
+            </h4>
+            <small class="text-muted">
+                Item-wise inward, outward &amp; running closing balance
+                @if (!string.IsNullOrEmpty(selectedItemName))
+                { <span class="ms-2 fw-semibold text-primary">— @selectedItemName</span> }
+            </small>
         </div>
         <div class="d-flex gap-2">
             <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-print me-1"></i>Print
             </button>
-            <button id="btnExportExcel" class="btn btn-success btn-sm" title="Export to Excel">
+            <button id="btnExportExcel" class="btn btn-success btn-sm">
                 <i class="fas fa-file-excel me-1"></i>Excel
             </button>
-            <button id="btnExportPdf" class="btn btn-danger btn-sm" title="Export to PDF">
+            <a id="btnExportPdf" class="btn btn-danger btn-sm"
+               href="@Url.Action("StockLedgerPdf", "Inventory", new { godownId = selGodown, itemId = selItem, txnType = selType, fromDate = dateFrom, toDate = dateTo })">
                 <i class="fas fa-file-pdf me-1"></i>PDF
-            </button>
+            </a>
         </div>
     </div>
 
-    <!-- Filter Card -->
-    <div class="card border-0 shadow-sm mb-3">
-        <div class="card-body py-2">
-            <form method="get" asp-action="StockLedger" asp-controller="Inventory" id="filterForm">
+    <!-- ── Filter Card ─────────────────────────────────────────────────── -->
+    <div class="card border-0 shadow-sm mb-3 no-print">
+        <div class="card-body py-2 px-3">
+            <form method="get" asp-action="StockLedger" asp-controller="Inventory">
                 <div class="row g-2 align-items-end">
-                    <div class="col-md-3">
-                        <label class="form-label small fw-semibold mb-1">Godown</label>
+                    <div class="col-6 col-md-3">
+                        <div class="filter-label">Godown</div>
                         <select name="godownId" class="form-select form-select-sm">
                             <option value="0">All Godowns</option>
                             @foreach (var g in godowns)
                             {
-                                if (g.Value == selGodown.ToString())
-                                { <option value="@g.Value" selected="selected">@g.Text</option> }
-                                else
-                                { <option value="@g.Value">@g.Text</option> }
+                                <option value="@g.Value" selected="@(g.Value == selGodown.ToString() ? "selected" : null)">@g.Text</option>
                             }
                         </select>
                     </div>
-                    <div class="col-md-3">
-                        <label class="form-label small fw-semibold mb-1">Item</label>
+                    <div class="col-6 col-md-3">
+                        <div class="filter-label">Item</div>
                         <select name="itemId" class="form-select form-select-sm">
                             <option value="0">All Items</option>
                             @foreach (var i in items)
                             {
-                                if (i.Value == selItem.ToString())
-                                { <option value="@i.Value" selected="selected">@i.Text</option> }
-                                else
-                                { <option value="@i.Value">@i.Text</option> }
+                                <option value="@i.Value" selected="@(i.Value == selItem.ToString() ? "selected" : null)">@i.Text</option>
                             }
                         </select>
                     </div>
-                    <div class="col-md-2">
-                        <label class="form-label small fw-semibold mb-1">Transaction Type</label>
+                    <div class="col-6 col-md-2">
+                        <div class="filter-label">Transaction Type</div>
                         <select name="txnType" class="form-select form-select-sm">
                             <option value="">All Types</option>
-                            <option value="OPENING" selected="@(selType=="OPENING")">Opening Stock</option>
-                            <option value="GRN"     selected="@(selType=="GRN")">GRN</option>
-                            <option value="TRANSFER_IN"  selected="@(selType=="TRANSFER_IN")">Transfer In</option>
-                            <option value="TRANSFER_OUT" selected="@(selType=="TRANSFER_OUT")">Transfer Out</option>
-                            <option value="DAMAGE"  selected="@(selType=="DAMAGE")">Damage</option>
-                            <option value="PRODUCTION_CONSUMPTION" selected="@(selType=="PRODUCTION_CONSUMPTION")">BOM Consumption</option>
-                            <option value="SaleConsumption" selected="@(selType=="SaleConsumption")">Sale Consumption</option>
+                            <option value="OPENING"                selected="@(selType=="OPENING"                ? "selected" : null)">Opening Stock</option>
+                            <option value="GRN"                    selected="@(selType=="GRN"                    ? "selected" : null)">GRN / Purchase</option>
+                            <option value="TRANSFER_IN"            selected="@(selType=="TRANSFER_IN"            ? "selected" : null)">Transfer In</option>
+                            <option value="TRANSFER_OUT"           selected="@(selType=="TRANSFER_OUT"           ? "selected" : null)">Transfer Out</option>
+                            <option value="DAMAGE"                 selected="@(selType=="DAMAGE"                 ? "selected" : null)">Damage</option>
+                            <option value="PRODUCTION_CONSUMPTION" selected="@(selType=="PRODUCTION_CONSUMPTION" ? "selected" : null)">BOM Consumption</option>
+                            <option value="SaleConsumption"        selected="@(selType=="SaleConsumption"        ? "selected" : null)">Sale Consumption</option>
                         </select>
                     </div>
-                    <div class="col-md-2">
-                        <label class="form-label small fw-semibold mb-1">From Date</label>
+                    <div class="col-6 col-md-2">
+                        <div class="filter-label">From Date</div>
                         <input type="date" name="fromDate" class="form-control form-control-sm" value="@dateFrom" />
                     </div>
-                    <div class="col-md-2">
-                        <label class="form-label small fw-semibold mb-1">To Date</label>
+                    <div class="col-6 col-md-2">
+                        <div class="filter-label">To Date</div>
                         <input type="date" name="toDate" class="form-control form-control-sm" value="@dateTo" />
                     </div>
-                    <div class="col-12 col-md-auto">
+                    <div class="col-6 col-md-auto d-flex gap-1">
                         <button type="submit" class="btn btn-primary btn-sm px-3">
-                            <i class="fas fa-filter me-1"></i>Apply
+                            <i class="fas fa-search me-1"></i>Apply
                         </button>
-                        <a asp-action="StockLedger" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm ms-1">
-                            <i class="fas fa-sync me-1"></i>Reset
+                        <a asp-action="StockLedger" asp-controller="Inventory"
+                           class="btn btn-outline-secondary btn-sm">
+                            <i class="fas fa-times"></i>
                         </a>
                     </div>
                 </div>
@@ -100,85 +281,290 @@
         </div>
     </div>
 
-    <!-- Ledger Table -->
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white border-bottom py-2 d-flex align-items-center">
-            <span class="fw-semibold text-muted me-auto">
-                <i class="fas fa-list me-1"></i>Ledger Entries
-                <span class="badge bg-primary ms-1">@Model.Count()</span>
-            </span>
-            <a asp-action="StockSummary" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm ms-2">
-                <i class="fas fa-table me-1"></i>Current Stock
-            </a>
+    @if (sortedModel.Any())
+    {
+        <!-- ── Summary Cards ───────────────────────────────────────────────── -->
+        <div class="row g-3 mb-3 no-print">
+            <div class="col-6 col-lg-3">
+                <div class="stat-card shadow-sm" style="background:linear-gradient(135deg,#dcfce7 0%,#bbf7d0 100%);">
+                    <i class="fas fa-arrow-circle-down bg-icon" style="color:#15803d;"></i>
+                    <div class="sc-label" style="color:#166534;">Total Inwards</div>
+                    <div class="sc-value" style="color:#15803d;">₹@grandInVal.ToString("N2")</div>
+                    <div class="sc-sub" style="color:#166534;">
+                        @grandInQty.ToString("0.###") @grandUom received
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="stat-card shadow-sm" style="background:linear-gradient(135deg,#fee2e2 0%,#fecaca 100%);">
+                    <i class="fas fa-arrow-circle-up bg-icon" style="color:#b91c1c;"></i>
+                    <div class="sc-label" style="color:#991b1b;">Total Outwards</div>
+                    <div class="sc-value" style="color:#b91c1c;">₹@grandOutVal.ToString("N2")</div>
+                    <div class="sc-sub" style="color:#991b1b;">
+                        @grandOutQty.ToString("0.###") @grandUom issued
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="stat-card shadow-sm" style="background:linear-gradient(135deg,#dbeafe 0%,#bfdbfe 100%);">
+                    <i class="fas fa-cubes bg-icon" style="color:#1d4ed8;"></i>
+                    <div class="sc-label" style="color:#1e40af;">Closing Balance</div>
+                    <div class="sc-value" style="color:#1d4ed8;">
+                        @grandBalQty.ToString("0.###") @grandUom
+                    </div>
+                    <div class="sc-sub" style="color:#1e40af;">as at period end</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="stat-card shadow-sm" style="background:linear-gradient(135deg,#fef9c3 0%,#fde68a 100%);">
+                    <i class="fas fa-rupee-sign bg-icon" style="color:#a16207;"></i>
+                    <div class="sc-label" style="color:#92400e;">Stock Value</div>
+                    <div class="sc-value" style="color:#a16207;">₹@grandBalVal.ToString("N2")</div>
+                    <div class="sc-sub" style="color:#92400e;">at average cost</div>
+                </div>
+            </div>
         </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table id="tblLedger" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
-                    <thead class="table-light small text-uppercase text-muted">
-                        <tr>
-                            <th class="ps-3">Date</th>
-                            <th>Item</th>
-                            <th>Godown</th>
-                            <th>Type</th>
-                            <th>Reference</th>
-                            <th class="text-end">In Qty</th>
-                            <th class="text-end">Out Qty</th>
-                            <th class="text-end">Balance</th>
-                            <th class="text-end pe-3">Avg Cost</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var row in Model)
-                        {
+
+        <!-- ── Print-only header ───────────────────────────────────────────── -->
+        <div class="d-none d-print-block text-center mb-3">
+            <h5 class="mb-1 fw-bold text-uppercase">Stock Ledger</h5>
+            @if (!string.IsNullOrEmpty(selectedItemName))
+            { <div class="small fw-semibold">Item: @selectedItemName</div> }
+            @if (!string.IsNullOrEmpty(selectedGodownName))
+            { <div class="small">Godown: @selectedGodownName</div> }
+            <div class="small text-muted">
+                Period: @DateTime.Parse(dateFrom).ToString("dd-MMM-yyyy") &nbsp;to&nbsp; @DateTime.Parse(dateTo).ToString("dd-MMM-yyyy")
+            </div>
+        </div>
+
+        <!-- ── Ledger Table ─────────────────────────────────────────────────── -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom py-2 d-flex align-items-center gap-2 no-print">
+                <i class="fas fa-list-ul text-primary me-1"></i>
+                <span class="fw-semibold me-auto">
+                    Ledger Entries &nbsp;
+                    <span class="badge bg-primary">@sortedModel.Count</span>
+                    <span class="text-muted fw-normal ms-1" style="font-size:0.78rem;">
+                        across @groupedByDate.Count @(groupedByDate.Count == 1 ? "day" : "days")
+                    </span>
+                </span>
+                <button id="btnCollapseAll" class="btn btn-outline-secondary btn-sm" title="Collapse all date groups">
+                    <i class="fas fa-compress-alt me-1"></i>Collapse All
+                </button>
+                <a asp-action="StockSummary" asp-controller="Inventory"
+                   class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-table me-1"></i>Current Stock
+                </a>
+                <a asp-action="OpeningStock" asp-controller="Inventory"
+                   class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-layer-group me-1"></i>Opening Stock
+                </a>
+            </div>
+
+            <div class="card-body p-0">
+                <div class="table-responsive ledger-wrap">
+                    <table id="tblLedger" class="ledger-table">
+                        <!--
+                            Column layout (8 cols — Particulars = Item + Type + Ref combined):
+                            [1] Date  [2] Particulars  [3] InQty [4] InVal  [5] OutQty [6] OutVal  [7] BalQty [8] BalVal
+                            Date-header spans cols 1-6 (colspan=6), BalQty and BalVal fill cols 7-8.
+                        -->
+                        <thead>
                             <tr>
-                                <td class="ps-3 text-muted small" data-order="@row.TransactionDate.Ticks">@row.TransactionDate.ToString("dd MMM yyyy HH:mm")</td>
-                                <td class="fw-semibold">@row.ItemName</td>
-                                <td><span class="badge bg-info-subtle text-info">@row.GodownName</span></td>
-                                <td>
-                                    <span class="badge @GetBadgeClass(row.TransactionType)">@GetTxnLabel(row.TransactionType)</span>
-                                </td>
-                                <td class="text-muted small">@row.ReferenceNumber</td>
-                                <td class="text-end @(row.InQuantity > 0 ? "text-success fw-semibold" : "text-muted")">
-                                    @(row.InQuantity > 0 ? (row.InQuantity.ToString("0.######") + " " + row.UOMCode) : "—")
-                                </td>
-                                <td class="text-end @(row.OutQuantity > 0 ? "text-danger fw-semibold" : "text-muted")">
-                                    @(row.OutQuantity > 0 ? (row.OutQuantity.ToString("0.######") + " " + row.UOMCode) : "—")
-                                </td>
-                                <td class="text-end fw-semibold @(row.BalanceQty <= 0 ? "text-danger" : "")">
-                                    @row.BalanceQty.ToString("0.######")
-                                </td>
-                                <td class="text-end pe-3 text-muted small">₹@row.AverageCost.ToString("N2")</td>
+                                <th class="th-main" rowspan="2" style="width:85px;">Date</th>
+                                <th class="th-main" rowspan="2" style="min-width:200px;">Particulars</th>
+                                <th class="th-main text-center" colspan="2" style="background:#166534;">Inwards</th>
+                                <th class="th-main text-center" colspan="2" style="background:#7f1d1d;">Outwards</th>
+                                <th class="th-main text-center" colspan="2">Closing Balance</th>
                             </tr>
+                            <tr>
+                                <th class="th-sub th-in-sub"  style="width:110px;">Quantity</th>
+                                <th class="th-sub th-in-sub"  style="width:110px;">Value (₹)</th>
+                                <th class="th-sub th-out-sub" style="width:110px;">Quantity</th>
+                                <th class="th-sub th-out-sub" style="width:110px;">Value (₹)</th>
+                                <th class="th-sub th-bal-sub" style="width:120px;">Quantity</th>
+                                <th class="th-sub th-bal-sub" style="width:120px;">Value (₹)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var dateGroup in groupedByDate)
+                        {
+                            var dayEntries = dateGroup.OrderBy(x => x.LedgerId).ToList();
+                            decimal dayInQty  = dayEntries.Sum(x => x.InQuantity);
+                            decimal dayInVal  = dayEntries.Sum(x => x.InQuantity  * x.UnitCost);
+                            decimal dayOutQty = dayEntries.Sum(x => x.OutQuantity);
+                            decimal dayOutVal = dayEntries.Sum(x => x.OutQuantity * x.UnitCost);
+                            var     dayLast   = dayEntries.Last();
+                            decimal dayBalQty = dayLast.BalanceQty;
+                            decimal dayBalVal = dayLast.BalanceQty * dayLast.AverageCost;
+                            string  dayUom    = dayLast.UOMCode ?? "";
+
+                            <!-- DATE GROUP HEADER: spans first 6 cols, closing-balance in last 2 -->
+                            <tr class="row-date-header" data-grp="grp-@dateGroup.Key.ToString("yyyyMMdd")">
+                                <td colspan="6">
+                                    <span class="grp-chevron"><i class="fas fa-chevron-down"></i></span>
+                                    <i class="fas fa-calendar-alt me-1" style="color:#3b82f6;opacity:0.7;"></i>
+                                    For @dateGroup.Key.ToString("d-MMM-yyyy")
+                                    <span class="grp-entry-count ms-2 fw-normal text-secondary" style="font-size:0.7rem;">
+                                        (@dayEntries.Count @(dayEntries.Count == 1 ? "entry" : "entries"))
+                                    </span>
+                                    <span class="grp-collapsed-summary">
+                                        &mdash; @dayEntries.Count @(dayEntries.Count == 1 ? "entry" : "entries") hidden &bull; click to expand
+                                    </span>
+                                </td>
+                                <td class="num">
+                                    @if (dayBalQty != 0)
+                                    { <span class="fw-bold" style="color:#1d4ed8;">@dayBalQty.ToString("0.###") @dayUom</span> }
+                                </td>
+                                <td class="num">
+                                    @if (dayBalVal != 0)
+                                    { <span class="fw-bold" style="color:#1d4ed8;">@dayBalVal.ToString("N2")</span> }
+                                </td>
+                            </tr>
+
+                            @foreach (var row in dayEntries)
+                            {
+                                decimal inVal  = row.InQuantity  * row.UnitCost;
+                                decimal outVal = row.OutQuantity * row.UnitCost;
+                                decimal balVal = row.BalanceQty  * row.AverageCost;
+                                string  uom    = row.UOMCode ?? "";
+                                bool    hasIn  = row.InQuantity  > 0;
+                                bool    hasOut = row.OutQuantity > 0;
+
+                                <tr class="row-txn grp-row" data-grp="grp-@dateGroup.Key.ToString("yyyyMMdd")">
+                                    <td class="text-muted" style="white-space:nowrap;font-size:0.72rem;">
+                                        @row.TransactionDate.ToString("dd MMM")
+                                        @if (row.TransactionDate.TimeOfDay > TimeSpan.Zero)
+                                        {
+                                            <div style="font-size:0.65rem;color:#9ca3af;">
+                                                @row.TransactionDate.ToString("HH:mm")
+                                            </div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="txn-badge @GetBadgeClass(row.TransactionType)">
+                                            @GetTxnLabel(row.TransactionType)
+                                        </span>
+                                        @if (!singleItem && !string.IsNullOrEmpty(row.ItemName))
+                                        {
+                                            <div class="fw-semibold" style="font-size:0.75rem;margin-top:2px;">@row.ItemName</div>
+                                        }
+                                        @if (!string.IsNullOrEmpty(row.ReferenceNumber))
+                                        {
+                                            <div style="font-size:0.65rem;color:#6b7280;margin-top:1px;">
+                                                <i class="fas fa-tag me-1" style="font-size:0.6rem;"></i>@row.ReferenceNumber
+                                            </div>
+                                        }
+                                        @if (!singleItem && !string.IsNullOrEmpty(row.GodownName))
+                                        {
+                                            <div style="font-size:0.63rem;color:#0369a1;margin-top:1px;">
+                                                <i class="fas fa-warehouse me-1" style="font-size:0.6rem;"></i>@row.GodownName
+                                            </div>
+                                        }
+                                        @if (!string.IsNullOrEmpty(row.Remarks))
+                                        {
+                                            <div style="font-size:0.63rem;color:#9ca3af;font-style:italic;margin-top:1px;">@row.Remarks</div>
+                                        }
+                                    </td>
+
+                                    <!-- Inwards -->
+                                    <td class="num @(hasIn ? "text-success fw-semibold" : "muted-dash")">
+                                        @(hasIn ? row.InQuantity.ToString("0.###") + " " + uom : "—")
+                                    </td>
+                                    <td class="num @(hasIn ? "text-success" : "muted-dash")">
+                                        @(hasIn ? inVal.ToString("N2") : "—")
+                                    </td>
+
+                                    <!-- Outwards -->
+                                    <td class="num @(hasOut ? "text-danger fw-semibold" : "muted-dash")">
+                                        @(hasOut ? row.OutQuantity.ToString("0.###") + " " + uom : "—")
+                                    </td>
+                                    <td class="num @(hasOut ? "text-danger" : "muted-dash")">
+                                        @(hasOut ? outVal.ToString("N2") : "—")
+                                    </td>
+
+                                    <!-- Closing Balance (running) -->
+                                    <td class="num fw-semibold @(row.BalanceQty < 0 ? "text-danger" : "")">
+                                        @row.BalanceQty.ToString("0.###") @uom
+                                    </td>
+                                    <td class="num @(row.BalanceQty < 0 ? "text-danger" : "")">
+                                        @balVal.ToString("N2")
+                                    </td>
+                                </tr>
+                            }
+
+                            <!-- DAY TOTAL ROW (amber/gold) -->
+                            @if (groupedByDate.Count > 1 || dayEntries.Count > 1)
+                            {
+                                <tr class="row-day-total grp-row" data-grp="grp-@dateGroup.Key.ToString("yyyyMMdd")">
+                                    <td colspan="2" class="text-end" style="font-size:0.7rem;">
+                                        <i class="fas fa-sigma me-1"></i>
+                                        Day Total &mdash; @dateGroup.Key.ToString("d-MMM-yyyy")
+                                    </td>
+                                    <td class="num">@(dayInQty > 0  ? dayInQty.ToString("0.###")  + " " + dayUom : "—")</td>
+                                    <td class="num">@(dayInQty > 0  ? dayInVal.ToString("N2")  : "—")</td>
+                                    <td class="num">@(dayOutQty > 0 ? dayOutQty.ToString("0.###") + " " + dayUom : "—")</td>
+                                    <td class="num">@(dayOutQty > 0 ? dayOutVal.ToString("N2") : "—")</td>
+                                    <td class="num">@dayBalQty.ToString("0.###") @dayUom</td>
+                                    <td class="num">@dayBalVal.ToString("N2")</td>
+                                </tr>
+                            }
                         }
-                    </tbody>
-                </table>
+                        </tbody>
+                        <!-- GRAND TOTAL -->
+                        <tfoot>
+                            <tr class="row-grand-total">
+                                <td colspan="2" class="text-end" style="letter-spacing:0.05em;">
+                                    <i class="fas fa-calculator me-2"></i>GRAND TOTAL
+                                </td>
+                                <td class="num">@(grandInQty  > 0 ? grandInQty.ToString("0.###")  + " " + grandUom : "—")</td>
+                                <td class="num">@(grandInQty  > 0 ? "₹" + grandInVal.ToString("N2")  : "—")</td>
+                                <td class="num">@(grandOutQty > 0 ? grandOutQty.ToString("0.###") + " " + grandUom : "—")</td>
+                                <td class="num">@(grandOutQty > 0 ? "₹" + grandOutVal.ToString("N2") : "—")</td>
+                                <td class="num">@grandBalQty.ToString("0.###") @grandUom</td>
+                                <td class="num">₹@grandBalVal.ToString("N2")</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div><!-- /table-responsive -->
+            </div>
+        </div><!-- /card -->
+    }
+    else
+    {
+        <!-- ── Empty State ──────────────────────────────────────────────────── -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-book-open fa-3x mb-3 d-block" style="color:#c7d2fe;"></i>
+                <h6 class="text-muted mb-1">No entries found</h6>
+                <p class="small text-muted mb-3">
+                    Adjust the filters above and click <strong>Apply</strong> to search.
+                </p>
+                <a asp-action="StockSummary" asp-controller="Inventory"
+                   class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-table me-1"></i>View Current Stock Summary
+                </a>
             </div>
         </div>
-        @if (!Model.Any())
-        {
-            <div class="text-center text-muted py-5">
-                <i class="fas fa-book-open fa-3x mb-3 d-block opacity-25"></i>
-                <p>No ledger entries found for the selected filters.</p>
-            </div>
-        }
-    </div>
-</div>
+    }
+
+</div><!-- /container-fluid -->
 
 @functions {
     string GetBadgeClass(string type) => type switch {
-        "GRN"                    => "bg-success-subtle text-success",
-        "OPENING"                => "bg-primary-subtle text-primary",
-        "TRANSFER_IN"            => "bg-info-subtle text-info",
-        "TRANSFER_OUT"           => "bg-warning-subtle text-warning",
-        "DAMAGE"                 => "bg-danger-subtle text-danger",
-        "SaleConsumption"        => "badge-sale-consumption",
-        "PRODUCTION_CONSUMPTION" => "badge-production-bom",
-        _                        => "bg-secondary-subtle text-secondary"
+        "GRN"                    => "tbg-grn",
+        "OPENING"                => "tbg-opening",
+        "TRANSFER_IN"            => "tbg-tfin",
+        "TRANSFER_OUT"           => "tbg-tfout",
+        "DAMAGE"                 => "tbg-damage",
+        "SaleConsumption"        => "tbg-sale",
+        "PRODUCTION_CONSUMPTION" => "tbg-bom",
+        _                        => "tbg-other"
     };
 
     string GetTxnLabel(string type) => type switch {
-        "GRN"                    => "GRN",
-        "OPENING"                => "Opening",
+        "GRN"                    => "GRN / Purchase",
+        "OPENING"                => "Opening Stock",
         "TRANSFER_IN"            => "Transfer In",
         "TRANSFER_OUT"           => "Transfer Out",
         "DAMAGE"                 => "Damage",
@@ -190,17 +576,69 @@
 
 @section Scripts {
 <script>
-    $(document).ready(function () {
-        var table = $('#tblLedger').DataTable({
-            paging: true, pageLength: 50, searching: true, ordering: true,
-            order: [[0,'desc']], columnDefs: [{ orderable: false, targets: [4] }, { type: 'num', targets: [0] }],
-            buttons: [
-                { extend: 'excelHtml5', title: 'Stock Ledger', exportOptions: { columns: ':visible' } },
-                { extend: 'pdfHtml5', title: 'Stock Ledger', orientation: 'landscape', pageSize: 'A4', exportOptions: { columns: ':visible' } }
-            ]
-        });
-        $('#btnExportExcel').on('click', function () { table.button(0).trigger(); });
-        $('#btnExportPdf').on('click', function () { table.button(1).trigger(); });
+$(document).ready(function () {
+
+    // ── Toggle a single date group ────────────────────────────────────────
+    function collapseGroup($header, collapse) {
+        var grp   = $header.data('grp');
+        var $rows = $('[data-grp="' + grp + '"].grp-row');
+        if (collapse) {
+            $rows.hide();
+            $header.addClass('collapsed');
+        } else {
+            $rows.show();
+            $header.removeClass('collapsed');
+        }
+    }
+
+    // Click date-header → toggle
+    $(document).on('click', '.row-date-header', function () {
+        var $hdr = $(this);
+        collapseGroup($hdr, !$hdr.hasClass('collapsed'));
+        syncCollapseBtn();
     });
+
+    // ── Collapse All / Expand All button ─────────────────────────────────
+    function syncCollapseBtn() {
+        var total     = $('.row-date-header').length;
+        var collapsed = $('.row-date-header.collapsed').length;
+        if (collapsed === total && total > 0) {
+            $('#btnCollapseAll').html('<i class="fas fa-expand-alt me-1"></i>Expand All');
+        } else {
+            $('#btnCollapseAll').html('<i class="fas fa-compress-alt me-1"></i>Collapse All');
+        }
+    }
+
+    $('#btnCollapseAll').on('click', function () {
+        var collapsed = $('.row-date-header.collapsed').length;
+        var total     = $('.row-date-header').length;
+        var doCollapse = collapsed < total;
+        $('.row-date-header').each(function () { collapseGroup($(this), doCollapse); });
+        syncCollapseBtn();
+    });
+
+    // ── Excel Export: expand all → export → re-collapse ──────────────────
+    $('#btnExportExcel').on('click', function () {
+        var tbl = document.getElementById('tblLedger');
+        if (!tbl) return;
+        var $wasCollapsed = $('.row-date-header.collapsed');
+        $wasCollapsed.each(function () { collapseGroup($(this), false); });
+
+        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" ' +
+                   'xmlns:x="urn:schemas-microsoft-com:office:excel">' +
+                   '<head><meta charset="utf-8"/></head><body>' + tbl.outerHTML + '</body></html>';
+        var blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+        var link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'StockLedger_' + new Date().toISOString().slice(0, 10) + '.xls';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+
+        $wasCollapsed.each(function () { collapseGroup($(this), true); });
+    });
+
+});
 </script>
 }

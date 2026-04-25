@@ -5,188 +5,514 @@
     int  selGodown   = (int)(ViewBag.SelGodown ?? 0);
     var  godownList  = ViewBag.GodownList as IEnumerable<SelectListItem> ?? new List<SelectListItem>();
     bool isMain      = (bool)(ViewBag.IsMainBranch ?? false);
+
+    var totalItems = Model.Count();
+    var lowStock   = Model.Count(x => x.BalanceQty > 0 && x.BalanceQty <= x.ReorderLevel && x.ReorderLevel > 0);
+    var zeroStock  = Model.Count(x => x.BalanceQty <= 0);
+    var totalVal   = Model.Sum(x => x.BalanceQty * x.AverageCost);
+
+    // Group by category for organised display
+    var grouped = Model
+        .OrderBy(x => x.ItemCategory ?? "Uncategorised")
+        .ThenBy(x => x.ItemName)
+        .GroupBy(x => string.IsNullOrWhiteSpace(x.ItemCategory) ? "Uncategorised" : x.ItemCategory)
+        .ToList();
+
+    var selectedGodownText = selGodown > 0
+        ? (godownList.FirstOrDefault(g => g.Value == selGodown.ToString())?.Text ?? "")
+        : "";
 }
 
+<style>
+/* ─── Print ──────────────────────────────────────────────────── */
+@@media print {
+    .no-print            { display: none !important; }
+    .card                { border: 1px solid #ccc !important; box-shadow: none !important; }
+    body, .container-fluid { font-size: 10px !important; }
+    .stat-card           { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .row-cat-header td,
+    .row-grand-total td  { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* ─── Summary stat cards ─────────────────────────────────────── */
+.stat-card {
+    border-radius: 12px;
+    padding: 14px 18px;
+    position: relative;
+    overflow: hidden;
+    border: none;
+}
+.stat-card .bg-icon {
+    position: absolute; right: 12px; top: 8px;
+    font-size: 2.2rem; opacity: 0.12;
+}
+.stat-card .sc-label {
+    font-size: 0.68rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 4px;
+}
+.stat-card .sc-value { font-size: 1.25rem; font-weight: 800; line-height: 1.15; }
+.stat-card .sc-sub   { font-size: 0.7rem; margin-top: 3px; opacity: 0.8; }
+
+/* ─── Filter label ───────────────────────────────────────────── */
+.filter-label {
+    font-size: 0.7rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    color: #6b7280; margin-bottom: 3px;
+}
+
+/* ─── Stock table ────────────────────────────────────────────── */
+.stock-table {
+    font-size: 0.79rem;
+    border-collapse: collapse;
+    width: 100%;
+}
+.stock-table th,
+.stock-table td {
+    padding: 6px 10px;
+    vertical-align: middle;
+    border: 1px solid #d1d5db;
+}
+.stock-table thead tr.th-main th {
+    background: #1e3a5f;
+    color: #fff;
+    font-size: 0.71rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+/* ─── Category group header ──────────────────────────────────── */
+.row-cat-header { cursor: pointer; user-select: none; }
+.row-cat-header:hover td { background: #dbeafe !important; }
+.row-cat-header td {
+    background: #eff6ff !important;
+    color: #1e3a5f;
+    font-weight: 700;
+    font-size: 0.75rem;
+    letter-spacing: 0.03em;
+    border-top: 2px solid #93c5fd;
+    border-bottom: 1px solid #bfdbfe;
+    padding: 7px 10px;
+}
+.grp-chevron {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: rgba(59,130,246,0.15); color: #3b82f6;
+    font-size: 0.65rem; margin-right: 8px;
+    transition: transform 0.2s ease; flex-shrink: 0;
+}
+.row-cat-header.collapsed .grp-chevron { transform: rotate(-90deg); }
+.grp-collapsed-summary { display: none; font-size: 0.7rem; color: #6b7280; margin-left: 6px; }
+.row-cat-header.collapsed .grp-collapsed-summary { display: inline; }
+.row-cat-header.collapsed .grp-entry-count       { display: none; }
+
+/* ─── Item rows ──────────────────────────────────────────────── */
+.row-item { transition: background 0.1s; }
+.row-item:hover td { background: #f0f9ff !important; }
+.row-item td       { border-color: #e5e7eb; }
+.row-item.row-zero td { background: #fff1f2; }
+.row-item.row-low  td { background: #fffbeb; }
+
+/* ─── Grand total ────────────────────────────────────────────── */
+.row-grand-total td {
+    background: #1e3a5f !important;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.8rem;
+    border-color: #1e3a5f;
+    border-top: 3px solid #60a5fa;
+}
+
+/* ─── Status badges ──────────────────────────────────────────── */
+.stock-badge {
+    display: inline-block; font-size: 0.6rem; font-weight: 700;
+    padding: 2px 7px; border-radius: 20px; letter-spacing: 0.03em; white-space: nowrap;
+}
+.sb-normal { background:#dcfce7; color:#166534; }
+.sb-low    { background:#fef9c3; color:#a16207; }
+.sb-zero   { background:#fee2e2; color:#b91c1c; }
+
+/* ─── Godown badge ───────────────────────────────────────────── */
+.godown-badge {
+    display: inline-block; font-size: 0.63rem; font-weight: 600;
+    padding: 2px 8px; border-radius: 20px;
+    background: #e0f2fe; color: #0369a1;
+}
+
+/* ─── Number cells ───────────────────────────────────────────── */
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ─── Stock level bar ────────────────────────────────────────── */
+.stock-bar-wrap { width: 60px; height: 5px; background: #e5e7eb; border-radius: 3px; display:inline-block; vertical-align: middle; }
+.stock-bar      { height: 100%; border-radius: 3px; }
+
+/* ─── Search box ─────────────────────────────────────────────── */
+#stockSearch {
+    max-width: 220px;
+    font-size: 0.8rem;
+}
+</style>
+
 <div class="container-fluid px-0">
-    <div class="d-flex align-items-center justify-content-between mb-3">
+
+    <!-- ── Page Header ─────────────────────────────────────────────────── -->
+    <div class="d-flex align-items-start justify-content-between mb-3 no-print">
         <div>
-            <h4 class="mb-0 fw-bold"><i class="fas fa-cubes me-2 text-primary"></i>Current Stock Summary</h4>
-            <small class="text-muted">Real-time stock positions across godowns</small>
+            <h4 class="mb-0 fw-bold">
+                <i class="fas fa-cubes me-2 text-primary"></i>Current Stock Summary
+            </h4>
+            <small class="text-muted">
+                Real-time stock positions across godowns
+                @if (!string.IsNullOrEmpty(selectedGodownText))
+                { <span class="ms-2 fw-semibold text-primary">— @selectedGodownText</span> }
+            </small>
         </div>
         <div class="d-flex gap-2">
             <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-print me-1"></i>Print
             </button>
-            <button id="btnExportExcel" class="btn btn-success btn-sm" title="Export to Excel">
+            <button id="btnExportExcel" class="btn btn-success btn-sm">
                 <i class="fas fa-file-excel me-1"></i>Excel
             </button>
-            <button id="btnExportPdf" class="btn btn-danger btn-sm" title="Export to PDF">
+            <a class="btn btn-danger btn-sm"
+               href="@Url.Action("StockSummaryPdf", "Inventory", new { godownId = selGodown })">
                 <i class="fas fa-file-pdf me-1"></i>PDF
-            </button>
+            </a>
             <a asp-action="StockLedger" asp-controller="Inventory" class="btn btn-outline-primary btn-sm">
                 <i class="fas fa-book-open me-1"></i>Stock Ledger
             </a>
         </div>
     </div>
 
-    <!-- Filter -->
-    <div class="card border-0 shadow-sm mb-3">
-        <div class="card-body py-2">
+    <!-- ── Filter Card ─────────────────────────────────────────────────── -->
+    <div class="card border-0 shadow-sm mb-3 no-print">
+        <div class="card-body py-2 px-3">
             <form method="get" asp-action="StockSummary" asp-controller="Inventory" class="d-flex gap-2 align-items-end flex-wrap">
                 <div>
-                    <label class="form-label small fw-semibold mb-1">Godown</label>
+                    <div class="filter-label">Godown</div>
                     <select name="godownId" class="form-select form-select-sm" style="min-width:240px">
-                        @if (selGodown == 0)
-                        { <option value="0" selected>All Godowns</option> }
-                        else
-                        { <option value="0">All Godowns</option> }
+                        <option value="0" selected="@(selGodown == 0 ? "selected" : null)">All Godowns</option>
                         @foreach (var g in godownList)
                         {
-                            if (g.Selected)
-                            { <option value="@g.Value" selected>@g.Text</option> }
-                            else
-                            { <option value="@g.Value">@g.Text</option> }
+                            <option value="@g.Value" selected="@(g.Selected ? "selected" : null)">@g.Text</option>
                         }
                     </select>
                 </div>
                 <button type="submit" class="btn btn-primary btn-sm px-3">
-                    <i class="fas fa-filter me-1"></i>Apply
+                    <i class="fas fa-search me-1"></i>Apply
                 </button>
                 <a asp-action="StockSummary" asp-controller="Inventory" asp-route-resetFilter="true"
                    class="btn btn-outline-secondary btn-sm">
-                    <i class="fas fa-sync me-1"></i>Reset
+                    <i class="fas fa-times"></i>
                 </a>
-                @if (selGodown != 0)
-                {
-                    var currentGodown = godownList.FirstOrDefault(x => x.Value == selGodown.ToString());
-                    if (currentGodown != null)
-                    {
-                        <span class="badge bg-primary-subtle text-primary px-2 py-1 align-self-center">
-                            <i class="fas fa-warehouse me-1"></i>@currentGodown.Text
-                        </span>
-                    }
-                }
-                else if (!isMain)
-                {
-                    <span class="badge bg-secondary-subtle text-secondary px-2 py-1 align-self-center">
-                        <i class="fas fa-globe me-1"></i>All Godowns
-                    </span>
-                }
             </form>
         </div>
     </div>
 
-    <!-- Summary Stats -->
-    @{
-        var totalItems = Model.Count();
-        var lowStock   = Model.Count(x => x.BalanceQty <= x.ReorderLevel && x.ReorderLevel > 0);
-        var totalVal   = Model.Sum(x => x.BalanceQty * x.AverageCost);
-        var zeroStock  = Model.Count(x => x.BalanceQty <= 0);
-    }
-    <div class="row g-3 mb-3">
-        <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body py-2 px-3">
-                    <div class="small text-muted fw-semibold">Total Items</div>
-                    <div class="fs-4 fw-bold text-primary">@totalItems</div>
+    @if (Model.Any())
+    {
+        <!-- ── Stat Cards ─────────────────────────────────────────────────── -->
+        <div class="row g-3 mb-3 no-print">
+            <div class="col-6 col-lg-3">
+                <div class="stat-card shadow-sm" style="background:linear-gradient(135deg,#dbeafe 0%,#bfdbfe 100%);">
+                    <i class="fas fa-boxes bg-icon" style="color:#1d4ed8;"></i>
+                    <div class="sc-label" style="color:#1e40af;">Total Items</div>
+                    <div class="sc-value" style="color:#1d4ed8;">@totalItems</div>
+                    <div class="sc-sub" style="color:#1e40af;">in @grouped.Count @(grouped.Count == 1 ? "category" : "categories")</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="stat-card shadow-sm" style="background:linear-gradient(135deg,#fef9c3 0%,#fde68a 100%);">
+                    <i class="fas fa-exclamation-triangle bg-icon" style="color:#a16207;"></i>
+                    <div class="sc-label" style="color:#92400e;">Low Stock</div>
+                    <div class="sc-value" style="color:#a16207;">@lowStock</div>
+                    <div class="sc-sub" style="color:#92400e;">below reorder level</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="stat-card shadow-sm" style="background:linear-gradient(135deg,#fee2e2 0%,#fecaca 100%);">
+                    <i class="fas fa-times-circle bg-icon" style="color:#b91c1c;"></i>
+                    <div class="sc-label" style="color:#991b1b;">Zero Stock</div>
+                    <div class="sc-value" style="color:#b91c1c;">@zeroStock</div>
+                    <div class="sc-sub" style="color:#991b1b;">items out of stock</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="stat-card shadow-sm" style="background:linear-gradient(135deg,#dcfce7 0%,#bbf7d0 100%);">
+                    <i class="fas fa-rupee-sign bg-icon" style="color:#15803d;"></i>
+                    <div class="sc-label" style="color:#166534;">Total Stock Value</div>
+                    <div class="sc-value" style="color:#15803d;">₹@totalVal.ToString("N0")</div>
+                    <div class="sc-sub" style="color:#166534;">at average cost</div>
                 </div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body py-2 px-3">
-                    <div class="small text-muted fw-semibold">Low Stock</div>
-                    <div class="fs-4 fw-bold text-warning">@lowStock</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body py-2 px-3">
-                    <div class="small text-muted fw-semibold">Zero Stock</div>
-                    <div class="fs-4 fw-bold text-danger">@zeroStock</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body py-2 px-3">
-                    <div class="small text-muted fw-semibold">Total Value</div>
-                    <div class="fs-5 fw-bold text-success">₹@totalVal.ToString("N0")</div>
-                </div>
-            </div>
-        </div>
-    </div>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white border-bottom py-2">
-            <span class="fw-semibold text-muted">
-                <i class="fas fa-list me-1"></i>Stock Positions
-            </span>
+        <!-- ── Print-only header ───────────────────────────────────────────── -->
+        <div class="d-none d-print-block text-center mb-3">
+            <h5 class="mb-1 fw-bold text-uppercase">Current Stock Summary</h5>
+            @if (!string.IsNullOrEmpty(selectedGodownText))
+            { <div class="small">Godown: @selectedGodownText</div> }
+            <div class="small text-muted">As at @DateTime.Today.ToString("dd-MMM-yyyy")</div>
         </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table id="tblStock" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
-                    <thead class="table-light small text-uppercase text-muted">
-                        <tr>
-                            <th class="ps-3">Item</th>
-                            <th>Category</th>
-                            <th>Godown</th>
-                            <th class="text-end">Current Qty</th>
-                            <th class="text-end">UOM</th>
-                            <th class="text-end">Avg Cost</th>
-                            <th class="text-end">Stock Value</th>
-                            <th class="text-end pe-3">Reorder Level</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var s in Model)
-                        {
-                            bool isLow  = s.BalanceQty <= s.ReorderLevel && s.ReorderLevel > 0;
-                            bool isZero = s.BalanceQty <= 0;
-                            <tr class="@(isZero ? "table-danger" : isLow ? "table-warning" : "")">
-                                <td class="ps-3 fw-semibold">@s.ItemName</td>
-                                <td class="text-muted small">@s.ItemCategory</td>
-                                <td><span class="badge bg-info-subtle text-info">@s.GodownName</span></td>
-                                <td class="text-end @(isZero ? "text-danger fw-bold" : isLow ? "text-warning fw-bold" : "fw-semibold")">
-                                    @s.BalanceQty.ToString("0.######")
-                                </td>
-                                <td class="text-end text-muted small">@s.BaseUOMCode</td>
-                                <td class="text-end text-muted small">₹@s.AverageCost.ToString("N2")</td>
-                                <td class="text-end fw-semibold">₹@((s.BalanceQty * s.AverageCost).ToString("N2"))</td>
-                                <td class="text-end pe-3 text-muted small">
-                                    @if (s.ReorderLevel > 0) { @s.ReorderLevel?.ToString("N0") } else { <text>—</text> }
-                                    @if (isLow) { <i class="fas fa-exclamation-triangle text-warning ms-1"></i> }
-                                </td>
+
+        <!-- ── Stock Table ─────────────────────────────────────────────────── -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom py-2 d-flex align-items-center gap-2 no-print">
+                <i class="fas fa-list-ul text-primary me-1"></i>
+                <span class="fw-semibold me-auto">
+                    Stock Positions &nbsp;
+                    <span class="badge bg-primary">@totalItems</span>
+                    @if (lowStock > 0)
+                    { <span class="badge ms-1" style="background:#a16207;">@lowStock Low</span> }
+                    @if (zeroStock > 0)
+                    { <span class="badge bg-danger ms-1">@zeroStock Zero</span> }
+                </span>
+                <button id="btnCollapseAll" class="btn btn-outline-secondary btn-sm" title="Collapse all categories">
+                    <i class="fas fa-compress-alt me-1"></i>Collapse All
+                </button>
+                <input type="search" id="stockSearch" class="form-control form-control-sm"
+                       placeholder="Search item..." autocomplete="off" />
+                <a asp-action="OpeningStock" asp-controller="Inventory" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-layer-group me-1"></i>Opening Stock
+                </a>
+            </div>
+
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table id="tblStock" class="stock-table">
+                        <thead>
+                            <tr class="th-main">
+                                <th style="min-width:180px;">Item</th>
+                                <th style="min-width:80px;">Godown</th>
+                                <th class="num" style="width:120px;">Current Qty</th>
+                                <th class="num" style="width:75px;">UOM</th>
+                                <th class="num" style="width:110px;">Avg Cost (₹)</th>
+                                <th class="num" style="width:120px;">Stock Value (₹)</th>
+                                <th class="num" style="width:110px;">Reorder Level</th>
+                                <th class="text-center" style="width:80px;">Status</th>
                             </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var cat in grouped)
+                        {
+                            var catKey     = cat.Key.Replace(" ", "-").ToLower();
+                            var catItems   = cat.ToList();
+                            var catVal     = catItems.Sum(x => x.BalanceQty * x.AverageCost);
+                            var catLow     = catItems.Count(x => x.BalanceQty > 0 && x.BalanceQty <= x.ReorderLevel && x.ReorderLevel > 0);
+                            var catZero    = catItems.Count(x => x.BalanceQty <= 0);
+
+                            <!-- Category header row -->
+                            <tr class="row-cat-header" data-cat="cat-@catKey">
+                                <td colspan="5">
+                                    <span class="grp-chevron"><i class="fas fa-chevron-down"></i></span>
+                                    <i class="fas fa-tag me-1" style="color:#3b82f6;opacity:0.6;font-size:0.7rem;"></i>
+                                    @cat.Key
+                                    <span class="grp-entry-count ms-2 fw-normal text-secondary" style="font-size:0.7rem;">
+                                        (@catItems.Count @(catItems.Count == 1 ? "item" : "items")
+                                        @if (catLow > 0)  { <text> &bull; <span style="color:#a16207;">@catLow low</span></text> }
+                                        @if (catZero > 0) { <text> &bull; <span style="color:#b91c1c;">@catZero zero</span></text> })
+                                    </span>
+                                    <span class="grp-collapsed-summary">
+                                        &mdash; @catItems.Count @(catItems.Count == 1 ? "item" : "items") hidden &bull; click to expand
+                                    </span>
+                                </td>
+                                <td colspan="2" class="num" style="color:#1d4ed8;font-size:0.72rem;">
+                                    Value: ₹@catVal.ToString("N0")
+                                </td>
+                                <td></td>
+                            </tr>
+
+                            @foreach (var s in catItems)
+                            {
+                                bool isZero = s.BalanceQty <= 0;
+                                bool isLow  = !isZero && s.BalanceQty <= s.ReorderLevel && s.ReorderLevel > 0;
+                                decimal stockVal = s.BalanceQty * s.AverageCost;
+
+                                // Stock level bar: pct of reorder (capped at 200%)
+                                decimal barPct = 0;
+                                string barColor = "#22c55e";
+                                if (s.ReorderLevel.HasValue && s.ReorderLevel > 0)
+                                {
+                                    barPct    = Math.Min(s.BalanceQty / s.ReorderLevel.Value * 100, 200);
+                                    barColor  = isZero ? "#ef4444" : isLow ? "#f59e0b" : "#22c55e";
+                                }
+
+                                <tr class="row-item grp-row @(isZero ? "row-zero" : isLow ? "row-low" : "")"
+                                    data-cat="cat-@catKey"
+                                    data-search="@(s.ItemName?.ToLower()) @(s.GodownName?.ToLower()) @(s.BaseUOMCode?.ToLower())">
+                                    <td>
+                                        <div class="fw-semibold" style="font-size:0.8rem;">@s.ItemName</div>
+                                        @if (!string.IsNullOrEmpty(s.ItemCode))
+                                        {
+                                            <div style="font-size:0.65rem;color:#9ca3af;">@s.ItemCode</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="godown-badge">@s.GodownName</span>
+                                    </td>
+                                    <td class="num fw-bold" style="font-size:0.85rem; @(isZero ? "color:#b91c1c;" : isLow ? "color:#a16207;" : "color:#1e3a5f;")">
+                                        @s.BalanceQty.ToString("0.###")
+                                        @if (s.ReorderLevel.HasValue && s.ReorderLevel > 0 && barPct > 0)
+                                        {
+                                            <div class="mt-1">
+                                                <span class="stock-bar-wrap">
+                                                    <span class="stock-bar" style="width:@barPct.ToString("0")%;background:@barColor;"></span>
+                                                </span>
+                                            </div>
+                                        }
+                                    </td>
+                                    <td class="num text-muted" style="font-size:0.75rem;">@s.BaseUOMCode</td>
+                                    <td class="num text-muted" style="font-size:0.77rem;">@s.AverageCost.ToString("N2")</td>
+                                    <td class="num fw-semibold" style="font-size:0.8rem;">@stockVal.ToString("N2")</td>
+                                    <td class="num text-muted" style="font-size:0.75rem;">
+                                        @if (s.ReorderLevel.HasValue && s.ReorderLevel > 0)
+                                        {
+                                            @s.ReorderLevel.Value.ToString("0.###")
+                                        }
+                                        else { <text>—</text> }
+                                    </td>
+                                    <td class="text-center">
+                                        @if (isZero)
+                                        { <span class="stock-badge sb-zero">OUT</span> }
+                                        else if (isLow)
+                                        { <span class="stock-badge sb-low"><i class="fas fa-exclamation me-1" style="font-size:0.55rem;"></i>LOW</span> }
+                                        else
+                                        { <span class="stock-badge sb-normal">OK</span> }
+                                    </td>
+                                </tr>
+                            }
                         }
-                    </tbody>
-                </table>
+                        </tbody>
+                        <tfoot>
+                            <tr class="row-grand-total">
+                                <td colspan="4" class="text-end" style="letter-spacing:0.05em;">
+                                    <i class="fas fa-calculator me-2"></i>GRAND TOTAL
+                                </td>
+                                <td class="num">@totalItems items</td>
+                                <td class="num">₹@totalVal.ToString("N2")</td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div><!-- /card -->
+    }
+    else
+    {
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-cubes fa-3x mb-3 d-block" style="color:#c7d2fe;"></i>
+                <h6 class="text-muted mb-1">No stock data found</h6>
+                <p class="small text-muted mb-3">Select a godown above and click <strong>Apply</strong>.</p>
+                <a asp-action="StockLedger" asp-controller="Inventory" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-book-open me-1"></i>View Stock Ledger
+                </a>
             </div>
         </div>
-        @if (!Model.Any())
-        {
-            <div class="text-center text-muted py-5">
-                <i class="fas fa-cubes fa-3x mb-3 d-block opacity-25"></i>
-                <p>No stock data found.</p>
-            </div>
-        }
-    </div>
-</div>
+    }
+
+</div><!-- /container-fluid -->
 
 @section Scripts {
 <script>
-    $(document).ready(function () {
-        var table = $('#tblStock').DataTable({
-            paging: true, pageLength: 50, searching: true, ordering: true,
-            order: [[0,'asc']],
-            buttons: [
-                { extend: 'excelHtml5', title: 'Current Stock Summary', exportOptions: { columns: ':visible' } },
-                { extend: 'pdfHtml5', title: 'Current Stock Summary', orientation: 'landscape', pageSize: 'A4', exportOptions: { columns: ':visible' } }
-            ]
-        });
-        $('#btnExportExcel').on('click', function () { table.button(0).trigger(); });
-        $('#btnExportPdf').on('click', function () { table.button(1).trigger(); });
+$(document).ready(function () {
+
+    // ── Category group collapse ────────────────────────────────────────────
+    function collapseGroup($header, collapse) {
+        var cat   = $header.data('cat');
+        var $rows = $('[data-cat="' + cat + '"].grp-row');
+        if (collapse) {
+            $rows.hide();
+            $header.addClass('collapsed');
+        } else {
+            $rows.show();
+            $header.removeClass('collapsed');
+        }
+    }
+
+    $(document).on('click', '.row-cat-header', function () {
+        collapseGroup($(this), !$(this).hasClass('collapsed'));
+        syncBtn();
     });
+
+    function syncBtn() {
+        var total     = $('.row-cat-header').length;
+        var collapsed = $('.row-cat-header.collapsed').length;
+        if (collapsed === total && total > 0) {
+            $('#btnCollapseAll').html('<i class="fas fa-expand-alt me-1"></i>Expand All');
+        } else {
+            $('#btnCollapseAll').html('<i class="fas fa-compress-alt me-1"></i>Collapse All');
+        }
+    }
+
+    $('#btnCollapseAll').on('click', function () {
+        var collapsed = $('.row-cat-header.collapsed').length;
+        var total     = $('.row-cat-header').length;
+        var doCollapse = collapsed < total;
+        $('.row-cat-header').each(function () { collapseGroup($(this), doCollapse); });
+        syncBtn();
+    });
+
+    // ── Client-side search ─────────────────────────────────────────────────
+    $('#stockSearch').on('input', function () {
+        var q = $(this).val().toLowerCase().trim();
+        if (!q) {
+            // Clear search: restore all items to visible, then re-apply collapse state
+            $('.row-item').each(function () {
+                var cat    = $(this).data('cat');
+                var isCol  = $('[data-cat="' + cat + '"].row-cat-header').hasClass('collapsed');
+                $(this).toggle(!isCol);
+            });
+            $('.row-cat-header').show();
+            return;
+        }
+
+        // 1. Ensure all item rows are visible so hidden (collapsed) ones can be evaluated
+        $('.row-item').show();
+
+        // 2. Show/hide each item based on search match
+        $('.row-item').each(function () {
+            var searchText = ($(this).data('search') || '').toString().toLowerCase();
+            $(this).toggle(searchText.indexOf(q) >= 0);
+        });
+
+        // 3. Show category header only if it has at least one matching (visible) item row
+        //    Do NOT call .show() on all grp-rows — that would undo the filter above
+        $('.row-cat-header').each(function () {
+            var cat    = $(this).data('cat');
+            var hasVis = $('[data-cat="' + cat + '"].grp-row:visible').length > 0;
+            $(this).toggle(hasVis);
+            if (hasVis) {
+                $(this).removeClass('collapsed');  // just open the chevron, rows already filtered
+            }
+        });
+    });
+
+    // ── Excel Export ───────────────────────────────────────────────────────
+    $('#btnExportExcel').on('click', function () {
+        var tbl = document.getElementById('tblStock');
+        if (!tbl) return;
+        var $wasCollapsed = $('.row-cat-header.collapsed');
+        $wasCollapsed.each(function () { collapseGroup($(this), false); });
+
+        var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" ' +
+                   'xmlns:x="urn:schemas-microsoft-com:office:excel">' +
+                   '<head><meta charset="utf-8"/></head><body>' + tbl.outerHTML + '</body></html>';
+        var blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+        var link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'CurrentStock_' + new Date().toISOString().slice(0, 10) + '.xls';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+
+        $wasCollapsed.each(function () { collapseGroup($(this), true); });
+    });
+
+});
 </script>
 }

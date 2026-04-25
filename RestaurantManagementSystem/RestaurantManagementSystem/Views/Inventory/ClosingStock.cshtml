@@ -1,42 +1,133 @@
 @model IEnumerable<RestaurantManagementSystem.Models.ClosingStockReportItem>
+@using System.Globalization
 @{
     ViewData["Title"] = "Closing Stock Report";
-    var selGodown  = ViewBag.SelGodown as int? ?? 0;
-    var selDate    = ViewBag.SelDate   as string ?? DateTime.Today.ToString("yyyy-MM-dd");
-    var godowns    = ViewBag.Godowns   as SelectList;
-    var totalVal   = Model.Sum(x => x.ClosingValue);
+    var godownId   = (int)(ViewBag.GodownId  ?? 0);
+    var asOfDate   = ViewBag.AsOfDate  as string ?? DateTime.Today.ToString("yyyy-MM-dd");
+    var godowns    = ViewBag.Godowns   as List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>;
+
+    var list       = Model.ToList();
+    var totalVal   = list.Sum(x => x.ClosingValue);
+    var totalIn    = list.Sum(x => x.PurchaseQty + x.TransferInQty);
+    var totalOut   = list.Sum(x => x.TransferOutQty + x.DamageQty + x.SaleQty);
+    var zeroCount  = list.Count(x => x.ClosingQty <= 0);
+    var negCount   = list.Count(x => x.ClosingQty < 0);
+    var reportDt   = DateTime.TryParse(asOfDate, out var dt) ? dt : DateTime.Today;
+
+    var grouped = list
+        .OrderBy(x => x.ItemCategory ?? "Uncategorised")
+        .ThenBy(x => x.ItemName)
+        .GroupBy(x => string.IsNullOrWhiteSpace(x.ItemCategory) ? "Uncategorised" : x.ItemCategory)
+        .ToList();
 }
 
+<style>
+    .closing-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+    .closing-table thead tr.hdr-main th {
+        background: #1e3a5f; color: #fff; font-weight: 700;
+        font-size: 0.72rem; text-transform: uppercase; letter-spacing: .03em;
+        padding: 9px 10px; border: none; white-space: nowrap;
+    }
+    .closing-table tbody tr.row-cat-header {
+        background: #eff6ff; border-top: 2px solid #93c5fd;
+        cursor: pointer; user-select: none;
+    }
+    .closing-table tbody tr.row-cat-header td {
+        padding: 8px 10px; font-weight: 700; font-size: 0.82rem;
+        color: #1e3a5f; border-bottom: 1px solid #bfdbfe;
+    }
+    .closing-table tbody tr.row-item td {
+        padding: 7px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: middle;
+    }
+    .closing-table tbody tr.row-item:nth-child(even) { background: #f9fafb; }
+    .closing-table tbody tr.row-item:nth-child(odd)  { background: #fff; }
+    .closing-table tbody tr.row-item.zero-stock  { background: #fef9c3 !important; }
+    .closing-table tbody tr.row-item.neg-stock   { background: #fff1f2 !important; }
+    .closing-table tfoot td {
+        background: #1e3a5f; color: #fff; font-weight: 700;
+        font-size: 0.82rem; padding: 10px 10px; border-top: 2px solid #60a5fa;
+    }
+    .grp-chevron {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 20px; height: 20px; border-radius: 50%;
+        background: rgba(59,130,246,.15); color: #3b82f6;
+        font-size: 0.65rem; margin-right: 8px; transition: transform .2s ease; flex-shrink: 0;
+    }
+    .row-cat-header.collapsed .grp-chevron { transform: rotate(-90deg); }
+    .cat-value-pill {
+        background: #dbeafe; color: #1d4ed8; border-radius: 12px;
+        padding: 2px 10px; font-size: 0.76rem; font-weight: 700;
+    }
+    .status-badge {
+        display: inline-block; border-radius: 10px; padding: 2px 8px;
+        font-size: 0.68rem; font-weight: 700; letter-spacing: .04em;
+    }
+    .sb-ok   { background: #dcfce7; color: #15803d; }
+    .sb-zero { background: #fef9c3; color: #a16207; }
+    .sb-neg  { background: #fee2e2; color: #b91c1c; }
+    .in-qty  { color: #15803d; }
+    .out-qty { color: #b91c1c; }
+    .nil-qty { color: #d1d5db; }
+    .closing-qty-ok   { color: #1e3a5f; font-weight: 700; }
+    .closing-qty-zero { color: #a16207; font-weight: 700; }
+    .closing-qty-neg  { color: #b91c1c; font-weight: 700; }
+    .breakdown-tip { font-size: 0.7rem; color: #6b7280; display: block; margin-top: 1px; }
+    .stat-card { border: none; border-radius: 12px; }
+    .stat-card .card-body { padding: 14px 16px; }
+    .stat-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+    @@media print {
+        .no-print { display: none !important; }
+        .closing-table { font-size: 0.72rem; }
+    }
+</style>
+
 <div class="container-fluid px-0">
-    <div class="d-flex align-items-center justify-content-between mb-3">
+
+    <!-- Header -->
+    <div class="d-flex align-items-center justify-content-between mb-3 no-print">
         <div>
-            <h4 class="mb-0 fw-bold"><i class="fas fa-file-invoice me-2 text-primary"></i>Closing Stock Report</h4>
+            <h4 class="mb-0 fw-bold"><i class="fas fa-archive me-2 text-primary"></i>Closing Stock Report</h4>
             <small class="text-muted">Stock on hand as at a given date</small>
         </div>
-        <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
-            <i class="fas fa-print me-1"></i>Print
-        </button>
+        <div class="d-flex gap-2">
+            <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-print me-1"></i>Print
+            </button>
+            <button id="btnExportExcel" class="btn btn-success btn-sm">
+                <i class="fas fa-file-excel me-1"></i>Excel
+            </button>
+            <a class="btn btn-danger btn-sm"
+               href="@Url.Action("ClosingStockPdf", "Inventory", new { asOfDate = asOfDate, godownId = godownId > 0 ? godownId : (int?)null })">
+                <i class="fas fa-file-pdf me-1"></i>PDF
+            </a>
+        </div>
     </div>
 
-    <div class="card border-0 shadow-sm mb-3">
-        <div class="card-body py-2">
-            <form method="get" asp-action="ClosingStock" asp-controller="Inventory" class="d-flex gap-2 align-items-end flex-wrap">
+    <!-- Filter -->
+    <div class="card border-0 shadow-sm mb-3 no-print" style="border-radius:12px">
+        <div class="card-body py-2 px-3">
+            <form method="get" asp-action="ClosingStock" asp-controller="Inventory"
+                  class="d-flex gap-3 align-items-end flex-wrap">
                 <div>
                     <label class="form-label small fw-semibold mb-1">Godown</label>
                     <select name="godownId" class="form-select form-select-sm" style="min-width:200px">
-                        <option value="0">All Godowns</option>
+                        <option value="0" selected="@(godownId == 0 ? "selected" : null)">All Godowns</option>
                         @if (godowns != null)
                         {
                             foreach (var g in godowns)
                             {
-                                <option value="@g.Value" selected="@(g.Value == selGodown.ToString())">@g.Text</option>
+                                <option value="@g.Value"
+                                        selected="@(g.Value == godownId.ToString() ? "selected" : null)">
+                                    @g.Text
+                                </option>
                             }
                         }
                     </select>
                 </div>
                 <div>
                     <label class="form-label small fw-semibold mb-1">As At Date</label>
-                    <input type="date" name="asAtDate" class="form-control form-control-sm" value="@selDate" />
+                    <input type="date" name="asOfDate" class="form-control form-control-sm"
+                           value="@asOfDate" max="@DateTime.Today.ToString("yyyy-MM-dd")" />
                 </div>
                 <button type="submit" class="btn btn-primary btn-sm px-3">
                     <i class="fas fa-filter me-1"></i>Apply
@@ -48,94 +139,235 @@
         </div>
     </div>
 
-    <!-- Summary -->
-    <div class="row g-3 mb-3">
-        <div class="col-md-4">
-            <div class="card border-0 shadow-sm border-start border-primary border-3">
-                <div class="card-body py-2 px-3">
-                    <small class="text-muted fw-semibold d-block">Total Items</small>
-                    <span class="fs-4 fw-bold text-primary">@Model.Count()</span>
+    <!-- Summary Cards -->
+    <div class="row g-3 mb-3 no-print">
+        <div class="col-6 col-md-3">
+            <div class="stat-card card shadow-sm h-100" style="border-left:4px solid #3b82f6">
+                <div class="card-body">
+                    <p class="stat-label text-primary mb-1">Total Items</p>
+                    <p class="fs-4 fw-bold text-primary mb-0">@list.Count</p>
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
-            <div class="card border-0 shadow-sm border-start border-success border-3">
-                <div class="card-body py-2 px-3">
-                    <small class="text-muted fw-semibold d-block">Total Closing Value</small>
-                    <span class="fs-5 fw-bold text-success">₹@totalVal.ToString("N2")</span>
+        <div class="col-6 col-md-3">
+            <div class="stat-card card shadow-sm h-100" style="border-left:4px solid #22c55e">
+                <div class="card-body">
+                    <p class="stat-label text-success mb-1">Closing Value</p>
+                    <p class="fs-5 fw-bold text-success mb-0">₹@totalVal.ToString("N2")</p>
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
-            <div class="card border-0 shadow-sm border-start border-warning border-3">
-                <div class="card-body py-2 px-3">
-                    <small class="text-muted fw-semibold d-block">Report Date</small>
-                    <span class="fw-semibold">@(DateTime.TryParse(selDate, out var dt) ? dt.ToString("dd MMM yyyy") : selDate)</span>
+        <div class="col-6 col-md-3">
+            <div class="stat-card card shadow-sm h-100" style="border-left:4px solid #f59e0b">
+                <div class="card-body">
+                    <p class="stat-label text-warning mb-1">Report Date</p>
+                    <p class="fs-6 fw-bold mb-0">@reportDt.ToString("dd MMM yyyy")</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card card shadow-sm h-100" style="border-left:4px solid #ef4444">
+                <div class="card-body">
+                    <p class="stat-label text-danger mb-1">Zero / Negative</p>
+                    <p class="fs-4 fw-bold text-danger mb-0">@zeroCount</p>
+                    @if (negCount > 0) { <small class="text-danger">(@negCount negative)</small> }
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white border-bottom py-2">
-            <span class="fw-semibold text-muted">Closing Stock Details</span>
+    <!-- Table Card -->
+    <div class="card border-0 shadow-sm" style="border-radius:12px">
+        <div class="card-header bg-white border-bottom d-flex align-items-center justify-content-between py-2 px-3">
+            <span class="fw-semibold text-muted small">
+                <i class="fas fa-layer-group me-1 text-primary"></i>Closing Stock Details
+                <span class="ms-2 badge bg-primary-subtle text-primary">@list.Count items</span>
+            </span>
+            <div class="d-flex gap-2 align-items-center no-print">
+                <input type="search" id="stockSearch" class="form-control form-control-sm"
+                       placeholder="Search item, godown…" style="width:220px" />
+                <button id="btnCollapseAll" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-compress-alt me-1"></i>Collapse All
+                </button>
+            </div>
         </div>
-        <div class="card-body p-0">
+
+        @if (!list.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-archive fa-3x mb-3 d-block opacity-25"></i>
+                <p>No data for selected criteria.</p>
+            </div>
+        }
+        else
+        {
             <div class="table-responsive">
-                <table id="tblClosing" class="table table-sm table-hover mb-0 align-middle" style="width:100%">
-                    <thead class="table-light small text-uppercase text-muted">
-                        <tr>
-                            <th class="ps-3">Item</th>
-                            <th>Category</th>
-                            <th>Godown</th>
-                            <th class="text-end">Opening Qty</th>
-                            <th class="text-end">In Qty</th>
-                            <th class="text-end">Out Qty</th>
-                            <th class="text-end">Closing Qty</th>
-                            <th class="text-end">Avg Cost</th>
-                            <th class="text-end pe-3">Closing Value</th>
+                <table class="closing-table" id="closingTable">
+                    <thead>
+                        <tr class="hdr-main">
+                            <th class="ps-3" style="width:21%">Item</th>
+                            <th style="width:11%">Godown</th>
+                            <th class="text-end" style="width:9%">Opening Qty</th>
+                            <th class="text-end" style="width:10%">In Qty</th>
+                            <th class="text-end" style="width:10%">Out Qty</th>
+                            <th class="text-end" style="width:9%">Closing Qty</th>
+                            <th class="text-end" style="width:10%">Avg Cost</th>
+                            <th class="text-end pe-3" style="width:12%">Closing Value</th>
+                            <th class="text-center" style="width:8%">Status</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var r in Model)
+                    @{ int catIdx = 0; }
+                    @foreach (var cat in grouped)
+                    {
+                        var catKey    = $"cat-{catIdx}";
+                        var catVal    = cat.Sum(x => x.ClosingValue);
+                        var catCnt    = cat.Count();
+                        catIdx++;
+
+                        <tr class="row-cat-header" data-cat="@catKey">
+                            <td colspan="6">
+                                <span class="grp-chevron"><i class="fas fa-chevron-down"></i></span>
+                                <span class="fw-bold">@cat.Key</span>
+                                <span class="ms-2 text-muted fw-normal small">(@catCnt @(catCnt == 1 ? "item" : "items"))</span>
+                            </td>
+                            <td colspan="3" class="text-end pe-3">
+                                <span class="cat-value-pill">₹@catVal.ToString("N2")</span>
+                            </td>
+                        </tr>
+
+                        @foreach (var r in cat.OrderBy(x => x.ItemName))
                         {
-                            <tr>
-                                <td class="ps-3 fw-semibold">@r.ItemName</td>
-                                <td class="text-muted small">@r.ItemCategory</td>
-                                <td><span class="badge bg-info-subtle text-info">@r.GodownName</span></td>
-                                <td class="text-end text-muted">@r.OpeningQty.ToString("N3")</td>
-                                <td class="text-end text-success">@((r.PurchaseQty + r.TransferInQty).ToString("N3"))</td>
-                                <td class="text-end text-danger">@((r.TransferOutQty + r.DamageQty + r.SaleQty).ToString("N3"))</td>
-                                <td class="text-end fw-bold @(r.ClosingQty < 0 ? "text-danger" : "")">@r.ClosingQty.ToString("N3")</td>
+                            var inQty  = r.PurchaseQty + r.TransferInQty;
+                            var outQty = r.TransferOutQty + r.DamageQty + r.SaleQty;
+                            bool isNeg  = r.ClosingQty < 0;
+                            bool isZero = r.ClosingQty == 0;
+                            string statusCls  = isNeg ? "sb-neg"           : isZero ? "sb-zero"          : "sb-ok";
+                            string statusTxt  = isNeg ? "NEG"              : isZero ? "ZERO"             : "OK";
+                            string closingCls = isNeg ? "closing-qty-neg"  : isZero ? "closing-qty-zero" : "closing-qty-ok";
+                            string rowCls     = isNeg ? "neg-stock"        : isZero ? "zero-stock"       : "";
+                            string srchData   = $"{r.ItemName} {r.ItemCode} {r.GodownName} {r.ItemCategory}".ToLower();
+
+                            <tr class="row-item grp-row @rowCls" data-cat="@catKey" data-search="@srchData">
+                                <td class="ps-3">
+                                    <span class="fw-semibold text-dark">@r.ItemName</span>
+                                    @if (!string.IsNullOrEmpty(r.ItemCode))
+                                    {
+                                        <small class="text-muted d-block" style="font-size:.72rem">@r.ItemCode</small>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge bg-info-subtle text-info fw-semibold">@r.GodownName</span>
+                                </td>
+                                <td class="text-end text-muted">@r.OpeningQty.ToString("0.###")</td>
+                                <td class="text-end">
+                                    @if (inQty > 0)
+                                    {
+                                        <span class="in-qty fw-semibold">+@inQty.ToString("0.###")</span>
+                                        <span class="breakdown-tip">
+                                            @if (r.PurchaseQty > 0) { <text>Pur: @r.PurchaseQty.ToString("0.###") </text> }
+                                            @if (r.TransferInQty > 0) { <text>Tfr: @r.TransferInQty.ToString("0.###")</text> }
+                                        </span>
+                                    }
+                                    else { <span class="nil-qty">—</span> }
+                                </td>
+                                <td class="text-end">
+                                    @if (outQty > 0)
+                                    {
+                                        <span class="out-qty fw-semibold">-@outQty.ToString("0.###")</span>
+                                        <span class="breakdown-tip">
+                                            @if (r.SaleQty > 0) { <text>Sale: @r.SaleQty.ToString("0.###") </text> }
+                                            @if (r.TransferOutQty > 0) { <text>Tfr: @r.TransferOutQty.ToString("0.###") </text> }
+                                            @if (r.DamageQty > 0) { <text>Dmg: @r.DamageQty.ToString("0.###")</text> }
+                                        </span>
+                                    }
+                                    else { <span class="nil-qty">—</span> }
+                                </td>
+                                <td class="text-end">
+                                    <span class="@closingCls">@r.ClosingQty.ToString("0.###")</span>
+                                </td>
                                 <td class="text-end text-muted small">₹@r.AverageCost.ToString("N2")</td>
                                 <td class="text-end pe-3 fw-semibold">₹@r.ClosingValue.ToString("N2")</td>
+                                <td class="text-center">
+                                    <span class="status-badge @statusCls">@statusTxt</span>
+                                </td>
                             </tr>
                         }
+                    }
                     </tbody>
-                    <tfoot class="table-light fw-bold">
+                    <tfoot>
                         <tr>
-                            <td colspan="8" class="text-end pe-2">Total Closing Value:</td>
-                            <td class="text-end pe-3 text-success">₹@totalVal.ToString("N2")</td>
+                            <td colspan="2" class="ps-3">Grand Total — @list.Count items</td>
+                            <td class="text-end">@list.Sum(x => x.OpeningQty).ToString("0.###")</td>
+                            <td class="text-end" style="color:#86efac">+@totalIn.ToString("0.###")</td>
+                            <td class="text-end" style="color:#fca5a5">-@totalOut.ToString("0.###")</td>
+                            <td class="text-end">@list.Sum(x => x.ClosingQty).ToString("0.###")</td>
+                            <td></td>
+                            <td class="text-end pe-3" style="color:#86efac">₹@totalVal.ToString("N2")</td>
+                            <td></td>
                         </tr>
                     </tfoot>
                 </table>
-            </div>
-        </div>
-        @if (!Model.Any())
-        {
-            <div class="text-center text-muted py-5">
-                <i class="fas fa-file-invoice fa-3x mb-3 d-block opacity-25"></i>
-                <p>No data for selected criteria.</p>
             </div>
         }
     </div>
 </div>
 
 @section Scripts {
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
-    $(document).ready(function () {
-        $('#tblClosing').DataTable({ paging: false, searching: true, ordering: true,
-            order: [[0,'asc']], footerCallback: function () {} });
+$(function () {
+    function collapseGroup($hdr, collapse) {
+        var cat = $hdr.data('cat');
+        $hdr.toggleClass('collapsed', collapse);
+        $('[data-cat="' + cat + '"].grp-row').toggle(!collapse);
+    }
+
+    $(document).on('click', '.row-cat-header', function () {
+        collapseGroup($(this), !$(this).hasClass('collapsed'));
     });
+
+    var allCollapsed = false;
+    $('#btnCollapseAll').on('click', function () {
+        allCollapsed = !allCollapsed;
+        $('.row-cat-header').each(function () { collapseGroup($(this), allCollapsed); });
+        $(this).html(allCollapsed
+            ? '<i class="fas fa-expand-alt me-1"></i>Expand All'
+            : '<i class="fas fa-compress-alt me-1"></i>Collapse All');
+    });
+
+    $('#stockSearch').on('input', function () {
+        var q = $(this).val().trim().toLowerCase();
+        if (!q) {
+            $('.row-item').show();
+            $('.row-cat-header').each(function () { collapseGroup($(this), false); });
+            return;
+        }
+        $('.row-item').each(function () {
+            $(this).toggle(($(this).data('search') || '').indexOf(q) >= 0);
+        });
+        $('.row-cat-header').each(function () {
+            var cat = $(this).data('cat');
+            var hasVisible = $('[data-cat="' + cat + '"].grp-row:visible').length > 0;
+            $(this).toggle(hasVisible);
+            if (hasVisible) collapseGroup($(this), false);
+        });
+    });
+
+    $('#btnExportExcel').on('click', function () {
+        var wasColl = [];
+        $('.row-cat-header.collapsed').each(function () {
+            wasColl.push($(this).data('cat'));
+            collapseGroup($(this), false);
+        });
+        var wb = XLSX.utils.book_new();
+        var ws = XLSX.utils.table_to_sheet(document.getElementById('closingTable'), { raw: false });
+        XLSX.utils.book_append_sheet(wb, ws, 'ClosingStock');
+        XLSX.writeFile(wb, 'ClosingStock_@(asOfDate.Replace("-","")).xlsx');
+        wasColl.forEach(function (cat) {
+            collapseGroup($('[data-cat="' + cat + '"].row-cat-header'), true);
+        });
+    });
+});
 </script>
 }

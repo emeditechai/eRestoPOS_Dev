@@ -1,0 +1,290 @@
+@model RestaurantManagementSystem.Models.OpeningStockBatchViewModel
+@using Microsoft.AspNetCore.Mvc.Rendering
+@{
+    ViewData["Title"] = "Add Opening Stock";
+    var godowns  = ViewBag.Godowns as IEnumerable<SelectListItem> ?? new List<SelectListItem>();
+    var items    = ViewBag.Items   as IEnumerable<SelectListItem> ?? new List<SelectListItem>();
+    var uoms     = ViewBag.UOMs   as IEnumerable<SelectListItem> ?? new List<SelectListItem>();
+    int branchId = (int)(ViewBag.ActiveBranchId ?? 0);
+
+    // Build option HTML strings server-side to avoid Razor tag-helper RZ1031 errors
+    string godownOptions = "<option value=\"\">-- Select Godown --</option>" +
+        string.Join("", godowns.Select(g =>
+            $"<option value=\"{g.Value}\"{(g.Value == Model.GodownId.ToString() ? " selected" : "")}>{System.Net.WebUtility.HtmlEncode(g.Text)}</option>"));
+
+    string itemOptionsBlank = "<option value=\"\">-- Select Item --</option>" +
+        string.Join("", items.Select(it =>
+            $"<option value=\"{it.Value}\">{System.Net.WebUtility.HtmlEncode(it.Text)}</option>"));
+
+    string uomOptionsBlank = "<option value=\"\">-- UOM --</option>" +
+        string.Join("", uoms.Select(u =>
+            $"<option value=\"{u.Value}\">{System.Net.WebUtility.HtmlEncode(u.Text)}</option>"));
+}
+
+<div class="container-fluid px-0">
+    <div class="d-flex align-items-center mb-3">
+        <a asp-action="OpeningStock" asp-controller="Inventory" class="btn btn-link text-muted ps-0 me-2">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+        <div>
+            <h4 class="mb-0 fw-bold">
+                <i class="fas fa-layer-group me-2 text-primary"></i>Add Opening Stock
+            </h4>
+            <small class="text-muted">Enter opening balance for multiple items at once</small>
+        </div>
+    </div>
+
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>
+            @foreach (var e in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+            { <div>@e.ErrorMessage</div> }
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <form method="post" asp-action="OpeningStockBatch" asp-controller="Inventory" autocomplete="off" id="batchForm">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="BranchId" value="@branchId" />
+
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-bottom py-2">
+                <span class="fw-semibold text-muted"><i class="fas fa-info-circle me-1"></i>Entry Header</span>
+            </div>
+            <div class="card-body pb-2">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold">Date <span class="text-danger">*</span></label>
+                        <input type="date" name="StockDate" id="stockDate"
+                               value="@Model.StockDate.ToString("yyyy-MM-dd")"
+                               class="form-control form-control-sm" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Godown <span class="text-danger">*</span></label>
+                        <select name="GodownId" id="godownId" class="form-select form-select-sm" required>
+                            @Html.Raw(godownOptions)
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small fw-semibold">Remarks</label>
+                        <input type="text" name="Remarks" value="@Model.Remarks"
+                               class="form-control form-control-sm" maxlength="300" placeholder="Optional remarks for all lines" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom py-2 d-flex align-items-center">
+                <span class="fw-semibold text-muted me-auto"><i class="fas fa-list me-1"></i>Item Lines</span>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="addRowBtn">
+                    <i class="fas fa-plus me-1"></i>Add Row
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0 align-middle" id="itemsTable">
+                        <thead class="table-light small text-uppercase text-muted">
+                            <tr>
+                                <th class="ps-3" style="width:35%">Item <span class="text-danger">*</span></th>
+                                <th style="width:13%">Qty <span class="text-danger">*</span></th>
+                                <th style="width:18%">UOM <span class="text-danger">*</span></th>
+                                <th style="width:14%">Cost Price (₹) <span class="text-danger">*</span></th>
+                                <th style="width:13%" class="text-end">Total Value</th>
+                                <th style="width:7%" class="text-center">Del</th>
+                            </tr>
+                        </thead>
+                        <tbody id="itemsBody">
+                            @for (int i = 0; i < Model.Lines.Count; i++)
+                            {
+                                var line = Model.Lines[i];
+                                string lineItemOpts = "<option value=\"\">-- Select Item --</option>" +
+                                    string.Join("", items.Select(it =>
+                                        $"<option value=\"{it.Value}\"{(it.Value == line.ItemId.ToString() && line.ItemId > 0 ? " selected" : "")}>{System.Net.WebUtility.HtmlEncode(it.Text)}</option>"));
+                                string lineUomOpts = "<option value=\"\">-- UOM --</option>" +
+                                    string.Join("", uoms.Select(u =>
+                                        $"<option value=\"{u.Value}\"{(u.Value == line.UOMId.ToString() && line.UOMId > 0 ? " selected" : "")}>{System.Net.WebUtility.HtmlEncode(u.Text)}</option>"));
+
+                                <tr class="item-row">
+                                    <td class="ps-2">
+                                        <select name="Lines[@i].ItemId" class="form-select form-select-sm item-select" required>
+                                            @Html.Raw(lineItemOpts)
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <input type="number" name="Lines[@i].Quantity"
+                                               value="@(line.Quantity > 0 ? line.Quantity.ToString("G") : "")"
+                                               min="0.001" step="0.001" class="form-control form-control-sm qty-field" required />
+                                    </td>
+                                    <td>
+                                        <select name="Lines[@i].UOMId" class="form-select form-select-sm uom-select" required>
+                                            @Html.Raw(lineUomOpts)
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <input type="number" name="Lines[@i].CostPrice"
+                                               value="@(line.CostPrice > 0 ? line.CostPrice.ToString("G") : "")"
+                                               min="0" step="0.01" class="form-control form-control-sm cost-field" required />
+                                    </td>
+                                    <td class="text-end pe-2">
+                                        <span class="row-total fw-semibold text-success">0.00</span>
+                                    </td>
+                                    <td class="text-center">
+                                        <button type="button" class="btn btn-sm btn-outline-danger remove-row py-0 px-2" title="Remove row">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-light fw-bold">
+                                <td colspan="4" class="text-end ps-3 small text-muted">Grand Total</td>
+                                <td class="text-end pe-2 text-success" id="grandTotal">₹0.00</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+            <div class="card-footer bg-white border-top py-3 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm px-4">
+                    <i class="fas fa-save me-1"></i>Save All
+                </button>
+                <a asp-action="OpeningStock" asp-controller="Inventory" class="btn btn-outline-secondary btn-sm px-4">
+                    <i class="fas fa-times me-1"></i>Cancel
+                </a>
+            </div>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+<script>
+    var branchId        = @branchId;
+    var itemOptionsHtml = @Html.Raw(Newtonsoft.Json.JsonConvert.SerializeObject(itemOptionsBlank));
+    var uomOptionsHtml  = @Html.Raw(Newtonsoft.Json.JsonConvert.SerializeObject(uomOptionsBlank));
+    var rowIndex        = @Model.Lines.Count;
+
+    // ── Recalculate row total ─────────────────────────────────────────────────
+    function recalcRow(row) {
+        var qty  = parseFloat($(row).find('.qty-field').val())  || 0;
+        var cost = parseFloat($(row).find('.cost-field').val()) || 0;
+        $(row).find('.row-total').text((qty * cost).toFixed(2));
+        recalcGrand();
+    }
+
+    function recalcGrand() {
+        var total = 0;
+        $('.row-total').each(function () { total += parseFloat($(this).text()) || 0; });
+        $('#grandTotal').text('\u20B9' + total.toFixed(2));
+    }
+
+    // ── Re-index all rows so model binding stays sequential ───────────────────
+    function reIndexRows() {
+        $('#itemsBody .item-row').each(function (i) {
+            $(this).find('[name]').each(function () {
+                var n = $(this).attr('name').replace(/Lines\[\d+\]/, 'Lines[' + i + ']');
+                $(this).attr('name', n);
+            });
+        });
+        rowIndex = $('#itemsBody .item-row').length;
+    }
+
+    // ── Build a new row HTML string using JS ──────────────────────────────────
+    function buildRow(idx) {
+        return '<tr class="item-row">' +
+            '<td class="ps-2"><select name="Lines[' + idx + '].ItemId" class="form-select form-select-sm item-select" required>' + itemOptionsHtml + '</select></td>' +
+            '<td><input type="number" name="Lines[' + idx + '].Quantity" min="0.001" step="0.001" class="form-control form-control-sm qty-field" required /></td>' +
+            '<td><select name="Lines[' + idx + '].UOMId" class="form-select form-select-sm uom-select" required>' + uomOptionsHtml + '</select></td>' +
+            '<td><input type="number" name="Lines[' + idx + '].CostPrice" min="0" step="0.01" class="form-control form-control-sm cost-field" required /></td>' +
+            '<td class="text-end pe-2"><span class="row-total fw-semibold text-success">0.00</span></td>' +
+            '<td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger remove-row py-0 px-2" title="Remove"><i class="fas fa-trash"></i></button></td>' +
+            '</tr>';
+    }
+
+    // ── Add row ───────────────────────────────────────────────────────────────
+    $('#addRowBtn').on('click', function () {
+        var $row = $(buildRow(rowIndex));
+        $('#itemsBody').append($row);
+        rowIndex++;
+        bindRow($row);
+        recalcGrand();
+    });
+
+    // ── Remove row ────────────────────────────────────────────────────────────
+    $(document).on('click', '.remove-row', function () {
+        if ($('#itemsBody .item-row').length <= 1) {
+            Swal.fire({ icon: 'warning', title: 'Cannot Remove', text: 'At least one item row is required.', confirmButtonColor: '#0d6efd' });
+            return;
+        }
+        $(this).closest('.item-row').remove();
+        reIndexRows();
+        recalcGrand();
+    });
+
+    // ── Check if item already has stock in selected godown ────────────────────
+    function checkItemStock($select) {
+        var itemId   = parseInt($select.val())       || 0;
+        var godownId = parseInt($('#godownId').val()) || 0;
+        if (itemId <= 0 || godownId <= 0) return;
+
+        $.getJSON('/Inventory/CheckItemStock', { itemId: itemId, godownId: godownId, branchId: branchId })
+            .done(function (res) {
+                if (res.hasStock) {
+                    var itemName = $select.find('option:selected').text();
+                    $select.val('');
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'Item Already Has Stock',
+                        html: '<b>' + $('<div>').text(itemName).html() + '</b> already has a current stock balance of <b>' +
+                              parseFloat(res.currentStock).toFixed(3) + '</b> in the selected godown.<br><br>' +
+                              'Opening stock cannot be added again for an item that already has stock.',
+                        confirmButtonColor: '#f59e0b',
+                        confirmButtonText: 'OK'
+                    });
+                }
+            });
+    }
+
+    // ── Bind events to a single row ───────────────────────────────────────────
+    function bindRow($row) {
+        $row.find('.item-select').on('change', function () {
+            checkItemStock($(this));
+        });
+        $row.find('.qty-field, .cost-field').on('input', function () {
+            recalcRow($(this).closest('.item-row'));
+        });
+    }
+
+    // ── Re-check all item selections when godown changes ─────────────────────
+    $('#godownId').on('change', function () {
+        $('#itemsBody .item-select').each(function () {
+            if ($(this).val()) checkItemStock($(this));
+        });
+    });
+
+    // ── Client-side pre-submit validation ─────────────────────────────────────
+    $('#batchForm').on('submit', function (e) {
+        if (!$('#godownId').val()) {
+            e.preventDefault();
+            Swal.fire({ icon: 'error', title: 'Godown Required', text: 'Please select a godown before saving.', confirmButtonColor: '#dc3545' });
+            return false;
+        }
+        var hasItem = false;
+        $('#itemsBody .item-select').each(function () { if ($(this).val()) hasItem = true; });
+        if (!hasItem) {
+            e.preventDefault();
+            Swal.fire({ icon: 'error', title: 'No Items', text: 'Please select at least one item.', confirmButtonColor: '#dc3545' });
+            return false;
+        }
+    });
+
+    // ── Init on load ──────────────────────────────────────────────────────────
+    $(document).ready(function () {
+        $('#itemsBody .item-row').each(function () { bindRow($(this)); recalcRow(this); });
+        recalcGrand();
+    });
+</script>
+}

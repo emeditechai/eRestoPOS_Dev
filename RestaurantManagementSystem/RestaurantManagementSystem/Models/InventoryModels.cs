@@ -75,6 +75,39 @@ namespace RestaurantManagementSystem.Models
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // OPENING STOCK — BATCH ENTRY
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public class OpeningStockBatchViewModel
+    {
+        [Display(Name = "Stock Date")]
+        public DateTime StockDate { get; set; } = DateTime.Today;
+
+        [Display(Name = "Godown")]
+        public int GodownId { get; set; }
+
+        public int BranchId { get; set; }
+
+        [StringLength(300)]
+        public string? Remarks { get; set; }
+
+        public List<OpeningStockLine> Lines { get; set; } = new() { new OpeningStockLine() };
+    }
+
+    public class OpeningStockLine
+    {
+        public int ItemId { get; set; }
+
+        [Range(0.001, double.MaxValue, ErrorMessage = "Quantity must be > 0")]
+        public decimal Quantity { get; set; }
+
+        public int UOMId { get; set; }
+
+        [Range(0, double.MaxValue)]
+        public decimal CostPrice { get; set; }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // PURCHASE ORDER
     // ─────────────────────────────────────────────────────────────────────────
 

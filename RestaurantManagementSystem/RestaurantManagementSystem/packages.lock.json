@@ -115,6 +115,12 @@
           "System.Drawing.Common": "6.0.0"
         }
       },
+      "QuestPDF": {
+        "type": "Direct",
+        "requested": "[2024.12.3, )",
+        "resolved": "2024.12.3",
+        "contentHash": "gdIoEC9cTnySnDdbwcguUfSS2+444rGEeecQH5n0IKUA9Tm4473eRrFjPk5HoD5I2BxjuyDW+WCGnwKa+OIXsw=="
+      },
       "SkiaSharp": {
         "type": "Direct",
         "requested": "[3.119.1, )",

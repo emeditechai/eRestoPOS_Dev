@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.Data.SqlClient;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Utilities;
 using System;
@@ -323,6 +326,111 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
+        // ── Batch (multi-item) Opening Stock Entry ──────────────────────────
+
+        [HttpGet]
+        public IActionResult OpeningStockBatch()
+        {
+            var branchId = ActiveBranchId();
+            if (!branchId.HasValue) return NoBranch();
+
+            var model = new OpeningStockBatchViewModel
+            {
+                BranchId  = branchId.Value,
+                StockDate = DateTime.Today,
+                Lines     = new List<OpeningStockLine> { new OpeningStockLine() }
+            };
+            LoadDropdowns();
+            ViewBag.ActiveBranchId = branchId.Value;
+            return View(model);
+        }
+
+        [HttpPost, ValidateAntiForgeryToken]
+        public IActionResult OpeningStockBatch(OpeningStockBatchViewModel model)
+        {
+            var branchId = ActiveBranchId();
+            if (!branchId.HasValue) return NoBranch();
+            model.BranchId = branchId.Value;
+
+            // Keep only lines with an item and quantity
+            var validLines = (model.Lines ?? new List<OpeningStockLine>())
+                             .Where(l => l.ItemId > 0 && l.Quantity > 0).ToList();
+
+            if (model.GodownId <= 0)
+                ModelState.AddModelError("GodownId", "Please select a Godown.");
+
+            if (!validLines.Any())
+                ModelState.AddModelError("", "Please add at least one item with Quantity > 0.");
+
+            if (!ModelState.IsValid)
+            {
+                LoadDropdowns();
+                ViewBag.ActiveBranchId = branchId.Value;
+                return View(model);
+            }
+
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                int saved = 0;
+                foreach (var line in validLines)
+                {
+                    using var cmd = new SqlCommand("usp_SaveOpeningStock", con)
+                        { CommandType = CommandType.StoredProcedure };
+                    cmd.Parameters.AddWithValue("@OpeningStockId", 0);
+                    cmd.Parameters.AddWithValue("@BranchId",       model.BranchId);
+                    cmd.Parameters.AddWithValue("@GodownId",       model.GodownId);
+                    cmd.Parameters.AddWithValue("@ItemId",         line.ItemId);
+                    cmd.Parameters.AddWithValue("@StockDate",      model.StockDate.Date);
+                    cmd.Parameters.AddWithValue("@Quantity",       line.Quantity);
+                    cmd.Parameters.AddWithValue("@UOMId",          line.UOMId);
+                    cmd.Parameters.AddWithValue("@CostPrice",      line.CostPrice);
+                    cmd.Parameters.AddWithValue("@Remarks",        (object?)model.Remarks ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@UserId",         DBNull.Value);
+                    cmd.ExecuteScalar();
+                    saved++;
+                }
+                TempData["SuccessMessage"] = $"{saved} opening stock {(saved == 1 ? "entry" : "entries")} saved successfully.";
+                return RedirectToAction(nameof(OpeningStock));
+            }
+            catch (Exception ex)
+            {
+                ModelState.AddModelError("", ex.Message);
+                LoadDropdowns();
+                ViewBag.ActiveBranchId = branchId.Value;
+                return View(model);
+            }
+        }
+
+        // ── AJAX: check if item already has opening stock in a godown ────────
+        [HttpGet]
+        public IActionResult CheckItemStock(int itemId, int godownId, int branchId)
+        {
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                // Query CurrentStock (the live running balance), NOT OpeningStock.
+                // GodownId alone uniquely identifies the storage location so no BranchId filter needed.
+                using var cmd = new SqlCommand(@"
+                    SELECT ISNULL(SUM(cs.BalanceQty), 0)
+                    FROM   dbo.CurrentStock cs
+                    WHERE  cs.ItemId   = @ItemId
+                      AND  cs.GodownId = @GodownId
+                      AND  cs.BalanceQty <> 0", con);
+                cmd.Parameters.AddWithValue("@ItemId",   itemId);
+                cmd.Parameters.AddWithValue("@GodownId", godownId);
+                var result = cmd.ExecuteScalar();
+                decimal currentStock = result != DBNull.Value ? Convert.ToDecimal(result) : 0M;
+                return Json(new { hasStock = currentStock != 0, currentStock });
+            }
+            catch
+            {
+                return Json(new { hasStock = false, currentStock = 0 });
+            }
+        }
+
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult OpeningStockPost(int id)
         {
@@ -415,6 +523,272 @@ namespace RestaurantManagementSystem.Controllers
             return View(list);
         }
 
+        // ── Stock Ledger → Export PDF ─────────────────────────────────────────
+        [HttpGet]
+        public IActionResult StockLedgerPdf(int? godownId, int? itemId, string? txnType,
+            DateTime? fromDate, DateTime? toDate)
+        {
+            var branchId = ActiveBranchId();
+            if (!branchId.HasValue) return NoBranch();
+
+            fromDate ??= DateTime.Today.AddDays(-30);
+            toDate   ??= DateTime.Today;
+            int? effGodown = (godownId.HasValue && godownId.Value > 0) ? godownId : null;
+            int? effItem   = (itemId.HasValue   && itemId.Value   > 0) ? itemId   : null;
+
+            var list = new List<StockLedgerEntry>();
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand("usp_GetStockLedger", con)
+                    { CommandType = CommandType.StoredProcedure };
+                cmd.Parameters.AddWithValue("@BranchId",  branchId.Value);
+                cmd.Parameters.AddWithValue("@GodownId",  effGodown.HasValue ? (object)effGodown.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@ItemId",    effItem.HasValue   ? (object)effItem.Value   : DBNull.Value);
+                cmd.Parameters.AddWithValue("@TxnType",   string.IsNullOrEmpty(txnType) ? (object)DBNull.Value : txnType);
+                cmd.Parameters.AddWithValue("@FromDate",  fromDate.Value.Date);
+                cmd.Parameters.AddWithValue("@ToDate",    toDate.Value.Date.AddDays(1).AddSeconds(-1));
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read()) list.Add(MapStockLedger(rdr));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+
+            var sortedList = list
+                .OrderBy(x => x.TransactionDate)
+                .ThenBy(x => x.LedgerId)
+                .ToList();
+
+            string subtitle = $"Period: {fromDate.Value:dd-MMM-yyyy} to {toDate.Value:dd-MMM-yyyy}";
+
+            var pdf = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(PageSizes.A4.Landscape());
+                    page.Margin(20);
+                    page.DefaultTextStyle(x => x.FontSize(8).FontFamily("Arial"));
+
+                    page.Header().Column(col =>
+                    {
+                        col.Item().Text("Stock Ledger")
+                            .Bold().FontSize(14).FontColor("#1e3a5f");
+                        col.Item().Text(subtitle)
+                            .FontSize(8).FontColor("#6b7280");
+                        col.Item().PaddingTop(4).LineHorizontal(1).LineColor("#93c5fd");
+                    });
+
+                    page.Content().PaddingTop(8).Table(tbl =>
+                    {
+                        tbl.ColumnsDefinition(c =>
+                        {
+                            c.ConstantColumn(60); // Date
+                            c.RelativeColumn(3);  // Particulars
+                            c.RelativeColumn();   // In Qty
+                            c.RelativeColumn();   // In Val
+                            c.RelativeColumn();   // Out Qty
+                            c.RelativeColumn();   // Out Val
+                            c.RelativeColumn();   // Bal Qty
+                            c.RelativeColumn();   // Bal Val
+                        });
+
+                        tbl.Header(h =>
+                        {
+                            h.Cell().RowSpan(2).Background("#1e3a5f").Padding(4).AlignCenter()
+                                .Text("Date").Bold().FontColor("#ffffff").FontSize(7);
+                            h.Cell().RowSpan(2).Background("#1e3a5f").Padding(4).AlignCenter()
+                                .Text("Particulars").Bold().FontColor("#ffffff").FontSize(7);
+
+                            h.Cell().ColumnSpan(2).Background("#166534").Padding(3).AlignCenter()
+                                .Text("Inwards").Bold().FontColor("#ffffff").FontSize(7);
+                            h.Cell().ColumnSpan(2).Background("#7f1d1d").Padding(3).AlignCenter()
+                                .Text("Outwards").Bold().FontColor("#ffffff").FontSize(7);
+                            h.Cell().ColumnSpan(2).Background("#1e3a5f").Padding(3).AlignCenter()
+                                .Text("Closing Balance").Bold().FontColor("#ffffff").FontSize(7);
+
+                            foreach (var lbl in new[] { "Quantity", "Value (₹)", "Quantity", "Value (₹)", "Quantity", "Value (₹)" })
+                            {
+                                h.Cell().Background("#2d4e78").Padding(3).AlignCenter()
+                                    .Text(lbl).FontColor("#ffffff").FontSize(6.5f);
+                            }
+                        });
+
+                        // Data rows grouped by date
+                        var grouped = sortedList
+                            .GroupBy(x => x.TransactionDate.Date)
+                            .ToList();
+
+                        uint rowNum = 0;
+                        foreach (var dayGroup in grouped)
+                        {
+                            var dayList   = dayGroup.OrderBy(x => x.LedgerId).ToList();
+                            var dayLast   = dayList.Last();
+                            decimal dayInQty  = dayList.Sum(x => x.InQuantity);
+                            decimal dayInVal  = dayList.Sum(x => x.InQuantity  * x.UnitCost);
+                            decimal dayOutQty = dayList.Sum(x => x.OutQuantity);
+                            decimal dayOutVal = dayList.Sum(x => x.OutQuantity * x.UnitCost);
+                            decimal dayBalQty = dayLast.BalanceQty;
+                            decimal dayBalVal = dayLast.BalanceQty * dayLast.AverageCost;
+                            string  dayUom    = dayLast.UOMCode ?? "";
+
+                            // Date group header
+                            tbl.Cell().ColumnSpan(6).Background("#eff6ff").BorderBottom(1).BorderColor("#bfdbfe")
+                                .Padding(4)
+                                .Text($"For {dayGroup.Key:d-MMM-yyyy}  ({dayList.Count} {(dayList.Count == 1 ? "entry" : "entries")})")
+                                .Bold().FontSize(7.5f).FontColor("#1e3a5f");
+                            tbl.Cell().Background("#eff6ff").BorderBottom(1).BorderColor("#bfdbfe")
+                                .Padding(4).AlignRight()
+                                .Text($"{dayBalQty:0.###} {dayUom}").Bold().FontSize(7).FontColor("#1d4ed8");
+                            tbl.Cell().Background("#eff6ff").BorderBottom(1).BorderColor("#bfdbfe")
+                                .Padding(4).AlignRight()
+                                .Text($"{dayBalVal:N2}").Bold().FontSize(7).FontColor("#1d4ed8");
+
+                            // Transaction rows
+                            foreach (var row in dayList)
+                            {
+                                rowNum++;
+                                string bg = rowNum % 2 == 0 ? "#f9fafb" : "#ffffff";
+                                bool hasIn  = row.InQuantity  > 0;
+                                bool hasOut = row.OutQuantity > 0;
+                                string uom  = row.UOMCode ?? "";
+                                decimal inVal  = row.InQuantity  * row.UnitCost;
+                                decimal outVal = row.OutQuantity * row.UnitCost;
+                                decimal balVal = row.BalanceQty  * row.AverageCost;
+                                string txnLabel = row.TransactionType switch
+                                {
+                                    "GRN"                    => "GRN/Purchase",
+                                    "OPENING"                => "Opening Stock",
+                                    "TRANSFER_IN"            => "Transfer In",
+                                    "TRANSFER_OUT"           => "Transfer Out",
+                                    "DAMAGE"                 => "Damage",
+                                    "SaleConsumption"        => "Sale Consumption",
+                                    "PRODUCTION_CONSUMPTION" => "BOM Consumption",
+                                    _                        => row.TransactionType
+                                };
+
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(3)
+                                    .Text(row.TransactionDate.ToString("dd MMM")).FontSize(7).FontColor("#6b7280");
+
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(3).Column(c =>
+                                    {
+                                        c.Item().Text(txnLabel).Bold().FontSize(7).FontColor("#374151");
+                                        if (!string.IsNullOrEmpty(row.ItemName))
+                                            c.Item().Text(row.ItemName).FontSize(6.5f).FontColor("#1e3a5f");
+                                        if (!string.IsNullOrEmpty(row.ReferenceNumber))
+                                            c.Item().Text(row.ReferenceNumber).FontSize(6f).FontColor("#9ca3af");
+                                    });
+
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(3).AlignRight()
+                                    .Text(hasIn ? $"{row.InQuantity:0.###} {uom}" : "—")
+                                    .FontSize(7).FontColor(hasIn ? "#15803d" : "#d1d5db");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(3).AlignRight()
+                                    .Text(hasIn ? $"{inVal:N2}" : "—")
+                                    .FontSize(7).FontColor(hasIn ? "#15803d" : "#d1d5db");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(3).AlignRight()
+                                    .Text(hasOut ? $"{row.OutQuantity:0.###} {uom}" : "—")
+                                    .FontSize(7).FontColor(hasOut ? "#b91c1c" : "#d1d5db");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(3).AlignRight()
+                                    .Text(hasOut ? $"{outVal:N2}" : "—")
+                                    .FontSize(7).FontColor(hasOut ? "#b91c1c" : "#d1d5db");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(3).AlignRight()
+                                    .Text($"{row.BalanceQty:0.###} {uom}").Bold()
+                                    .FontSize(7).FontColor(row.BalanceQty < 0 ? "#b91c1c" : "#1e3a5f");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(3).AlignRight()
+                                    .Text($"{balVal:N2}").FontSize(7).FontColor("#374151");
+                            }
+
+                            // Day total row
+                            if (grouped.Count > 1 || dayList.Count > 1)
+                            {
+                                tbl.Cell().ColumnSpan(2).Background("#fffbeb").BorderTop(1).BorderColor("#fbbf24")
+                                    .Padding(3).AlignRight()
+                                    .Text($"Day Total — {dayGroup.Key:d-MMM-yyyy}")
+                                    .Bold().FontSize(7).FontColor("#78350f");
+                                tbl.Cell().Background("#fffbeb").BorderTop(1).BorderColor("#fbbf24")
+                                    .Padding(3).AlignRight()
+                                    .Text(dayInQty > 0 ? $"{dayInQty:0.###} {dayUom}" : "—")
+                                    .Bold().FontSize(7).FontColor("#78350f");
+                                tbl.Cell().Background("#fffbeb").BorderTop(1).BorderColor("#fbbf24")
+                                    .Padding(3).AlignRight()
+                                    .Text(dayInQty > 0 ? $"{dayInVal:N2}" : "—")
+                                    .Bold().FontSize(7).FontColor("#78350f");
+                                tbl.Cell().Background("#fffbeb").BorderTop(1).BorderColor("#fbbf24")
+                                    .Padding(3).AlignRight()
+                                    .Text(dayOutQty > 0 ? $"{dayOutQty:0.###} {dayUom}" : "—")
+                                    .Bold().FontSize(7).FontColor("#78350f");
+                                tbl.Cell().Background("#fffbeb").BorderTop(1).BorderColor("#fbbf24")
+                                    .Padding(3).AlignRight()
+                                    .Text(dayOutQty > 0 ? $"{dayOutVal:N2}" : "—")
+                                    .Bold().FontSize(7).FontColor("#78350f");
+                                tbl.Cell().Background("#fffbeb").BorderTop(1).BorderColor("#fbbf24")
+                                    .Padding(3).AlignRight()
+                                    .Text($"{dayBalQty:0.###} {dayUom}").Bold().FontSize(7).FontColor("#78350f");
+                                tbl.Cell().Background("#fffbeb").BorderTop(1).BorderColor("#fbbf24")
+                                    .Padding(3).AlignRight()
+                                    .Text($"{dayBalVal:N2}").Bold().FontSize(7).FontColor("#78350f");
+                            }
+                        }
+
+                        // Grand total
+                        decimal gtInQty  = sortedList.Sum(x => x.InQuantity);
+                        decimal gtInVal  = sortedList.Sum(x => x.InQuantity  * x.UnitCost);
+                        decimal gtOutQty = sortedList.Sum(x => x.OutQuantity);
+                        decimal gtOutVal = sortedList.Sum(x => x.OutQuantity * x.UnitCost);
+                        var     gtLast   = sortedList.LastOrDefault();
+                        decimal gtBalQty = gtLast?.BalanceQty ?? 0;
+                        decimal gtBalVal = gtLast != null ? gtLast.BalanceQty * gtLast.AverageCost : 0;
+                        string  gtUom    = gtLast?.UOMCode ?? "";
+
+                        tbl.Cell().ColumnSpan(2).Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text("GRAND TOTAL").Bold().FontSize(7.5f).FontColor("#ffffff");
+                        tbl.Cell().Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text(gtInQty > 0 ? $"{gtInQty:0.###} {gtUom}" : "—").Bold().FontSize(7).FontColor("#ffffff");
+                        tbl.Cell().Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text(gtInQty > 0 ? $"₹{gtInVal:N2}" : "—").Bold().FontSize(7).FontColor("#ffffff");
+                        tbl.Cell().Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text(gtOutQty > 0 ? $"{gtOutQty:0.###} {gtUom}" : "—").Bold().FontSize(7).FontColor("#ffffff");
+                        tbl.Cell().Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text(gtOutQty > 0 ? $"₹{gtOutVal:N2}" : "—").Bold().FontSize(7).FontColor("#ffffff");
+                        tbl.Cell().Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text($"{gtBalQty:0.###} {gtUom}").Bold().FontSize(7).FontColor("#ffffff");
+                        tbl.Cell().Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text($"₹{gtBalVal:N2}").Bold().FontSize(7).FontColor("#ffffff");
+                    });
+
+                    page.Footer().AlignCenter()
+                        .Text(x =>
+                        {
+                            x.Span("Page ").FontSize(7).FontColor("#9ca3af");
+                            x.CurrentPageNumber().FontSize(7).FontColor("#9ca3af");
+                            x.Span(" of ").FontSize(7).FontColor("#9ca3af");
+                            x.TotalPages().FontSize(7).FontColor("#9ca3af");
+                        });
+                });
+            });
+
+            var bytes = pdf.GeneratePdf();
+            string fileName = $"StockLedger_{fromDate.Value:yyyyMMdd}_{toDate.Value:yyyyMMdd}.pdf";
+            return File(bytes, "application/pdf", fileName);
+        }
+
         // ═══════════════════════════════════════════════════════════════
         //  CURRENT STOCK SUMMARY
         // ═══════════════════════════════════════════════════════════════
@@ -486,6 +860,203 @@ namespace RestaurantManagementSystem.Controllers
             return View(list);
         }
 
+        // ── Current Stock Summary → Export PDF ────────────────────────────────
+        [HttpGet]
+        public IActionResult StockSummaryPdf(int? godownId)
+        {
+            var branchId = ActiveBranchId();
+            if (!branchId.HasValue) return NoBranch();
+
+            bool isMain = IsMainBranchById(branchId.Value);
+
+            var list = new List<CurrentStockItem>();
+            string godownLabel = "All Godowns";
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand("usp_GetCurrentStockSummary", con)
+                    { CommandType = CommandType.StoredProcedure };
+                cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                cmd.Parameters.AddWithValue("@GodownId", godownId.HasValue && godownId.Value > 0
+                    ? (object)godownId.Value : DBNull.Value);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read()) list.Add(MapCurrentStock(rdr));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+
+            // Resolve godown label for the header
+            if (godownId.HasValue && godownId.Value > 0 && list.Count > 0)
+                godownLabel = list[0].GodownName ?? "Selected Godown";
+
+            var grouped = list
+                .OrderBy(x => x.ItemCategory ?? "Uncategorised")
+                .ThenBy(x => x.ItemName)
+                .GroupBy(x => string.IsNullOrWhiteSpace(x.ItemCategory) ? "Uncategorised" : x.ItemCategory)
+                .ToList();
+
+            decimal totalVal  = list.Sum(x => x.BalanceQty * x.AverageCost);
+            int     totalItems = list.Count;
+            int     lowStock   = list.Count(x => x.BalanceQty > 0 && x.BalanceQty <= x.ReorderLevel && x.ReorderLevel > 0);
+            int     zeroStock  = list.Count(x => x.BalanceQty <= 0);
+
+            var pdf = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(PageSizes.A4.Landscape());
+                    page.Margin(20);
+                    page.DefaultTextStyle(x => x.FontSize(8).FontFamily("Arial"));
+
+                    page.Header().Column(col =>
+                    {
+                        col.Item().Row(r =>
+                        {
+                            r.RelativeItem().Column(c =>
+                            {
+                                c.Item().Text("Current Stock Summary")
+                                    .Bold().FontSize(14).FontColor("#1e3a5f");
+                                c.Item().Text($"Godown: {godownLabel}   |   As at {DateTime.Today:dd-MMM-yyyy}")
+                                    .FontSize(8).FontColor("#6b7280");
+                            });
+                            r.ConstantItem(160).Column(c =>
+                            {
+                                c.Item().Row(sr =>
+                                {
+                                    sr.RelativeItem().Background("#dbeafe").Padding(5).AlignCenter().Column(sc =>
+                                    {
+                                        sc.Item().Text("Total Items").FontSize(6.5f).FontColor("#1e40af");
+                                        sc.Item().Text(totalItems.ToString()).Bold().FontSize(10).FontColor("#1d4ed8");
+                                    });
+                                    sr.RelativeItem().Background("#fef9c3").Padding(5).AlignCenter().Column(sc =>
+                                    {
+                                        sc.Item().Text("Low Stock").FontSize(6.5f).FontColor("#92400e");
+                                        sc.Item().Text(lowStock.ToString()).Bold().FontSize(10).FontColor("#a16207");
+                                    });
+                                    sr.RelativeItem().Background("#fee2e2").Padding(5).AlignCenter().Column(sc =>
+                                    {
+                                        sc.Item().Text("Zero Stock").FontSize(6.5f).FontColor("#991b1b");
+                                        sc.Item().Text(zeroStock.ToString()).Bold().FontSize(10).FontColor("#b91c1c");
+                                    });
+                                });
+                                c.Item().Background("#dcfce7").Padding(4).AlignCenter().Column(sc =>
+                                {
+                                    sc.Item().Text("Total Value").FontSize(6.5f).FontColor("#166534");
+                                    sc.Item().Text($"₹{totalVal:N2}").Bold().FontSize(10).FontColor("#15803d");
+                                });
+                            });
+                        });
+                        col.Item().PaddingTop(4).LineHorizontal(1).LineColor("#93c5fd");
+                    });
+
+                    page.Content().PaddingTop(8).Table(tbl =>
+                    {
+                        tbl.ColumnsDefinition(c =>
+                        {
+                            c.RelativeColumn(3); // Item
+                            c.RelativeColumn(2); // Godown
+                            c.RelativeColumn();  // Qty
+                            c.ConstantColumn(40);   // UOM
+                            c.RelativeColumn();  // Avg Cost
+                            c.RelativeColumn();  // Stock Value
+                            c.RelativeColumn();  // Reorder
+                            c.ConstantColumn(45);   // Status
+                        });
+
+                        tbl.Header(h =>
+                        {
+                            foreach (var lbl in new[] { "Item", "Godown", "Current Qty", "UOM", "Avg Cost (₹)", "Stock Value (₹)", "Reorder", "Status" })
+                            {
+                                h.Cell().Background("#1e3a5f").Padding(5)
+                                    .Text(lbl).Bold().FontSize(7).FontColor("#ffffff");
+                            }
+                        });
+
+                        uint rowNum = 0;
+                        foreach (var cat in grouped)
+                        {
+                            decimal catVal = cat.Sum(x => x.BalanceQty * x.AverageCost);
+
+                            // Category header
+                            tbl.Cell().ColumnSpan(6).Background("#eff6ff").BorderTop(1).BorderColor("#93c5fd")
+                                .Padding(4)
+                                .Text($"{cat.Key}  ({cat.Count()} {(cat.Count() == 1 ? "item" : "items")})")
+                                .Bold().FontSize(7.5f).FontColor("#1e3a5f");
+                            tbl.Cell().ColumnSpan(2).Background("#eff6ff").BorderTop(1).BorderColor("#93c5fd")
+                                .Padding(4).AlignRight()
+                                .Text($"Value: ₹{catVal:N0}").Bold().FontSize(7).FontColor("#1d4ed8");
+
+                            foreach (var s in cat.OrderBy(x => x.ItemName))
+                            {
+                                rowNum++;
+                                bool isZero = s.BalanceQty <= 0;
+                                bool isLow  = !isZero && s.BalanceQty <= s.ReorderLevel && s.ReorderLevel > 0;
+                                string bg   = isZero ? "#fff1f2" : isLow ? "#fffbeb" : (rowNum % 2 == 0 ? "#f9fafb" : "#ffffff");
+                                decimal sv  = s.BalanceQty * s.AverageCost;
+                                string  status = isZero ? "OUT" : isLow ? "LOW" : "OK";
+                                string  statusColor = isZero ? "#b91c1c" : isLow ? "#a16207" : "#15803d";
+
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb").Padding(4).Column(c =>
+                                {
+                                    c.Item().Text(s.ItemName ?? "").Bold().FontSize(7.5f).FontColor("#1e3a5f");
+                                    if (!string.IsNullOrEmpty(s.ItemCode))
+                                        c.Item().Text(s.ItemCode).FontSize(6f).FontColor("#9ca3af");
+                                });
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).Text(s.GodownName ?? "").FontSize(7).FontColor("#0369a1");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text($"{s.BalanceQty:0.###}").Bold().FontSize(7.5f)
+                                    .FontColor(isZero ? "#b91c1c" : isLow ? "#a16207" : "#1e3a5f");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text(s.BaseUOMCode ?? "").FontSize(7).FontColor("#6b7280");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text($"{s.AverageCost:N2}").FontSize(7).FontColor("#374151");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text($"{sv:N2}").Bold().FontSize(7).FontColor("#374151");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text(s.ReorderLevel.HasValue && s.ReorderLevel > 0 ? $"{s.ReorderLevel:0.###}" : "—")
+                                    .FontSize(7).FontColor("#6b7280");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignCenter()
+                                    .Text(status).Bold().FontSize(7).FontColor(statusColor);
+                            }
+                        }
+
+                        // Grand total
+                        tbl.Cell().ColumnSpan(5).Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text($"GRAND TOTAL — {totalItems} Items").Bold().FontSize(7.5f).FontColor("#ffffff");
+                        tbl.Cell().Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text($"₹{totalVal:N2}").Bold().FontSize(7.5f).FontColor("#ffffff");
+                        tbl.Cell().ColumnSpan(2).Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4);
+                    });
+
+                    page.Footer().AlignCenter()
+                        .Text(x =>
+                        {
+                            x.Span("Page ").FontSize(7).FontColor("#9ca3af");
+                            x.CurrentPageNumber().FontSize(7).FontColor("#9ca3af");
+                            x.Span(" of ").FontSize(7).FontColor("#9ca3af");
+                            x.TotalPages().FontSize(7).FontColor("#9ca3af");
+                        });
+                });
+            });
+
+            var bytes = pdf.GeneratePdf();
+            string fileName = $"CurrentStock_{DateTime.Today:yyyyMMdd}.pdf";
+            return File(bytes, "application/pdf", fileName);
+        }
+
         /// <summary>Returns the Id of the IsMainGodown godown for the given branch, or null if none.</summary>
         private int? GetMainGodownId(int branchId)
         {
@@ -512,6 +1083,7 @@ namespace RestaurantManagementSystem.Controllers
             if (!branchId.HasValue) return NoBranch();
 
             asOfDate ??= DateTime.Today;
+            bool isMain = IsMainBranchById(branchId.Value);
             var list = new List<ClosingStockReportItem>();
             try
             {
@@ -519,7 +1091,8 @@ namespace RestaurantManagementSystem.Controllers
                 con.Open();
                 using var cmd = new SqlCommand("usp_GetClosingStockReport", con)
                     { CommandType = CommandType.StoredProcedure };
-                cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                // Main-branch admin: pass NULL to see all branches; non-main: own branch only
+                cmd.Parameters.AddWithValue("@BranchId", isMain ? DBNull.Value : (object)branchId.Value);
                 cmd.Parameters.AddWithValue("@AsOfDate", asOfDate.Value.Date);
                 cmd.Parameters.AddWithValue("@GodownId", godownId.HasValue ? (object)godownId.Value : DBNull.Value);
                 using var rdr = cmd.ExecuteReader();
@@ -532,10 +1105,197 @@ namespace RestaurantManagementSystem.Controllers
             }
 
             LoadDropdowns();
-            ViewBag.AsOfDate = asOfDate.Value.ToString("yyyy-MM-dd");
-            ViewBag.GodownId = godownId;
+            ViewBag.AsOfDate       = asOfDate.Value.ToString("yyyy-MM-dd");
+            ViewBag.GodownId       = godownId ?? 0;
             ViewBag.ActiveBranchId = branchId.Value;
             return View(list);
+        }
+
+        // ── Closing Stock → Export PDF ────────────────────────────────────────
+        [HttpGet]
+        public IActionResult ClosingStockPdf(DateTime? asOfDate, int? godownId)
+        {
+            var branchId = ActiveBranchId();
+            if (!branchId.HasValue) return NoBranch();
+
+            asOfDate ??= DateTime.Today;
+            bool isMain = IsMainBranchById(branchId.Value);
+            var list = new List<ClosingStockReportItem>();
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand("usp_GetClosingStockReport", con)
+                    { CommandType = CommandType.StoredProcedure };
+                cmd.Parameters.AddWithValue("@BranchId", isMain ? DBNull.Value : (object)branchId.Value);
+                cmd.Parameters.AddWithValue("@AsOfDate", asOfDate.Value.Date);
+                cmd.Parameters.AddWithValue("@GodownId", godownId.HasValue && godownId.Value > 0
+                    ? (object)godownId.Value : DBNull.Value);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read()) list.Add(MapClosingStock(rdr));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+
+            string godownLabel = "All Godowns";
+            if (godownId.HasValue && godownId.Value > 0 && list.Count > 0)
+                godownLabel = list[0].GodownName ?? "Selected Godown";
+
+            var grouped = list
+                .OrderBy(x => x.ItemCategory ?? "Uncategorised")
+                .ThenBy(x => x.ItemName)
+                .GroupBy(x => string.IsNullOrWhiteSpace(x.ItemCategory) ? "Uncategorised" : x.ItemCategory)
+                .ToList();
+
+            decimal totalVal  = list.Sum(x => x.ClosingValue);
+            int     zeroStock = list.Count(x => x.ClosingQty <= 0);
+            int     negStock  = list.Count(x => x.ClosingQty < 0);
+
+            var pdf = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(PageSizes.A4.Landscape());
+                    page.Margin(20);
+                    page.DefaultTextStyle(x => x.FontSize(8).FontFamily("Arial"));
+
+                    page.Header().Column(col =>
+                    {
+                        col.Item().Row(r =>
+                        {
+                            r.RelativeItem().Column(c =>
+                            {
+                                c.Item().Text("Closing Stock Report")
+                                    .Bold().FontSize(14).FontColor("#1e3a5f");
+                                c.Item().Text($"As at {asOfDate.Value:dd-MMM-yyyy}   |   Godown: {godownLabel}")
+                                    .FontSize(8).FontColor("#6b7280");
+                            });
+                            r.ConstantItem(180).Row(sr =>
+                            {
+                                sr.RelativeItem().Background("#dbeafe").Padding(5).AlignCenter().Column(sc =>
+                                {
+                                    sc.Item().Text("Total Items").FontSize(6.5f).FontColor("#1e40af");
+                                    sc.Item().Text(list.Count.ToString()).Bold().FontSize(10).FontColor("#1d4ed8");
+                                });
+                                sr.RelativeItem().Background("#fee2e2").Padding(5).AlignCenter().Column(sc =>
+                                {
+                                    sc.Item().Text("Zero/Neg").FontSize(6.5f).FontColor("#991b1b");
+                                    sc.Item().Text(zeroStock.ToString()).Bold().FontSize(10).FontColor("#b91c1c");
+                                });
+                                sr.RelativeItem().Background("#dcfce7").Padding(5).AlignCenter().Column(sc =>
+                                {
+                                    sc.Item().Text("Total Value").FontSize(6.5f).FontColor("#166534");
+                                    sc.Item().Text($"₹{totalVal:N0}").Bold().FontSize(9).FontColor("#15803d");
+                                });
+                            });
+                        });
+                        col.Item().PaddingTop(4).LineHorizontal(1).LineColor("#93c5fd");
+                    });
+
+                    page.Content().PaddingTop(8).Table(tbl =>
+                    {
+                        tbl.ColumnsDefinition(c =>
+                        {
+                            c.RelativeColumn(3); // Item
+                            c.RelativeColumn(2); // Godown
+                            c.RelativeColumn();  // Opening
+                            c.RelativeColumn();  // In Qty
+                            c.RelativeColumn();  // Out Qty
+                            c.RelativeColumn();  // Closing Qty
+                            c.RelativeColumn();  // Avg Cost
+                            c.RelativeColumn();  // Closing Value
+                        });
+
+                        tbl.Header(h =>
+                        {
+                            foreach (var lbl in new[] { "Item", "Godown", "Opening Qty", "In Qty", "Out Qty", "Closing Qty", "Avg Cost (₹)", "Closing Value (₹)" })
+                            {
+                                h.Cell().Background("#1e3a5f").Padding(5)
+                                    .Text(lbl).Bold().FontSize(7).FontColor("#ffffff");
+                            }
+                        });
+
+                        uint rowNum = 0;
+                        foreach (var cat in grouped)
+                        {
+                            decimal catVal = cat.Sum(x => x.ClosingValue);
+
+                            // Category header
+                            tbl.Cell().ColumnSpan(6).Background("#eff6ff").BorderTop(1).BorderColor("#93c5fd")
+                                .Padding(4)
+                                .Text($"{cat.Key}  ({cat.Count()} {(cat.Count() == 1 ? "item" : "items")})")
+                                .Bold().FontSize(7.5f).FontColor("#1e3a5f");
+                            tbl.Cell().ColumnSpan(2).Background("#eff6ff").BorderTop(1).BorderColor("#93c5fd")
+                                .Padding(4).AlignRight()
+                                .Text($"Value: ₹{catVal:N2}").Bold().FontSize(7).FontColor("#1d4ed8");
+
+                            foreach (var s in cat.OrderBy(x => x.ItemName))
+                            {
+                                rowNum++;
+                                bool isNeg  = s.ClosingQty < 0;
+                                bool isZero = s.ClosingQty == 0;
+                                string bg   = isNeg ? "#fff1f2" : isZero ? "#fef9c3" : (rowNum % 2 == 0 ? "#f9fafb" : "#ffffff");
+                                decimal inQty  = s.PurchaseQty + s.TransferInQty;
+                                decimal outQty = s.TransferOutQty + s.DamageQty + s.SaleQty;
+
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).Column(c =>
+                                    {
+                                        c.Item().Text(s.ItemName ?? "").Bold().FontSize(7.5f).FontColor("#1e3a5f");
+                                        if (!string.IsNullOrEmpty(s.ItemCode))
+                                            c.Item().Text(s.ItemCode).FontSize(6f).FontColor("#9ca3af");
+                                    });
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).Text(s.GodownName ?? "").FontSize(7).FontColor("#0369a1");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text($"{s.OpeningQty:0.###}").FontSize(7).FontColor("#6b7280");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text(inQty > 0 ? $"+{inQty:0.###}" : "—")
+                                    .FontSize(7).FontColor(inQty > 0 ? "#15803d" : "#d1d5db");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text(outQty > 0 ? $"-{outQty:0.###}" : "—")
+                                    .FontSize(7).FontColor(outQty > 0 ? "#b91c1c" : "#d1d5db");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text($"{s.ClosingQty:0.###}").Bold().FontSize(7.5f)
+                                    .FontColor(isNeg ? "#b91c1c" : isZero ? "#a16207" : "#1e3a5f");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text($"{s.AverageCost:N2}").FontSize(7).FontColor("#374151");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text($"{s.ClosingValue:N2}").Bold().FontSize(7).FontColor("#374151");
+                            }
+                        }
+
+                        // Grand total
+                        tbl.Cell().ColumnSpan(7).Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text($"GRAND TOTAL — {list.Count} Items").Bold().FontSize(7.5f).FontColor("#ffffff");
+                        tbl.Cell().Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text($"₹{totalVal:N2}").Bold().FontSize(7.5f).FontColor("#ffffff");
+                    });
+
+                    page.Footer().AlignCenter()
+                        .Text(x =>
+                        {
+                            x.Span("Page ").FontSize(7).FontColor("#9ca3af");
+                            x.CurrentPageNumber().FontSize(7).FontColor("#9ca3af");
+                            x.Span(" of ").FontSize(7).FontColor("#9ca3af");
+                            x.TotalPages().FontSize(7).FontColor("#9ca3af");
+                        });
+                });
+            });
+
+            var bytes = pdf.GeneratePdf();
+            string fileName = $"ClosingStock_{asOfDate.Value:yyyyMMdd}.pdf";
+            return File(bytes, "application/pdf", fileName);
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -547,6 +1307,7 @@ namespace RestaurantManagementSystem.Controllers
             var branchId = ActiveBranchId();
             if (!branchId.HasValue) return NoBranch();
 
+            bool isMain = IsMainBranchById(branchId.Value);
             var list = new List<StockValuationItem>();
             try
             {
@@ -554,7 +1315,7 @@ namespace RestaurantManagementSystem.Controllers
                 con.Open();
                 using var cmd = new SqlCommand("usp_GetStockValuationReport", con)
                     { CommandType = CommandType.StoredProcedure };
-                cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                cmd.Parameters.AddWithValue("@BranchId", isMain ? DBNull.Value : (object)branchId.Value);
                 cmd.Parameters.AddWithValue("@GodownId", godownId.HasValue ? (object)godownId.Value : DBNull.Value);
                 using var rdr = cmd.ExecuteReader();
                 while (rdr.Read())
@@ -566,9 +1327,182 @@ namespace RestaurantManagementSystem.Controllers
             }
 
             LoadDropdowns();
-            ViewBag.GodownId = godownId;
+            ViewBag.GodownId       = godownId ?? 0;
             ViewBag.ActiveBranchId = branchId.Value;
             return View(list);
+        }
+
+        // ── Stock Valuation → Export PDF ──────────────────────────────────────
+        [HttpGet]
+        public IActionResult StockValuationPdf(int? godownId)
+        {
+            var branchId = ActiveBranchId();
+            if (!branchId.HasValue) return NoBranch();
+
+            bool isMain = IsMainBranchById(branchId.Value);
+            var list = new List<StockValuationItem>();
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                con.Open();
+                using var cmd = new SqlCommand("usp_GetStockValuationReport", con)
+                    { CommandType = CommandType.StoredProcedure };
+                cmd.Parameters.AddWithValue("@BranchId", isMain ? DBNull.Value : (object)branchId.Value);
+                cmd.Parameters.AddWithValue("@GodownId", godownId.HasValue && godownId.Value > 0
+                    ? (object)godownId.Value : DBNull.Value);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read()) list.Add(MapValuation(rdr));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+
+            string godownLabel = "All Godowns";
+            if (godownId.HasValue && godownId.Value > 0 && list.Count > 0)
+                godownLabel = list[0].GodownName ?? "Selected Godown";
+
+            var grouped = list
+                .OrderBy(x => x.ItemCategory ?? "Uncategorised")
+                .ThenBy(x => x.ItemName)
+                .GroupBy(x => string.IsNullOrWhiteSpace(x.ItemCategory) ? "Uncategorised" : x.ItemCategory)
+                .ToList();
+
+            decimal totalVal    = list.Sum(x => x.StockValue ?? 0);
+            int     positiveQty = list.Count(x => x.BalanceQty > 0);
+            int     zeroQty     = list.Count(x => x.BalanceQty <= 0);
+
+            var pdf = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(PageSizes.A4.Landscape());
+                    page.Margin(20);
+                    page.DefaultTextStyle(x => x.FontSize(8).FontFamily("Arial"));
+
+                    page.Header().Column(col =>
+                    {
+                        col.Item().Row(r =>
+                        {
+                            r.RelativeItem().Column(c =>
+                            {
+                                c.Item().Text("Stock Valuation Report")
+                                    .Bold().FontSize(14).FontColor("#1e3a5f");
+                                c.Item().Text($"Godown: {godownLabel}   |   As at {DateTime.Today:dd-MMM-yyyy}   |   Method: Weighted Average")
+                                    .FontSize(8).FontColor("#6b7280");
+                            });
+                            r.ConstantItem(180).Row(sr =>
+                            {
+                                sr.RelativeItem().Background("#dbeafe").Padding(5).AlignCenter().Column(sc =>
+                                {
+                                    sc.Item().Text("Total Items").FontSize(6.5f).FontColor("#1e40af");
+                                    sc.Item().Text(list.Count.ToString()).Bold().FontSize(10).FontColor("#1d4ed8");
+                                });
+                                sr.RelativeItem().Background("#dcfce7").Padding(5).AlignCenter().Column(sc =>
+                                {
+                                    sc.Item().Text("With Stock").FontSize(6.5f).FontColor("#166534");
+                                    sc.Item().Text(positiveQty.ToString()).Bold().FontSize(10).FontColor("#15803d");
+                                });
+                                sr.RelativeItem().Background("#f0fdf4").Padding(5).AlignCenter().Column(sc =>
+                                {
+                                    sc.Item().Text("Total Value").FontSize(6.5f).FontColor("#166534");
+                                    sc.Item().Text($"₹{totalVal:N0}").Bold().FontSize(9).FontColor("#15803d");
+                                });
+                            });
+                        });
+                        col.Item().PaddingTop(4).LineHorizontal(1).LineColor("#93c5fd");
+                    });
+
+                    page.Content().PaddingTop(8).Table(tbl =>
+                    {
+                        tbl.ColumnsDefinition(c =>
+                        {
+                            c.RelativeColumn(3); // Item
+                            c.RelativeColumn(2); // Godown
+                            c.RelativeColumn();  // Current Qty
+                            c.ConstantColumn(40);// UOM
+                            c.RelativeColumn();  // Avg Cost
+                            c.RelativeColumn();  // Stock Value
+                        });
+
+                        tbl.Header(h =>
+                        {
+                            foreach (var lbl in new[] { "Item", "Godown", "Current Qty", "UOM", "Wtd Avg Cost (₹)", "Stock Value (₹)" })
+                            {
+                                h.Cell().Background("#1e3a5f").Padding(5)
+                                    .Text(lbl).Bold().FontSize(7).FontColor("#ffffff");
+                            }
+                        });
+
+                        uint rowNum = 0;
+                        foreach (var cat in grouped)
+                        {
+                            decimal catVal = cat.Sum(x => x.StockValue ?? 0);
+
+                            tbl.Cell().ColumnSpan(4).Background("#eff6ff").BorderTop(1).BorderColor("#93c5fd")
+                                .Padding(4)
+                                .Text($"{cat.Key}  ({cat.Count()} {(cat.Count() == 1 ? "item" : "items")})") 
+                                .Bold().FontSize(7.5f).FontColor("#1e3a5f");
+                            tbl.Cell().ColumnSpan(2).Background("#eff6ff").BorderTop(1).BorderColor("#93c5fd")
+                                .Padding(4).AlignRight()
+                                .Text($"Value: ₹{catVal:N2}").Bold().FontSize(7).FontColor("#1d4ed8");
+
+                            foreach (var s in cat.OrderBy(x => x.ItemName))
+                            {
+                                rowNum++;
+                                bool isZero = s.BalanceQty <= 0;
+                                string bg   = isZero ? "#fef9c3" : (rowNum % 2 == 0 ? "#f9fafb" : "#ffffff");
+                                decimal sv  = s.StockValue ?? 0;
+
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).Column(c =>
+                                    {
+                                        c.Item().Text(s.ItemName ?? "").Bold().FontSize(7.5f).FontColor("#1e3a5f");
+                                        if (!string.IsNullOrEmpty(s.ItemCode))
+                                            c.Item().Text(s.ItemCode).FontSize(6f).FontColor("#9ca3af");
+                                    });
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).Text(s.GodownName ?? "").FontSize(7).FontColor("#0369a1");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text($"{s.BalanceQty:0.###}").Bold().FontSize(7.5f)
+                                    .FontColor(isZero ? "#b91c1c" : "#1e3a5f");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text(s.UOMCode ?? "").FontSize(7).FontColor("#6b7280");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text($"{s.AverageCost:N4}").FontSize(7).FontColor("#374151");
+                                tbl.Cell().Background(bg).BorderBottom(0.5f).BorderColor("#e5e7eb")
+                                    .Padding(4).AlignRight()
+                                    .Text($"{sv:N2}").Bold().FontSize(7)
+                                    .FontColor(isZero ? "#9ca3af" : "#374151");
+                            }
+                        }
+
+                        // Grand total
+                        tbl.Cell().ColumnSpan(5).Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text($"GRAND TOTAL — {list.Count} Items").Bold().FontSize(7.5f).FontColor("#ffffff");
+                        tbl.Cell().Background("#1e3a5f").BorderTop(2).BorderColor("#60a5fa")
+                            .Padding(4).AlignRight()
+                            .Text($"₹{totalVal:N2}").Bold().FontSize(7.5f).FontColor("#ffffff");
+                    });
+
+                    page.Footer().AlignCenter()
+                        .Text(x =>
+                        {
+                            x.Span("Page ").FontSize(7).FontColor("#9ca3af");
+                            x.CurrentPageNumber().FontSize(7).FontColor("#9ca3af");
+                            x.Span(" of ").FontSize(7).FontColor("#9ca3af");
+                            x.TotalPages().FontSize(7).FontColor("#9ca3af");
+                        });
+                });
+            });
+
+            var bytes = pdf.GeneratePdf();
+            string fileName = $"StockValuation_{DateTime.Today:yyyyMMdd}.pdf";
+            return File(bytes, "application/pdf", fileName);
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -1136,6 +2070,7 @@ namespace RestaurantManagementSystem.Controllers
         {
             ItemName        = GetStr(rdr, "ItemName"),
             ItemCode        = GetStr(rdr, "ItemCode"),
+            ItemCategory    = GetStr(rdr, "ItemCategory"),
             GodownName      = GetStr(rdr, "GodownName"),
             OpeningQty      = GetDecimal(rdr, "OpeningQty"),
             PurchaseQty     = GetDecimal(rdr, "PurchaseQty"),
@@ -1155,6 +2090,7 @@ namespace RestaurantManagementSystem.Controllers
             ItemId        = GetInt(rdr, "ItemId"),
             ItemName      = GetStr(rdr, "ItemName"),
             ItemCode      = GetStr(rdr, "ItemCode"),
+            ItemCategory  = GetStr(rdr, "ItemCategory"),
             UOMCode       = GetStr(rdr, "UOMCode"),
             BalanceQty    = GetDecimal(rdr, "BalanceQty"),
             AverageCost   = GetDecimal(rdr, "AverageCost"),
