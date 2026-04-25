@@ -39,6 +39,22 @@
         @Html.AntiForgeryToken()
         <input type="hidden" asp-for="Id" />
 
+        @if (!ViewData.ModelState.IsValid)
+        {
+            <div class="alert alert-danger py-2 mb-3">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>Please fix the following errors:</strong>
+                <ul class="mb-0 mt-1">
+                    @foreach (var entry in ViewData.ModelState.Values
+                        .Where(v => v.Errors.Count > 0)
+                        .SelectMany(v => v.Errors))
+                    {
+                        <li>@entry.ErrorMessage</li>
+                    }
+                </ul>
+            </div>
+        }
+
         <div class="row g-3">
 
             <!-- ── Left Column ──────────────────────────────────────────────── -->
@@ -52,9 +68,12 @@
                     <div class="card-body">
                         <div class="row g-3">
                             <div class="col-sm-4">
-                                <label asp-for="Code" class="form-label fw-semibold">Item Code</label>
+                                <label asp-for="Code" class="form-label fw-semibold">
+                                    Item Code <span class="text-danger">*</span>
+                                </label>
                                 <input asp-for="Code" class="form-control text-uppercase" maxlength="20"
-                                       placeholder="e.g. TMT" />
+                                       placeholder="e.g. TMT" required />
+                                <span asp-validation-for="Code" class="text-danger small"></span>
                             </div>
                             <div class="col-sm-8">
                                 <label asp-for="IngredientsName" class="form-label fw-semibold">

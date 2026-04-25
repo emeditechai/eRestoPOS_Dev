@@ -23,6 +23,7 @@ namespace RestaurantManagementSystem.Models
         [StringLength(150)]
         public string? DisplayName { get; set; }
 
+        [Required(ErrorMessage = "Item Code is required.")]
         [StringLength(20)]
         public string? Code { get; set; }
 

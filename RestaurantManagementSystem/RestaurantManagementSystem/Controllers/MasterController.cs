@@ -233,6 +233,28 @@ ORDER  BY i.IngredientsName", connection))
 
         if (ModelState.IsValid)
         {
+                // ── Uniqueness checks ────────────────────────────────────────
+                var trimCode = (model.Code ?? "").Trim().ToUpperInvariant();
+                var trimName = (model.IngredientsName ?? "").Trim();
+
+                bool codeTaken = _dbContext.Ingredients
+                    .Any(i => i.Code != null && i.Code.ToUpper() == trimCode && i.Id != model.Id);
+                bool nameTaken = _dbContext.Ingredients
+                    .Any(i => i.IngredientsName.ToLower() == trimName.ToLower() && i.Id != model.Id);
+
+                if (codeTaken)
+                    ModelState.AddModelError(nameof(Ingredients.Code), "This Item Code is already in use.");
+                if (nameTaken)
+                    ModelState.AddModelError(nameof(Ingredients.IngredientsName), "An item with this name already exists.");
+
+                if (!ModelState.IsValid)
+                {
+                    ViewBag.IsView     = false;
+                    ViewBag.AllUoms    = GetUomSelectList();
+                    ViewBag.Categories = GetItemCategoryList();
+                    return View("Ingredients", model);
+                }
+                // ── End uniqueness checks ────────────────────────────────────
                 var uid   = User.GetUserId() ?? 0;
                 var uname = User.Identity?.Name ?? "Unknown";
                 var branchId = User.GetActiveBranchId();
