@@ -455,13 +455,18 @@
                                                         </div>
                                                     </div>
                                                 }
-                                                else if (payment.Status == 1) @* Approved - Show Void button *@
+                                                else if (payment.Status == 1) @* Approved - Show Void button (Admin/Administrator only) *@
                                                 {
                                                     var paymentAge = DateTime.Now - payment.CreatedAt;
                                                     var canVoid = paymentAge.TotalDays <= 7; // Allow void within 7 days
                                                     var isOrderCompleted = Model.OrderStatus == 3;
-                                                    
-                                                    if (canVoid)
+                                                    var canVoidRole = User.IsInRole("Administrator") || string.Equals(User.Identity.Name, "admin", StringComparison.OrdinalIgnoreCase);
+
+                                                    if (!canVoidRole)
+                                                    {
+                                                        @* Non-admin users see nothing for approved payments *@
+                                                    }
+                                                    else if (canVoid)
                                                     {
                                                         <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3" 
                                                                 data-bs-toggle="modal" data-bs-target="#voidModal-@payment.Id">

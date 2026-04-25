@@ -2224,6 +2224,12 @@ END", connection))
         // Void Payment
         public IActionResult VoidPayment(int id)
         {
+            // Only Administrator role or username "admin" may void payments
+            if (!User.IsInRole("Administrator") && !string.Equals(User.Identity?.Name, "admin", StringComparison.OrdinalIgnoreCase))
+            {
+                return Forbid();
+            }
+
             var model = new VoidPaymentViewModel
             {
                 PaymentId = id
@@ -2279,6 +2285,12 @@ END", connection))
         [ValidateAntiForgeryTokenAttribute]
         public IActionResult VoidPayment(VoidPaymentViewModel model)
         {
+            // Only Administrator role or username "admin" may void payments
+            if (!User.IsInRole("Administrator") && !string.Equals(User.Identity?.Name, "admin", StringComparison.OrdinalIgnoreCase))
+            {
+                return Forbid();
+            }
+
             if (ModelState.IsValid)
             {
                 try
