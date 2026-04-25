@@ -4,6 +4,39 @@
     ViewData["Title"] = "POS Print";
     var settings = ViewBag.RestaurantSettings as RestaurantManagementSystem.Models.RestaurantSettings ?? new RestaurantManagementSystem.Models.RestaurantSettings { RestaurantName = "Restaurant Management System" };
     var counterDisplay = (ViewBag.PosCounterDisplay as string) ?? string.Empty;
+    var mainReceiptItems = (Model.OrderItems ?? new List<OrderItemViewModel>()).Where(item => !item.IsExtraCharge).ToList();
+    var extraChargeItems = (Model.OrderItems ?? new List<OrderItemViewModel>()).Where(item => item.IsExtraCharge).ToList();
+    var mainReceiptSubtotal = mainReceiptItems.Sum(item => item.Subtotal);
+    var totalQty = mainReceiptItems.Sum(item => item.Quantity);
+
+    // POS Paper Size from branch settings
+    var posPaperSize = (ViewBag.POSPaperSize as string) ?? "80mm";
+    string pageWidth, bodyWidth, pageMargin, screenPreviewWidth;
+    string baseFontSize, smallFontSize, tinyFontSize;
+    string shopNameFontSize, grandTotalFontSize;
+    string colQtyWidth, colPriceWidth, colAmtWidth, totalsAmtWidth;
+
+    switch (posPaperSize)
+    {
+        case "58mm":
+            pageWidth = "58mm";  bodyWidth = "50mm"; pageMargin = "3mm 2mm"; screenPreviewWidth = "220px";
+            baseFontSize = "10px"; smallFontSize = "9px"; tinyFontSize = "9px";
+            shopNameFontSize = "13px"; grandTotalFontSize = "12px";
+            colQtyWidth = "20px"; colPriceWidth = "32px"; colAmtWidth = "36px"; totalsAmtWidth = "46px";
+            break;
+        case "76mm":
+            pageWidth = "76mm";  bodyWidth = "68mm"; pageMargin = "4mm 3mm"; screenPreviewWidth = "290px";
+            baseFontSize = "11px"; smallFontSize = "10px"; tinyFontSize = "9px";
+            shopNameFontSize = "14px"; grandTotalFontSize = "13px";
+            colQtyWidth = "22px"; colPriceWidth = "36px"; colAmtWidth = "40px"; totalsAmtWidth = "50px";
+            break;
+        default: // 80mm
+            pageWidth = "80mm";  bodyWidth = "72mm"; pageMargin = "4mm 3mm"; screenPreviewWidth = "320px";
+            baseFontSize = "12px"; smallFontSize = "11px"; tinyFontSize = "10px";
+            shopNameFontSize = "15px"; grandTotalFontSize = "14px";
+            colQtyWidth = "24px"; colPriceWidth = "38px"; colAmtWidth = "42px"; totalsAmtWidth = "55px";
+            break;
+    }
 }
 <!DOCTYPE html>
 <html>
@@ -11,19 +44,19 @@
     <meta charset="utf-8" />
     <title>POS Bill - Order #@Model.OrderNumber</title>
     <style>
-        /* ── 80 mm thermal paper ── */
+        /* ── thermal paper (size set by branch POS paper size setting: @posPaperSize) ── */
         @@page {
-            size: 80mm auto;
-            margin: 4mm 3mm;
+            size: @(pageWidth) auto;
+            margin: @(pageMargin);
         }
 
         * { box-sizing: border-box; }
 
         body {
             font-family: 'Courier New', Courier, monospace;
-            font-size: 12px;
-            width: 72mm;          /* printable area inside 80mm */
-            max-width: 72mm;
+            font-size: @(baseFontSize);
+            width: @(bodyWidth);
+            max-width: @(bodyWidth);
             margin: 0 auto;
             padding: 0;
             color: #000;
@@ -35,12 +68,12 @@
         .center  { text-align: center; }
         .right   { text-align: right; }
         .bold    { font-weight: bold; }
-        .small   { font-size: 11px; }
-        .tiny    { font-size: 10px; }
+        .small   { font-size: @(smallFontSize); }
+        .tiny    { font-size: @(tinyFontSize); }
 
         /* ── shop header ── */
         .shop-name {
-            font-size: 15px;
+            font-size: @(shopNameFontSize);
             font-weight: bold;
             letter-spacing: .5px;
             text-transform: uppercase;
@@ -72,16 +105,14 @@
         }
 
         /* ── bill meta (Name / Date / Counter etc.) ── */
-        .meta-table { width: 100%; font-size: 11px; border-collapse: collapse; }
+        .meta-table { width: 100%; font-size: @(smallFontSize); border-collapse: collapse; }
         .meta-table td { padding: 1px 0; vertical-align: top; }
         .meta-table .lbl { font-weight: bold; white-space: nowrap; padding-right: 3px; }
         .meta-table .val { }
         .meta-table .right-col { text-align: right; }
 
         /* ── item lines ── */
-        /* 4 cols: Name | Qty | Price | Amount
-           Name gets all remaining width; numeric cols are fixed */
-        .item-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .item-table { width: 100%; border-collapse: collapse; font-size: @(baseFontSize); }
         .item-table th {
             font-weight: bold;
             padding: 2px 0;
@@ -89,22 +120,22 @@
         }
         .item-table td { padding: 2px 0; vertical-align: top; }
         .item-table .col-name  { width: auto; }
-        .item-table .col-qty   { width: 24px;  text-align: center; white-space: nowrap; }
-        .item-table .col-price { width: 38px;  text-align: right;  white-space: nowrap; }
-        .item-table .col-amt   { width: 42px;  text-align: right;  white-space: nowrap; }
+        .item-table .col-qty   { width: @(colQtyWidth);   text-align: center; white-space: nowrap; }
+        .item-table .col-price { width: @(colPriceWidth); text-align: right;  white-space: nowrap; }
+        .item-table .col-amt   { width: @(colAmtWidth);   text-align: right;  white-space: nowrap; }
 
         /* ── totals block ── */
-        .totals-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .totals-table { width: 100%; border-collapse: collapse; font-size: @(baseFontSize); }
         .totals-table td { padding: 2px 0; }
         .totals-table .lbl  { }
-        .totals-table .amt  { text-align: right; width: 55px; white-space: nowrap; }
-        .grand-total td     { font-size: 14px; font-weight: bold; padding-top: 4px; }
+        .totals-table .amt  { text-align: right; width: @(totalsAmtWidth); white-space: nowrap; }
+        .grand-total td     { font-size: @(grandTotalFontSize); font-weight: bold; padding-top: 4px; }
 
         /* ── screen preview container (removed in print) ── */
         @@media screen {
             body {
-                width: 320px;
-                max-width: 320px;
+                width: @(screenPreviewWidth);
+                max-width: @(screenPreviewWidth);
                 margin: 20px auto;
                 padding: 10px;
                 border: 1px solid #ccc;
@@ -188,7 +219,7 @@
             </tr>
         </thead>
         <tbody>
-            @foreach (var item in Model.OrderItems)
+            @foreach (var item in mainReceiptItems)
             {
                 <tr>
                     <td class="col-name">@item.MenuItemName</td>
@@ -206,7 +237,8 @@
     @* ── TOTALS ──  *@
     @{
         var isBarOrder = ViewBag.IsBarOrder ?? false;
-        var subtotal   = Model.Subtotal;
+        var taxableSubtotal = Model.Subtotal;
+        var displaySubtotal = extraChargeItems.Any() ? mainReceiptSubtotal : taxableSubtotal;
         decimal taxTotal  = 0M;
         decimal gstPercent = 0M;
         try { taxTotal   = Model.TaxAmount;      } catch { taxTotal    = 0M; }
@@ -224,10 +256,34 @@
         var toProcessRounded = Math.Round(toProcessNow, 0, MidpointRounding.AwayFromZero);
     }
     <table class="totals-table">
+        @if (totalQty > 0)
+        {
+            <tr>
+                <td class="lbl">Total Qty</td>
+                <td class="amt">@totalQty</td>
+            </tr>
+        }
         <tr>
             <td class="lbl">Sub Total</td>
-            <td class="amt">&#8377;@subtotal.ToString("F2")</td>
+            <td class="amt">&#8377;@displaySubtotal.ToString("F2")</td>
         </tr>
+        @if (extraChargeItems.Any())
+        {
+            @foreach (var item in extraChargeItems)
+            {
+                <tr>
+                    <td class="lbl">@item.MenuItemName</td>
+                    <td class="amt">&#8377;@item.Subtotal.ToString("F2")</td>
+                </tr>
+            }
+        }
+        @if (Model.IsInclusiveGST && taxTotal > 0)
+        {
+            <tr>
+                <td class="lbl">Taxable Value</td>
+                <td class="amt">&#8377;@taxableSubtotal.ToString("F2")</td>
+            </tr>
+        }
         <tr>
             <td class="lbl">CGST @cgstPercent%</td>
             <td class="amt">&#8377;@cgstAmt.ToString("F2")</td>

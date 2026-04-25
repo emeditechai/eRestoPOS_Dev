@@ -4290,10 +4290,11 @@ END", connection))
                                 MenuItemName = reader.GetString(2),
                                 Quantity = reader.GetInt32(3),
                                 UnitPrice = reader.GetDecimal(4),
-                                Subtotal = reader.GetDecimal(5)
+                                Subtotal = reader.GetDecimal(5),
+                                IsExtraCharge = reader.FieldCount > 6 && !reader.IsDBNull(6) && Convert.ToBoolean(reader.GetValue(6))
                             });
                         }
-                        
+
                         // Move to next result set: Payments
                         reader.NextResult();
                         
@@ -4658,6 +4659,11 @@ END", connection))
                     }
                 }
                 
+                if (model.OrderItems.Any(item => !item.IsExtraCharge))
+                {
+                    PopulatePaymentItemExtraChargeFlags(connection, model.OrderItems);
+                }
+
                 // Populate IsInclusiveGST and GrossItemTotal for the UI preview
                 try
                 {
@@ -5758,6 +5764,7 @@ END", connection))
                 // Load KOT data if POS KOT Print is required (only for POS orders: Takeout=1, Delivery=2)
                 bool isPosOrder = model.OrderType == 1 || model.OrderType == 2;
                 ViewBag.IsPOSKOTPrintRequired = (settings?.IsPOSKOTPrintRequired ?? false) && isPosOrder;
+                ViewBag.POSPaperSize = settings?.POSPaperSize ?? "80mm";
                 if (settings?.IsPOSKOTPrintRequired == true && isPosOrder)
                 {
                     try
@@ -5949,7 +5956,8 @@ END", connection))
                             SELECT @TicketId, oi.Id, mi.Name, oi.Quantity, oi.SpecialInstructions, 3
                             FROM OrderItems oi
                             INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
-                            WHERE oi.OrderId = @OrderId", connection, txn))
+                            WHERE oi.OrderId = @OrderId
+                              AND (COL_LENGTH('dbo.MenuItems', 'IsExtraCharge') IS NULL OR ISNULL(mi.IsExtraCharge, 0) = 0)", connection, txn))
                         {
                             itemInsCmd.Parameters.AddWithValue("@TicketId", ticketId);
                             itemInsCmd.Parameters.AddWithValue("@OrderId", orderId);
@@ -5972,6 +5980,7 @@ END", connection))
                 FROM OrderItems oi
                 INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
                 WHERE oi.OrderId = @OrderId
+                  AND (COL_LENGTH('dbo.MenuItems', 'IsExtraCharge') IS NULL OR ISNULL(mi.IsExtraCharge, 0) = 0)
                 ORDER BY oi.Id", connection))
             {
                 itemCmd.Parameters.AddWithValue("@OrderId", orderId);
@@ -5988,6 +5997,56 @@ END", connection))
             }
 
             return (ticketNumber, items);
+        }
+
+        private static void PopulatePaymentItemExtraChargeFlags(SqlConnection connection, List<OrderItemViewModel> orderItems)
+        {
+            if (orderItems == null || orderItems.Count == 0)
+            {
+                return;
+            }
+
+            using var checkCmd = new SqlCommand(@"
+                SELECT CASE WHEN COL_LENGTH('dbo.MenuItems', 'IsExtraCharge') IS NOT NULL THEN 1 ELSE 0 END", connection);
+            var hasExtraChargeColumn = Convert.ToInt32(checkCmd.ExecuteScalar() ?? 0) == 1;
+            if (!hasExtraChargeColumn)
+            {
+                return;
+            }
+
+            var itemIds = orderItems.Select(item => item.Id).Distinct().ToList();
+            if (itemIds.Count == 0)
+            {
+                return;
+            }
+
+            var idToItem = orderItems.ToDictionary(item => item.Id);
+            var parameterNames = new List<string>();
+            using var command = new SqlCommand();
+            command.Connection = connection;
+
+            for (int index = 0; index < itemIds.Count; index++)
+            {
+                var paramName = "@Id" + index;
+                parameterNames.Add(paramName);
+                command.Parameters.AddWithValue(paramName, itemIds[index]);
+            }
+
+            command.CommandText = $@"
+                SELECT oi.Id, ISNULL(mi.IsExtraCharge, 0)
+                FROM OrderItems oi
+                INNER JOIN MenuItems mi ON oi.MenuItemId = mi.Id
+                WHERE oi.Id IN ({string.Join(",", parameterNames)})";
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var orderItemId = reader.GetInt32(0);
+                if (idToItem.TryGetValue(orderItemId, out var item))
+                {
+                    item.IsExtraCharge = !reader.IsDBNull(1) && Convert.ToBoolean(reader.GetValue(1));
+                }
+            }
         }
 
         private RestaurantSettings? LoadRestaurantSettingsForOrder(int orderId)
@@ -6052,6 +6111,7 @@ END", connection))
 
                                 try { settings.FssaiNo = reader["FssaiNo"]?.ToString(); } catch { }
                                 try { settings.IsPOSKOTPrintRequired = reader["IsPOSKOTPrintRequired"] != DBNull.Value && Convert.ToBoolean(reader["IsPOSKOTPrintRequired"]); } catch { }
+                                try { settings.POSPaperSize = reader["POSPaperSize"]?.ToString() ?? "80mm"; } catch { }
                                 return settings;
                             }
                         }

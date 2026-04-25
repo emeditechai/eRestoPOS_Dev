@@ -122,6 +122,10 @@ namespace RestaurantManagementSystem.Models
         [Display(Name = "Bill Format")]
         [StringLength(10)]
         public string BillFormat { get; set; } = "A4"; // A4 or POS
+
+        [Display(Name = "POS Paper Size")]
+        [StringLength(10)]
+        public string POSPaperSize { get; set; } = "80mm"; // 58mm, 76mm, or 80mm
         
         [Display(Name = "Created On")]
         public DateTime CreatedAt { get; set; } = DateTime.Now;

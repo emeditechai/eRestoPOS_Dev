@@ -217,6 +217,7 @@ namespace RestaurantManagementSystem.Controllers
                 IsRestrictMenuEditNonMainBranch = model.IsRestrictMenuEditNonMainBranch,
                 IsPOSKOTPrintRequired = model.IsPOSKOTPrintRequired,
                 BillFormat = model.BillFormat,
+                POSPaperSize = model.POSPaperSize,
                 	FssaiNo = model.FssaiNo,
                 SelectedOrderTypeIds = OrderTypeHelper.ParseCsvIds(model.SelectedOrderType),
                 CreatedAt = model.CreatedAt.ToString("dd MMM yyyy, hh:mm tt"),
@@ -257,6 +258,7 @@ namespace RestaurantManagementSystem.Controllers
                 IsRestrictMenuEditNonMainBranch = viewModel.IsRestrictMenuEditNonMainBranch,
                 IsPOSKOTPrintRequired = viewModel.IsPOSKOTPrintRequired,
                 BillFormat = viewModel.BillFormat,
+                POSPaperSize = viewModel.POSPaperSize,
                 FssaiNo = viewModel.FssaiNo,
                 SelectedOrderType = OrderTypeHelper.ToCsv(viewModel.SelectedOrderTypeIds),
                 UpdatedAt = DateTime.Now

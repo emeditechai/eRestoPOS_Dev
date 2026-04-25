@@ -129,6 +129,9 @@ namespace RestaurantManagementSystem.ViewModels
         [Display(Name = "Bill Format")]
         public string BillFormat { get; set; } = "A4";
 
+        [Display(Name = "POS Paper Size")]
+        public string POSPaperSize { get; set; } = "80mm";
+
         // Additional display-only information
         [Display(Name = "Created On")]
         public string CreatedAt { get; set; }

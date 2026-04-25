@@ -289,6 +289,18 @@
                                     </div>
                                     <div class="col-md-4">
                                         <div class="form-group mb-3">
+                                            <label asp-for="POSPaperSize" class="control-label"></label>
+                                            <select asp-for="POSPaperSize" class="form-select">
+                                                <option value="58mm">58mm (Small)</option>
+                                                <option value="76mm">76mm (Medium)</option>
+                                                <option value="80mm">80mm (Standard)</option>
+                                            </select>
+                                            <span asp-validation-for="POSPaperSize" class="field-validation-error"></span>
+                                            <div class="help-text">Paper width for POS thermal printer (applies when Bill Format is POS)</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group mb-3">
                                             <label asp-for="SelectedOrderTypeIds" class="control-label">Choose Order Type</label>
                                             <select asp-for="SelectedOrderTypeIds" class="form-select" multiple size="4">
                                                 @foreach (var ot in OrderTypeHelper.GetOrderTypes())

@@ -15,8 +15,14 @@
 
     @if (Model.KitchenTickets != null && Model.KitchenTickets.Any())
     {
+            var extraChargeOrderItemIds = new HashSet<int>(Model.Items?.Where(item => item.IsExtraCharge).Select(item => item.Id) ?? Enumerable.Empty<int>());
         foreach (var ticket in Model.KitchenTickets)
         {
+                var printableItems = ticket.Items?.Where(item => !extraChargeOrderItemIds.Contains(item.OrderItemId)).ToList() ?? new List<KitchenTicketItemViewModel>();
+                if (!printableItems.Any())
+                {
+                    continue;
+                }
             <div class="card mb-2">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <div>
@@ -36,7 +42,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach(var it in ticket.Items)
+                            @foreach(var it in printableItems)
                             {
                                 <tr>
                                     <td>
