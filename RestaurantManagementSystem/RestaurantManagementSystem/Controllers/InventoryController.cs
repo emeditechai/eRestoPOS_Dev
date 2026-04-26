@@ -2046,25 +2046,37 @@ namespace RestaurantManagementSystem.Controllers
             GodownName       = GetStr(rdr, "GodownName")
         };
 
-        private static CurrentStockItem MapCurrentStock(SqlDataReader rdr) => new()
+        private static CurrentStockItem MapCurrentStock(SqlDataReader rdr)
         {
-            StockId       = GetInt(rdr, "StockId"),
-            BranchId      = GetInt(rdr, "BranchId"),
-            GodownId      = GetInt(rdr, "GodownId"),
-            ItemId        = GetInt(rdr, "ItemId"),
-            BalanceQty    = GetDecimal(rdr, "BalanceQty"),
-            AverageCost   = GetDecimal(rdr, "AverageCost"),
-            StockValue    = GetDecimal(rdr, "StockValue"),
-            ItemName      = GetStr(rdr, "ItemName"),
-            ItemCode      = GetStr(rdr, "ItemCode"),
-            ItemCategory  = GetStr(rdr, "ItemCategory"),
-            ReorderLevel  = GetDecimal(rdr, "ReorderLevel"),
-            BaseUOMCode   = GetStr(rdr, "BaseUOMCode"),
-            BaseUOMName   = GetStr(rdr, "BaseUOMName"),
-            GodownName    = GetStr(rdr, "GodownName"),
-            GodownType    = GetStr(rdr, "GodownType"),
-            IsLowStock    = GetBool(rdr, "IsLowStock")
-        };
+            var balQty  = GetDecimal(rdr, "BalanceQty");
+            var avgCost = GetDecimal(rdr, "AverageCost");
+            // StockValue may be absent in older SP versions — compute as fallback
+            decimal stockVal;
+            try   { stockVal = GetDecimal(rdr, "StockValue"); }
+            catch { stockVal = balQty * avgCost; }
+            if (stockVal == 0m && (balQty != 0m || avgCost != 0m))
+                stockVal = balQty * avgCost;
+
+            return new()
+            {
+                StockId       = GetInt(rdr, "StockId"),
+                BranchId      = GetInt(rdr, "BranchId"),
+                GodownId      = GetInt(rdr, "GodownId"),
+                ItemId        = GetInt(rdr, "ItemId"),
+                BalanceQty    = balQty,
+                AverageCost   = avgCost,
+                StockValue    = stockVal,
+                ItemName      = GetStr(rdr, "ItemName"),
+                ItemCode      = GetStr(rdr, "ItemCode"),
+                ItemCategory  = GetStr(rdr, "ItemCategory"),
+                ReorderLevel  = GetDecimal(rdr, "ReorderLevel"),
+                BaseUOMCode   = GetStr(rdr, "BaseUOMCode"),
+                BaseUOMName   = GetStr(rdr, "BaseUOMName"),
+                GodownName    = GetStr(rdr, "GodownName"),
+                GodownType    = GetStr(rdr, "GodownType"),
+                IsLowStock    = GetBool(rdr, "IsLowStock")
+            };
+        }
 
         private static ClosingStockReportItem MapClosingStock(SqlDataReader rdr) => new()
         {
@@ -2180,13 +2192,21 @@ namespace RestaurantManagementSystem.Controllers
         }
         private static decimal GetDecimal(SqlDataReader r, string col)
         {
-            var ord = r.GetOrdinal(col);
-            return r.IsDBNull(ord) ? 0m : Convert.ToDecimal(r.GetValue(ord));
+            try
+            {
+                var ord = r.GetOrdinal(col);
+                return r.IsDBNull(ord) ? 0m : Convert.ToDecimal(r.GetValue(ord));
+            }
+            catch { return 0m; }
         }
         private static bool GetBool(SqlDataReader r, string col)
         {
-            var ord = r.GetOrdinal(col);
-            return !r.IsDBNull(ord) && Convert.ToBoolean(r.GetValue(ord));
+            try
+            {
+                var ord = r.GetOrdinal(col);
+                return !r.IsDBNull(ord) && Convert.ToBoolean(r.GetValue(ord));
+            }
+            catch { return false; }
         }
         private static string? GetStr(SqlDataReader r, string col)
         {

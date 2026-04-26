@@ -123,45 +123,148 @@
         .pos-type-bar { height: 6px; border-radius: 3px; }
 
         /* ── Responsive ────────────────────────────────────────────── */
+
+        /* ── Mobile (≤767px): switch to normal scroll, remove fixed height ── */
         @@media (max-width: 767.98px) {
-            .pos-dash-shell { padding: .75rem !important; border-radius: 8px; }
-            .pos-dash-title { font-size: 1.15rem; }
-            .pos-kpi-value { font-size: 1.45rem; }
-            /* Topbar: stack title + actions */
+            /* Let the page scroll naturally — override fixed-height shell */
+            main[role="main"] { overflow: visible !important; padding-bottom: 1rem !important; }
+            .pos-dash-shell {
+                height: auto !important;
+                overflow: visible !important;
+                display: block !important;
+                padding: .75rem !important;
+                border-radius: 8px;
+            }
+            /* Active section: no fixed height, just show content */
+            .pos-active-section {
+                max-height: none !important;
+                overflow: visible !important;
+            }
+            /* History section: no flex tricks, normal height */
+            .pos-history-section {
+                display: block !important;
+                overflow: visible !important;
+                min-height: 0 !important;
+            }
+            .pos-history-body {
+                overflow: visible !important;
+                min-height: 0 !important;
+            }
+
+            /* Title */
+            .pos-dash-title { font-size: 1.1rem; }
+            .pos-kpi-value { font-size: 1.3rem; }
+            .pos-kpi-label { font-size: .68rem; }
+
+            /* Topbar: stack title + buttons vertically */
             .pos-dash-shell > .d-flex.justify-content-between:first-child {
                 flex-direction: column;
                 align-items: stretch !important;
-                gap: .75rem;
+                gap: .6rem;
             }
             .pos-dash-shell > .d-flex.justify-content-between:first-child > div {
                 flex-wrap: wrap;
                 justify-content: flex-start;
+                gap: .4rem !important;
             }
+            /* New POS Order button full width on mobile */
+            .pos-dash-shell > .d-flex:first-child a.btn[style*="7c3aed"] {
+                width: 100%;
+                justify-content: center;
+                display: flex;
+            }
+
+            /* KPI cards: 2 per row on small phones, 3 on wider phones */
+            .pos-kpi-card { padding: .5rem !important; }
+
             /* Active orders: single column */
-            #activeOrdersGrid > .col-sm-6,
-            #activeOrdersGrid > .col-lg-4,
-            #activeOrdersGrid > .col-xl-3 { width: 100%; }
-            /* Search full width */
+            #activeOrdersGrid > [class*="col-"] { width: 100% !important; }
+
+            /* Search bar full width */
             #activeSearch { max-width: 100% !important; width: 100%; }
-            /* Tabs + filter form: stack vertically */
-            .pos-date-form { flex-direction: column !important; align-items: stretch !important; }
-            .pos-date-form input[type="date"] { max-width: 100% !important; }
-            /* History tables: hide less critical cols */
-            .pos-tab-table thead th:nth-child(4),  /* Phone */
-            .pos-tab-table thead th:nth-child(6),  /* Time */
-            .pos-tab-table tbody td:nth-child(4),
-            .pos-tab-table tbody td:nth-child(6) { display: none; }
-        }
-        @@media (max-width: 991.98px) and (min-width: 768px) {
-            .pos-dash-shell { padding: 1rem !important; }
-            #activeOrdersGrid > .col-xl-3 { width: 50%; }
-        }
-        /* Card header tab+filter wrap on small screens */
-        @@media (max-width: 860px) {
-            #historyTabs.nav-tabs ~ form.pos-date-form {
-                flex-wrap: wrap;
+
+            /* Active orders header: stack */
+            .pos-active-section .d-flex.justify-content-between {
+                flex-direction: column;
+                align-items: stretch !important;
+                gap: .5rem;
             }
+
+            /* Order mix bar: wrap legend */
+            .d-flex.align-items-center.gap-3.mb-2.px-1 {
+                flex-wrap: wrap;
+                gap: .4rem !important;
+            }
+
+            /* Card header: stack tabs + filter vertically */
+            .card-header .d-flex.justify-content-between.align-items-center {
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: .5rem !important;
+            }
+            #historyTabs { width: 100%; }
+            #historyTabs .nav-link { padding: .4rem .6rem !important; font-size: .82rem; }
+
+            /* Date filter: stack inputs vertically */
+            .pos-date-form {
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: .4rem !important;
+                width: 100% !important;
+            }
+            .pos-date-form input[type="date"] { max-width: 100% !important; width: 100%; }
+            .pos-date-form button, .pos-date-form a.btn { width: 100%; }
+            .pos-date-form label { display: none; } /* save space */
+
+            /* History tables: hide less critical columns on mobile */
+            /* Completed: hide Phone(4), GST(7), Duration(9) */
+            #completedTab .pos-tab-table thead th:nth-child(4),
+            #completedTab .pos-tab-table thead th:nth-child(7),
+            #completedTab .pos-tab-table thead th:nth-child(9),
+            #completedTab .pos-tab-table tbody td:nth-child(4),
+            #completedTab .pos-tab-table tbody td:nth-child(7),
+            #completedTab .pos-tab-table tbody td:nth-child(9) { display: none; }
+            /* Cancelled: hide Phone(4) */
+            #cancelledTab .pos-tab-table thead th:nth-child(4),
+            #cancelledTab .pos-tab-table tbody td:nth-child(4) { display: none; }
+
+            /* Table font smaller to fit */
+            .pos-tab-table th, .pos-tab-table td { font-size: .75rem !important; padding: .4rem .3rem !important; }
+            .pos-tab-table th:first-child, .pos-tab-table td:first-child { padding-left: .6rem !important; }
+        }
+
+        /* ── Tablet (768–991px): 2-col active cards, tabs+filter wrap ── */
+        @@media (max-width: 991.98px) and (min-width: 768px) {
+            main[role="main"] { overflow: visible !important; padding-bottom: 1rem !important; }
+            .pos-dash-shell {
+                height: auto !important;
+                overflow: visible !important;
+                display: block !important;
+                padding: 1rem !important;
+            }
+            .pos-active-section { max-height: none !important; overflow: visible !important; }
+            .pos-history-section { display: block !important; overflow: visible !important; }
+            .pos-history-body { overflow: visible !important; }
+
+            #activeOrdersGrid > .col-xl-3 { width: 50% !important; }
+
+            /* Card header: wrap tabs + filter on tablet */
+            .card-header .d-flex.justify-content-between.align-items-center {
+                flex-wrap: wrap !important;
+                gap: .5rem !important;
+            }
+            .pos-date-form { flex-wrap: wrap; }
+            .pos-date-form input[type="date"] { max-width: 130px; }
+
+            /* Completed table: hide Duration on tablet */
+            #completedTab .pos-tab-table thead th:nth-child(9),
+            #completedTab .pos-tab-table tbody td:nth-child(9) { display: none; }
+        }
+
+        /* ── Landscape phones / small tablets (≤860px): tab+filter wrap ── */
+        @@media (max-width: 860px) and (min-width: 576px) {
             .card-header .d-flex.justify-content-between { flex-wrap: wrap; gap: .5rem; }
+            .pos-date-form { flex-wrap: wrap; }
         }
     </style>
 
