@@ -305,7 +305,7 @@ footer.footer {
 /* Per-button gradient variants - Enhanced */
 .quick-action-btn.qa-order { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
 .quick-action-btn.qa-reservation { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
-.quick-action-btn.qa-menu { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+.quick-action-btn.qa-menu { background: linear-gradient(135deg, #7c3aed 0%, #4a1fa8 100%); }
 .quick-action-btn.qa-pos { background: linear-gradient(135deg, #ffb347 0%, #ffcc33 100%); }
 .quick-action-btn.qa-tables { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
 

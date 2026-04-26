@@ -222,16 +222,16 @@
             border: 0;
             border-radius: 16px;
             overflow: hidden;
-            background: linear-gradient(180deg, #ffffff 0%, #f5f8fc 100%);
-            box-shadow: 0 20px 46px rgba(12, 30, 51, 0.18);
+            background: linear-gradient(180deg, #ffffff 0%, #faf5ff 100%);
+            box-shadow: 0 20px 46px rgba(42, 16, 109, 0.18);
         }
 
         .selection-modal .modal-header {
             padding: 0.8rem 0.9rem 0.72rem;
             border-bottom: 0;
             background:
-                radial-gradient(circle at top right, rgba(244, 191, 117, 0.34), transparent 32%),
-                linear-gradient(135deg, #10263a 0%, #184b73 100%);
+                radial-gradient(circle at top right, rgba(167, 139, 250, 0.25), transparent 32%),
+                linear-gradient(135deg, #1e0a4a 0%, #2a106d 100%);
             color: #fff;
         }
 
@@ -270,7 +270,7 @@
             font-weight: 700;
             letter-spacing: 0.16em;
             text-transform: uppercase;
-            color: rgba(255, 244, 214, 0.88);
+            color: rgba(221, 214, 254, 0.88);
         }
 
         .selection-modal .modal-title {
@@ -329,7 +329,7 @@
 
         .selection-card-grid::-webkit-scrollbar-thumb {
             border-radius: 999px;
-            background: rgba(24, 75, 115, 0.18);
+            background: rgba(42, 16, 109, 0.18);
         }
 
         .selection-option-card {
@@ -338,11 +338,11 @@
             height: 144px;
             min-height: 144px;
             padding: 0.7rem;
-            border: 1px solid rgba(20, 57, 88, 0.12);
+            border: 1px solid rgba(42, 16, 109, 0.12);
             border-radius: 12px;
             background: #fff;
             text-align: left;
-            color: #10263a;
+            color: #1e0a4a;
             box-shadow: 0 8px 18px rgba(17, 39, 61, 0.06);
             display: flex;
             flex-direction: column;
@@ -352,8 +352,8 @@
 
         .selection-option-card:hover,
         .selection-option-card:focus {
-            border-color: rgba(24, 75, 115, 0.35);
-            box-shadow: 0 12px 24px rgba(17, 39, 61, 0.1);
+            border-color: rgba(42, 16, 109, 0.35);
+            box-shadow: 0 12px 24px rgba(42, 16, 109, 0.1);
             transform: translateY(-1px);
             outline: none;
         }
@@ -364,15 +364,15 @@
             inset: 0 auto 0 0;
             width: 4px;
             border-radius: 14px 0 0 14px;
-            background: linear-gradient(180deg, #dca54b 0%, #1a5e91 100%);
+            background: linear-gradient(180deg, #a78bfa 0%, #2a106d 100%);
             opacity: 0.24;
             transition: opacity 0.2s ease;
         }
 
         .selection-option-card.is-selected {
-            border-color: rgba(26, 94, 145, 0.5);
-            background: linear-gradient(180deg, #ffffff 0%, #f2f8fd 100%);
-            box-shadow: 0 14px 28px rgba(17, 39, 61, 0.11);
+            border-color: rgba(42, 16, 109, 0.5);
+            background: linear-gradient(180deg, #ffffff 0%, #f5f3ff 100%);
+            box-shadow: 0 14px 28px rgba(42, 16, 109, 0.11);
         }
 
         .selection-option-card.is-selected::before,
@@ -401,8 +401,8 @@
             justify-content: center;
             flex-shrink: 0;
             font-size: 0.72rem;
-            color: #184b73;
-            background: linear-gradient(180deg, rgba(220, 165, 75, 0.18) 0%, rgba(26, 94, 145, 0.12) 100%);
+            color: #2a106d;
+            background: linear-gradient(180deg, rgba(167, 139, 250, 0.18) 0%, rgba(42, 16, 109, 0.12) 100%);
         }
 
         .selection-option-card__title {
@@ -410,7 +410,7 @@
             font-size: 0.82rem;
             font-weight: 700;
             line-height: 1.25;
-            color: #10263a;
+            color: #1e0a4a;
             word-break: break-word;
             display: -webkit-box;
             -webkit-line-clamp: 2;
@@ -438,7 +438,7 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            border: 1px solid rgba(16, 38, 58, 0.12);
+            border: 1px solid rgba(42, 16, 109, 0.12);
             color: transparent;
             background: #fff;
             flex-shrink: 0;
@@ -448,7 +448,7 @@
 
         .selection-option-card.is-selected .selection-option-card__check {
             color: #fff;
-            background: linear-gradient(135deg, #1a5e91 0%, #184b73 100%);
+            background: linear-gradient(135deg, #7c3aed 0%, #2a106d 100%);
             border-color: transparent;
         }
 
@@ -466,8 +466,8 @@
             gap: 0.22rem;
             padding: 0.2rem 0.38rem;
             border-radius: 999px;
-            background: #eef4f9;
-            color: #425466;
+            background: #ede9fe;
+            color: #4a1fa8;
             font-size: 0.61rem;
             font-weight: 600;
             letter-spacing: 0.01em;
@@ -484,8 +484,8 @@
         }
 
         .selection-chip--primary {
-            background: rgba(26, 94, 145, 0.12);
-            color: #184b73;
+            background: rgba(42, 16, 109, 0.12);
+            color: #2a106d;
         }
 
         .selection-modal .alert {
@@ -522,6 +522,18 @@
             font-weight: 600;
             padding: 0.42rem 0.82rem;
             font-size: 0.8rem;
+        }
+
+        .selection-modal__footer .btn-primary {
+            background: linear-gradient(135deg, #7c3aed 0%, #2a106d 100%);
+            border-color: transparent;
+            box-shadow: 0 4px 12px rgba(42, 16, 109, 0.3);
+        }
+
+        .selection-modal__footer .btn-primary:hover,
+        .selection-modal__footer .btn-primary:focus {
+            background: linear-gradient(135deg, #6d28d9 0%, #1e0a4a 100%);
+            border-color: transparent;
         }
 
         @@media (max-width: 1024.98px) {
@@ -716,7 +728,7 @@
     main[role="main"] { padding-top: 56px; }
     </style>
     <header>
-    <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-dark bg-gradient mb-3 fixed-top" style="position:fixed; top:0; left:0; right:0; width:100%; background-color: #1a3c5b; border-bottom: 3px solid #f8b133; box-shadow: 0 4px 8px rgba(0,0,0,0.1); z-index:1050;">
+    <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-dark bg-gradient mb-3 fixed-top" style="position:fixed; top:0; left:0; right:0; width:100%; background-color: #2a106d; border-bottom: 3px solid #7c3aed; box-shadow: 0 4px 12px rgba(42,16,109,0.25); z-index:1050;">
             <div class="container-fluid">
                 <div class="d-flex flex-column align-items-start brand-stack">
                     <a class="navbar-brand fw-bold mb-0" asp-area="" asp-controller="Home" asp-action="Index" style="color: #ffffff;">
@@ -753,7 +765,7 @@
         </main>
     </div>
 
-    <footer class="footer mt-4 py-3 bg-gradient" style="background-color: #1a3c5b; border-top: 3px solid #f8b133;">
+    <footer class="footer mt-4 py-3 bg-gradient" style="background-color: #2a106d; border-top: 3px solid #7c3aed;">
         <div class="container">
             <div class="row">
                 <div class="col-md-6 text-white">
