@@ -4,28 +4,27 @@
     ViewData["Title"] = "Create Menu Item";
 }
 
-<div class="container-fluid menu-create-page">
+<div class="container-fluid px-0 px-md-2 menu-create-page">
     <div class="row">
-        <div class="col-md-12">
+        <div class="col-12">
             <div class="card menu-create-card border-0 shadow-sm">
                 <form asp-action="Create" method="post" enctype="multipart/form-data">
-                <div class="card-header bg-light py-3 px-4 menu-create-header">
-                    <div class="row g-3 align-items-end">
-                        <div class="col-lg-4 col-md-12">
-                            <h4 class="mb-0 fw-semibold">Create Menu Item</h4>
+                <div class="card-header bg-light py-3 px-3 menu-create-header">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <div class="me-auto">
+                            <h5 class="mb-0 fw-semibold">Create Menu Item</h5>
                             <small class="text-muted">Set core details, pricing and availability in one place.</small>
                         </div>
-                        <div class="col-lg-5 col-md-8">
+                        <div style="min-width:180px;max-width:280px;flex:1">
                             <label asp-for="BranchId" class="form-label small mb-1 fw-semibold">Branch</label>
                             <select asp-for="BranchId" class="form-select form-select-sm" asp-items="ViewBag.Branches" disabled="@(ViewBag.IsBranchSelectionEnabled == true ? null : "disabled")">
                                 <option value="">-- Select Branch --</option>
                             </select>
-                            <small class="text-muted d-block mt-1">@(ViewBag.IsBranchSelectionEnabled == true ? "Main branch can manage menu for selected branch." : "Menu will be managed for your login branch.")</small>
                             <span asp-validation-for="BranchId" class="text-danger small"></span>
                         </div>
-                        <div class="col-lg-3 col-md-4 text-md-end">
-                            <a asp-action="Index" class="btn btn-secondary w-100 d-md-inline-block">
-                                <i class="fa fa-arrow-left"></i> Back to List
+                        <div>
+                            <a asp-action="Index" class="btn btn-secondary btn-sm">
+                                <i class="fa fa-arrow-left"></i> <span class="d-none d-sm-inline">Back to List</span>
                             </a>
                         </div>
                     </div>

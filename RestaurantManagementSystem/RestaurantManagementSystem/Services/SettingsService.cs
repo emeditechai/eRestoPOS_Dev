@@ -278,6 +278,13 @@ namespace RestaurantManagementSystem.Services
                                     s.IsPOSKOTPrintRequired = !reader.IsDBNull(ord) && reader.GetBoolean(ord);
                                 }
 
+                                // ESCPOS Print Enable flag
+                                if (ColumnExists(reader, "IsESCPOSPrintEnabled"))
+                                {
+                                    ord = reader.GetOrdinal("IsESCPOSPrintEnabled");
+                                    s.IsESCPOSPrintEnabled = !reader.IsDBNull(ord) && reader.GetBoolean(ord);
+                                }
+
                                 ord = reader.GetOrdinal("BillFormat");
                                 s.BillFormat = reader.IsDBNull(ord) ? "A4" : reader.GetString(ord);
 
@@ -466,6 +473,7 @@ BEGIN
         IsRequiredDiscountOnPOS = @IsRequiredDiscountOnPOS,
         IsRestrictMenuEditNonMainBranch = @IsRestrictMenuEditNonMainBranch,
         IsPOSKOTPrintRequired = @IsPOSKOTPrintRequired,
+        IsESCPOSPrintEnabled = @IsESCPOSPrintEnabled,
         BillFormat = @BillFormat,
         POSPaperSize = @POSPaperSize,
         FssaiNo = @FssaiNo,
@@ -475,9 +483,9 @@ END
 ELSE
 BEGIN
     INSERT INTO dbo.RestaurantSettings (
-        BranchId, RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, IsTableMarkedAvailableAfterBillCompletion, IsRequiredDiscountOnPOS, IsRestrictMenuEditNonMainBranch, IsPOSKOTPrintRequired, BillFormat, POSPaperSize, FssaiNo, CreatedAt, UpdatedAt
+        BranchId, RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, IsTableMarkedAvailableAfterBillCompletion, IsRequiredDiscountOnPOS, IsRestrictMenuEditNonMainBranch, IsPOSKOTPrintRequired, IsESCPOSPrintEnabled, BillFormat, POSPaperSize, FssaiNo, CreatedAt, UpdatedAt
     ) VALUES (
-        @BranchId, @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @IsTableMarkedAvailableAfterBillCompletion, @IsRequiredDiscountOnPOS, @IsRestrictMenuEditNonMainBranch, @IsPOSKOTPrintRequired, @BillFormat, @POSPaperSize, @FssaiNo, GETDATE(), GETDATE()
+        @BranchId, @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @IsTableMarkedAvailableAfterBillCompletion, @IsRequiredDiscountOnPOS, @IsRestrictMenuEditNonMainBranch, @IsPOSKOTPrintRequired, @IsESCPOSPrintEnabled, @BillFormat, @POSPaperSize, @FssaiNo, GETDATE(), GETDATE()
     );
 END"
                         : @"
@@ -512,6 +520,7 @@ BEGIN
         IsRequiredDiscountOnPOS = @IsRequiredDiscountOnPOS,
         IsRestrictMenuEditNonMainBranch = @IsRestrictMenuEditNonMainBranch,
         IsPOSKOTPrintRequired = @IsPOSKOTPrintRequired,
+        IsESCPOSPrintEnabled = @IsESCPOSPrintEnabled,
         BillFormat = @BillFormat,
         POSPaperSize = @POSPaperSize,
         FssaiNo = @FssaiNo,
@@ -520,9 +529,9 @@ END
 ELSE
 BEGIN
     INSERT INTO dbo.RestaurantSettings (
-        RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, IsTableMarkedAvailableAfterBillCompletion, IsRequiredDiscountOnPOS, IsRestrictMenuEditNonMainBranch, IsPOSKOTPrintRequired, BillFormat, POSPaperSize, FssaiNo, CreatedAt, UpdatedAt
+        RestaurantName, StreetAddress, City, State, Pincode, Country, GSTCode, PhoneNumber, Email, Website, LogoPath, CurrencySymbol, DefaultGSTPercentage, TakeAwayGSTPercentage, BarGSTPerc, SelectedOrderType, IsDefaultGSTRequired, IsTakeAwayGSTRequired, Is_TakeawayIncludedGST_Req, IsDiscountApprovalRequired, IsCardPaymentApprovalRequired, IsKOTBillPrintRequired, IsCounterRequired, isReqAutoSentbillEmail, IsTableMarkedAvailableAfterBillCompletion, IsRequiredDiscountOnPOS, IsRestrictMenuEditNonMainBranch, IsPOSKOTPrintRequired, IsESCPOSPrintEnabled, BillFormat, POSPaperSize, FssaiNo, CreatedAt, UpdatedAt
     ) VALUES (
-        @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @IsTableMarkedAvailableAfterBillCompletion, @IsRequiredDiscountOnPOS, @IsRestrictMenuEditNonMainBranch, @IsPOSKOTPrintRequired, @BillFormat, @POSPaperSize, @FssaiNo, GETDATE(), GETDATE()
+        @RestaurantName, @StreetAddress, @City, @State, @Pincode, @Country, @GSTCode, @PhoneNumber, @Email, @Website, @LogoPath, @CurrencySymbol, @DefaultGSTPercentage, @TakeAwayGSTPercentage, @BarGSTPerc, @SelectedOrderType, @IsDefaultGSTRequired, @IsTakeAwayGSTRequired, @IsTakeawayIncludedGSTReq, @IsDiscountApprovalRequired, @IsCardPaymentApprovalRequired, @IsKOTBillPrintRequired, @IsCounterRequired, @IsReqAutoSentbillEmail, @IsTableMarkedAvailableAfterBillCompletion, @IsRequiredDiscountOnPOS, @IsRestrictMenuEditNonMainBranch, @IsPOSKOTPrintRequired, @IsESCPOSPrintEnabled, @BillFormat, @POSPaperSize, @FssaiNo, GETDATE(), GETDATE()
     );
 END";
 
@@ -561,6 +570,7 @@ END";
                         cmd.Parameters.AddWithValue("@IsRequiredDiscountOnPOS", settings.IsRequiredDiscountOnPOS);
                         cmd.Parameters.AddWithValue("@IsRestrictMenuEditNonMainBranch", settings.IsRestrictMenuEditNonMainBranch);
                         cmd.Parameters.AddWithValue("@IsPOSKOTPrintRequired", settings.IsPOSKOTPrintRequired);
+                        cmd.Parameters.AddWithValue("@IsESCPOSPrintEnabled", settings.IsESCPOSPrintEnabled);
                         cmd.Parameters.AddWithValue("@BillFormat", (object)settings.BillFormat ?? "A4");
                         cmd.Parameters.AddWithValue("@POSPaperSize", (object)settings.POSPaperSize ?? "80mm");
                         cmd.Parameters.AddWithValue("@FssaiNo", (object)settings.FssaiNo ?? DBNull.Value);
@@ -822,6 +832,21 @@ WHERE TABLE_SCHEMA = 'dbo'
                         ALTER TABLE [dbo].[RestaurantSettings] 
                         ADD [IsPOSKOTPrintRequired] BIT NOT NULL DEFAULT 0", connection);
                     await addPOSKOT.ExecuteNonQueryAsync();
+                }
+
+                // Ensure IsESCPOSPrintEnabled column exists
+                var checkESCPOS = new SqlCommand(@"
+                    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'RestaurantSettings' 
+                    AND COLUMN_NAME = 'IsESCPOSPrintEnabled'
+                    AND TABLE_SCHEMA = 'dbo'", connection);
+                var escposExists = (int)await checkESCPOS.ExecuteScalarAsync() > 0;
+                if (!escposExists)
+                {
+                    var addESCPOS = new SqlCommand(@"
+                        ALTER TABLE [dbo].[RestaurantSettings] 
+                        ADD [IsESCPOSPrintEnabled] BIT NOT NULL DEFAULT 0", connection);
+                    await addESCPOS.ExecuteNonQueryAsync();
                 }
 
                 // Ensure POSPaperSize column exists

@@ -9,35 +9,37 @@
     var menuEditAllowed = !(ViewBag.MenuEditAllowed is bool mea) || mea;
 }
 
-<div class="container-fluid">
+<div class="container-fluid px-0 px-md-2">
     <div class="row">
-        <div class="col-md-12">
-            <div class="card">
-                <div class="card-header">
-                    <h4>Menu Items</h4>
-                    <div class="float-right">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-bottom py-3 px-3">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <div class="me-auto">
+                            <h5 class="mb-0 fw-bold"><i class="fas fa-utensils me-2 text-primary"></i>Menu Items</h5>
+                        </div>
                         @if (canCopyMenuItems)
                         {
-                            <button type="button" id="openCopyMenuModal" class="btn btn-outline-primary me-2">
-                                <i class="fas fa-copy"></i> Copy to Branch
+                            <button type="button" id="openCopyMenuModal" class="btn btn-outline-primary btn-sm">
+                                <i class="fas fa-copy"></i> <span class="d-none d-sm-inline">Copy to Branch</span>
                             </button>
                         }
                         @if (menuEditAllowed)
                         {
-                            <a asp-action="Create" class="btn btn-primary">
-                                <i class="fa fa-plus"></i> Create New
+                            <a asp-action="Create" class="btn btn-primary btn-sm">
+                                <i class="fa fa-plus"></i> <span class="d-none d-sm-inline">Create New</span><span class="d-inline d-sm-none">New</span>
                             </a>
                         }
                         else
                         {
-                            <button class="btn btn-primary" disabled title="Menu creation is restricted to the main branch. Please switch to the main branch to add items.">
-                                <i class="fa fa-plus"></i> Create New
+                            <button class="btn btn-primary btn-sm" disabled title="Menu creation is restricted to the main branch.">
+                                <i class="fa fa-plus"></i> <span class="d-none d-sm-inline">Create New</span><span class="d-inline d-sm-none">New</span>
                             </button>
                         }
-                        <a asp-action="ExportCsv" class="btn btn-outline-secondary ms-2" title="Export CSV">
+                        <a asp-action="ExportCsv" class="btn btn-outline-secondary btn-sm" title="Export CSV">
                             <i class="fas fa-file-csv"></i>
                         </a>
-                        <a asp-action="Print" target="_blank" class="btn btn-outline-secondary ms-1" title="Print / PDF">
+                        <a asp-action="Print" target="_blank" class="btn btn-outline-secondary btn-sm" title="Print / PDF">
                             <i class="fas fa-print"></i>
                         </a>
                     </div>
@@ -58,7 +60,8 @@
                         </div>
                     }
 
-                    <table id="menuItemsTable" class="table table-striped table-bordered">
+                    <div class="table-responsive">
+                    <table id="menuItemsTable" class="table table-striped table-bordered table-hover align-middle mb-0">
                         <thead>
                             <tr>
                                 @if (canCopyMenuItems)
@@ -166,6 +169,7 @@
                             }
                         </tbody>
                     </table>
+                    </div><!-- /table-responsive -->
                 </div>
             </div>
         </div>
@@ -209,38 +213,43 @@
 }
 
 @section Scripts {
+    <link rel="stylesheet" href="https://cdn.datatables.net/responsive/3.0.3/css/responsive.dataTables.min.css" />
+    <script src="https://cdn.datatables.net/responsive/3.0.3/js/dataTables.responsive.min.js"></script>
+    <style>
+    /* ── Menu Items Table Mobile Fixes ── */
+    .menu-actions-wrap { display:flex; gap:4px; flex-wrap:wrap; }
+    @@media (max-width:575px) {
+        #menuItemsTable thead th, #menuItemsTable tbody td { font-size:12px; padding:6px 4px; }
+        .menu-actions-wrap .btn { padding:3px 6px; font-size:11px; }
+    }
+    </style>
     <script>
         $(document).ready(function() {
             const canCopyMenuItems = @(canCopyMenuItems ? "true" : "false");
+
+            // Responsive column priorities (lower = shown first on narrow screens)
+            const baseColumnDefs = [
+                { responsivePriority: 1,  targets: canCopyMenuItems ? 3 : 2  }, // Name
+                { responsivePriority: 2,  targets: canCopyMenuItems ? 10 : 9 }, // Actions
+                { responsivePriority: 3,  targets: canCopyMenuItems ? 7 : 6  }, // Price
+                { responsivePriority: 4,  targets: canCopyMenuItems ? 9 : 8  }, // Status
+                { responsivePriority: 5,  targets: canCopyMenuItems ? 4 : 3  }, // Category
+                { responsivePriority: 6,  targets: canCopyMenuItems ? 1 : 0  }, // PLU Code
+                { responsivePriority: 7,  targets: canCopyMenuItems ? 5 : 4  }, // Item Group
+                { responsivePriority: 8,  targets: canCopyMenuItems ? 6 : 5  }, // Sub Category
+                { responsivePriority: 9,  targets: canCopyMenuItems ? 8 : 7  }, // Prep Time
+                { responsivePriority: 10, targets: canCopyMenuItems ? 2 : 1, orderable: false }, // Image
+            ];
+            if (canCopyMenuItems) {
+                baseColumnDefs.push({ responsivePriority: 11, targets: 0, orderable: false }); // Select
+            }
+
             const table = $('#menuItemsTable').DataTable({
-                "responsive": true,
+                "responsive": { details: { type: 'column', target: 'tr' } },
                 "lengthChange": true,
                 "autoWidth": false,
                 "pageLength": 25,
-                "columns": canCopyMenuItems ? [
-                    { "orderable": false },   // Select
-                    null,                      // PLU Code
-                    { "orderable": false },   // Image
-                    null,                      // Name
-                    null,                      // Category
-                    null,                      // Item Group
-                    null,                      // Sub Category
-                    null,                      // Price
-                    null,                      // Prep Time
-                    null,                      // Status
-                    { "orderable": false }    // Actions
-                ] : [
-                    null,                      // PLU Code
-                    { "orderable": false },   // Image
-                    null,                      // Name
-                    null,                      // Category
-                    null,                      // Item Group
-                    null,                      // Sub Category
-                    null,                      // Price
-                    null,                      // Prep Time
-                    null,                      // Status
-                    { "orderable": false }    // Actions
-                ]
+                "columnDefs": baseColumnDefs
             });
 
             if (canCopyMenuItems) {

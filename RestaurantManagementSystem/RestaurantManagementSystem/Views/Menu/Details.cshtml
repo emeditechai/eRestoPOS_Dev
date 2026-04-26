@@ -5,7 +5,7 @@
     var menuEditAllowed = !(ViewBag.MenuEditAllowed is bool mea) || mea;
 }
 
-<div class="container-fluid py-2">
+<div class="container-fluid px-0 px-md-2 py-2">
     @if (TempData["SuccessMessage"] != null)
     {
         <div class="row mb-3">
@@ -31,32 +31,32 @@
     }
     
     <div class="row">
-        <div class="col-md-12">
+        <div class="col-12">
             <div class="card shadow-sm">
                 <div class="card-header py-2">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">Menu Item Details</h5>
-                        <div class="btn-group btn-group-sm">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <h5 class="mb-0 me-auto"><i class="fas fa-utensils me-2 text-primary"></i>Menu Item Details</h5>
+                        <div class="d-flex flex-wrap gap-1">
                             @if (menuEditAllowed)
                             {
                                 <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-sm btn-primary">
-                                    <i class="fa fa-edit"></i> Edit
+                                    <i class="fa fa-edit"></i> <span class="d-none d-sm-inline">Edit</span>
                                 </a>
                             }
                             else
                             {
                                 <button class="btn btn-sm btn-primary" disabled title="Editing is restricted to the main branch only.">
-                                    <i class="fa fa-edit"></i> Edit
+                                    <i class="fa fa-edit"></i> <span class="d-none d-sm-inline">Edit</span>
                                 </button>
                             }
                             <a asp-controller="Recipe" asp-action="Create" asp-route-menuItemId="@Model.Id" class="btn btn-sm btn-info" id="recipeBtn">
-                                <i class="fa fa-book"></i> Recipe
+                                <i class="fa fa-book"></i> <span class="d-none d-sm-inline">Recipe</span>
                             </a>
                             <a asp-controller="Recipe" asp-action="Create" asp-route-menuItemId="@Model.Id" class="btn btn-sm btn-secondary">
-                                <i class="fa fa-plus"></i> Add Recipe
+                                <i class="fa fa-plus"></i> <span class="d-none d-sm-inline">Add Recipe</span>
                             </a>
                             <a asp-controller="Recipe" asp-action="CalculateSuggestedPrice" asp-route-id="@Model.Id" class="btn btn-sm btn-success">
-                                <i class="fa fa-calculator"></i> Price
+                                <i class="fa fa-calculator"></i> <span class="d-none d-sm-inline">Price</span>
                             </a>
                             <script>
                                 document.getElementById('recipeBtn').addEventListener('click', function(e) {
@@ -72,14 +72,14 @@
                                 });
                             </script>
                             <a asp-action="Index" class="btn btn-sm btn-outline-secondary">
-                                <i class="fa fa-list"></i> Back
+                                <i class="fa fa-list"></i> <span class="d-none d-sm-inline">Back</span>
                             </a>
                         </div>
                     </div>
                 </div>
                 <div class="card-body py-2">
-                    <div class="row">
-                        <div class="col-md-4">
+                    <div class="row g-3">
+                        <div class="col-12 col-md-4">
                             <div class="card shadow-sm h-100">
                                 <div class="text-center p-2" style="background-color: #f8f9fa; border-bottom: 1px solid #e9ecef;">
                                     @if (!string.IsNullOrEmpty(Model.ImagePath))
@@ -267,7 +267,7 @@
                             </div>
                         </div>
 
-                        <div class="col-md-8">
+                        <div class="col-12 col-md-8">
                             <div class="row">
                                 <div class="col-12">
                                     <div class="card mb-3 shadow-sm h-100">

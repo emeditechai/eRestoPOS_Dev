@@ -117,6 +117,9 @@ namespace RestaurantManagementSystem.Models
 
     [Display(Name = "POS KOT Print Required")]
     public bool IsPOSKOTPrintRequired { get; set; } = false;
+
+    [Display(Name = "ESCPOS Print Enable")]
+    public bool IsESCPOSPrintEnabled { get; set; } = false;
         
         [Required(ErrorMessage = "Bill Format is required")]
         [Display(Name = "Bill Format")]

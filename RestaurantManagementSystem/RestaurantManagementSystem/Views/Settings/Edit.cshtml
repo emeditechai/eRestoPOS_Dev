@@ -431,6 +431,19 @@
                                             <div class="help-text">When enabled, KOT (Kitchen Order Ticket) will be printed from POS during order processing</div>
                                         </div>
                                     </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group mb-3">
+                                            <label asp-for="IsESCPOSPrintEnabled" class="control-label"></label>
+                                            <div class="form-check form-switch">
+                                                <input asp-for="IsESCPOSPrintEnabled" class="form-check-input" type="checkbox" id="isESCPOSPrintEnabled">
+                                                <label class="form-check-label" for="isESCPOSPrintEnabled">
+                                                    Enable ESCPOS printing
+                                                </label>
+                                            </div>
+                                            <span asp-validation-for="IsESCPOSPrintEnabled" class="field-validation-error"></span>
+                                            <div class="help-text">When enabled, bills and KOTs will be sent to the printer using ESC/POS commands (thermal printer protocol)</div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

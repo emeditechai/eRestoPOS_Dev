@@ -13,27 +13,37 @@
     .hourly-collapse-btn:not(.collapsed) .chevron { transform: rotate(180deg); }
 </style>
 
-<div class="container-fluid p-3">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>@ViewData["Title"]</h1>
-        <div>
-            <a asp-action="SeatGuest" class="btn btn-primary">
-                <i class="fas fa-chair"></i> Seat New Guest
+<div class="container-fluid px-2 px-md-3 pt-0 pb-3">
+    <!-- Page Header -->
+    <div class="tsd-page-header rounded-3 mb-3 px-3 px-md-4 py-3 d-flex align-items-center flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-3 me-auto">
+            <div class="tsd-header-icon">
+                <i class="fas fa-th-large"></i>
+            </div>
+            <div>
+                <h5 class="mb-0 fw-bold text-white">Table Service Dashboard</h5>
+                <small class="text-white-50">Live table status, revenue and performance</small>
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a asp-action="SeatGuest" class="btn btn-warning btn-sm fw-semibold text-dark">
+                <i class="fas fa-chair me-1"></i><span class="d-none d-sm-inline">Seat New Guest</span><span class="d-sm-none">Seat</span>
             </a>
-            <a asp-action="ActiveTables" class="btn btn-outline-primary ms-2">
-                <i class="fas fa-list"></i> View All Active Tables
+            <a asp-action="ActiveTables" class="btn btn-light btn-sm fw-semibold">
+                <i class="fas fa-list me-1"></i><span class="d-none d-md-inline">View All Active Tables</span><span class="d-md-none">Active</span>
             </a>
-            <a href="@Url.Action("CleanupStaleTurnovers", "TableService")" class="btn btn-outline-warning ms-2 swal-confirm-link"
+            <a href="@Url.Action("CleanupStaleTurnovers", "TableService")" class="btn btn-sm fw-semibold swal-confirm-link"
+               style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3)"
                data-swal-title="Cleanup Stale Tables"
                data-swal-text="This will clean up old table turnovers and reset available tables. Continue?"
                data-swal-icon="warning">
-                <i class="fas fa-broom"></i> Cleanup Stale Tables
+                <i class="fas fa-broom me-1"></i><span class="d-none d-md-inline">Cleanup Stale Tables</span><span class="d-md-none">Cleanup</span>
             </a>
-            <a href="@Url.Action("ForceResetAllTables", "TableService")" class="btn btn-outline-danger ms-2 swal-confirm-link"
+            <a href="@Url.Action("ForceResetAllTables", "TableService")" class="btn btn-danger btn-sm fw-semibold swal-confirm-link"
                data-swal-title="Force Reset All Tables"
                data-swal-text="This will FORCE RESET all tables to available, cancel all active orders, and clear all turnovers. Are you sure?"
                data-swal-icon="warning">
-                <i class="fas fa-power-off"></i> Force Reset All Tables
+                <i class="fas fa-power-off me-1"></i><span class="d-none d-md-inline">Force Reset</span><span class="d-md-none">Reset</span>
             </a>
         </div>
     </div>
@@ -54,157 +64,109 @@
         </div>
     }
 
-    <div class="row mb-3 g-3">
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 text-white shadow-sm" style="background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border-radius: 16px; overflow: hidden;">
-                <div class="card-body py-3 px-4 position-relative">
-                    <div class="position-absolute" style="top: -20px; right: -20px; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
-                    <h6 class="card-title mb-2 fw-semibold" style="font-size: 0.9rem; opacity: 0.95;">Available Tables</h6>
-                    <h2 class="mb-0 fw-bold" style="font-size: 2.5rem;">@Model.AvailableTables</h2>
+    <!-- KPI Row 1: Table Status -->
+    <div class="row mb-3 g-2">
+        <div class="col-6 col-lg-3">
+            <div class="tsd-kpi-card" style="--kpi-c1:#22c55e;--kpi-c2:#16a34a;--kpi-border:#16a34a">
+                <div class="tsd-kpi-icon" style="background:#16a34a"><i class="fas fa-check-circle"></i></div>
+                <div>
+                    <div class="tsd-kpi-label">Available Tables</div>
+                    <div class="tsd-kpi-value" style="color:#16a34a">@Model.AvailableTables</div>
                 </div>
             </div>
         </div>
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 text-white shadow-sm" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); border-radius: 16px; overflow: hidden;">
-                <div class="card-body py-3 px-4 position-relative">
-                    <div class="position-absolute" style="top: -20px; right: -20px; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
-                    <h6 class="card-title mb-2 fw-semibold" style="font-size: 0.9rem; opacity: 0.95;">Occupied Tables</h6>
-                    <h2 class="mb-0 fw-bold" style="font-size: 2.5rem;">@Model.OccupiedTables</h2>
+        <div class="col-6 col-lg-3">
+            <div class="tsd-kpi-card" style="--kpi-c1:#3b82f6;--kpi-c2:#2563eb;--kpi-border:#2563eb">
+                <div class="tsd-kpi-icon" style="background:#2563eb"><i class="fas fa-user-clock"></i></div>
+                <div>
+                    <div class="tsd-kpi-label">Occupied Tables</div>
+                    <div class="tsd-kpi-value" style="color:#2563eb">@Model.OccupiedTables</div>
                 </div>
             </div>
         </div>
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 text-white shadow-sm" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border-radius: 16px; overflow: hidden;">
-                <div class="card-body py-3 px-4 position-relative">
-                    <div class="position-absolute" style="top: -20px; right: -20px; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
-                    <h6 class="card-title mb-2 fw-semibold text-white" style="font-size: 0.9rem; opacity: 0.95;">Dirty Tables</h6>
-                    <h2 class="mb-0 fw-bold" style="font-size: 2.5rem;">@Model.DirtyTables</h2>
+        <div class="col-6 col-lg-3">
+            <div class="tsd-kpi-card" style="--kpi-c1:#f59e0b;--kpi-c2:#d97706;--kpi-border:#d97706">
+                <div class="tsd-kpi-icon" style="background:#d97706"><i class="fas fa-broom"></i></div>
+                <div>
+                    <div class="tsd-kpi-label">Dirty Tables</div>
+                    <div class="tsd-kpi-value" style="color:#d97706">@Model.DirtyTables</div>
                 </div>
             </div>
         </div>
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 text-white shadow-sm" style="background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%); border-radius: 16px; overflow: hidden;">
-                <div class="card-body py-3 px-4 position-relative">
-                    <div class="position-absolute" style="top: -20px; right: -20px; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
-                    <h6 class="card-title mb-2 fw-semibold" style="font-size: 0.9rem; opacity: 0.95;">Waitlist / Reservations Today</h6>
-                    <h2 class="mb-0 fw-bold" style="font-size: 2.5rem;">@Model.WaitlistCount / @Model.ReservationCount</h2>
+        <div class="col-6 col-lg-3">
+            <div class="tsd-kpi-card" style="--kpi-c1:#06b6d4;--kpi-c2:#0891b2;--kpi-border:#0891b2">
+                <div class="tsd-kpi-icon" style="background:#0891b2"><i class="fas fa-clipboard-list"></i></div>
+                <div>
+                    <div class="tsd-kpi-label">Waitlist / Reservations</div>
+                    <div class="tsd-kpi-value" style="color:#0891b2">@Model.WaitlistCount / @Model.ReservationCount</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Real-Time Analytics & Performance Metrics -->
-    <div class="row mt-4 g-3">
+    <!-- Analytics Row 2 -->
+    <div class="row mb-3 g-2">
         <!-- Average Turnover Time Card -->
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 shadow-sm h-100" style="border-radius: 16px; background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);">
-                <div class="card-body text-white p-4">
-                    <div class="d-flex align-items-center mb-3">
-                        <div class="flex-shrink-0 me-3">
-                            <div class="bg-white bg-opacity-25 rounded-circle p-3">
-                                <i class="fas fa-clock fa-2x"></i>
-                            </div>
-                        </div>
-                        <div class="flex-grow-1">
-                            <h6 class="text-white text-opacity-90 mb-1 fw-semibold" style="font-size: 0.85rem;">Avg. Turnover Time</h6>
-                            <h2 class="mb-0 fw-bold">@Model.AverageTurnoverTime.ToString("0") <small style="font-size: 1rem;">min</small></h2>
-                        </div>
-                    </div>
-                    <div class="text-white text-opacity-75" style="font-size: 0.75rem;">
-                        <i class="fas fa-info-circle me-1"></i>Completed tables today
-                    </div>
-                </div>
+        <div class="col-6 col-lg-3">
+            <div class="tsd-metric-card" style="background:linear-gradient(135deg,#8b5cf6,#6366f1)">
+                <div class="tsd-metric-icon"><i class="fas fa-clock"></i></div>
+                <div class="tsd-metric-label">Avg. Turnover Time</div>
+                <div class="tsd-metric-value">@Model.AverageTurnoverTime.ToString("0") <small>min</small></div>
+                <div class="tsd-metric-sub"><i class="fas fa-info-circle me-1"></i>Completed tables today</div>
             </div>
         </div>
 
         <!-- Today's Revenue Card -->
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 shadow-sm h-100" style="border-radius: 16px; background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
-                <div class="card-body text-white p-4">
-                    <div class="d-flex align-items-center mb-3">
-                        <div class="flex-shrink-0 me-3">
-                            <div class="bg-white bg-opacity-25 rounded-circle p-3">
-                                <i class="fas fa-dollar-sign fa-2x"></i>
-                            </div>
-                        </div>
-                        <div class="flex-grow-1">
-                            <h6 class="text-white text-opacity-90 mb-1 fw-semibold" style="font-size: 0.85rem;">Today's Revenue</h6>
-                            <h2 class="mb-0 fw-bold">₹@Model.TodayRevenue.ToString("N0")</h2>
-                        </div>
-                    </div>
-                    <div class="text-white text-opacity-75" style="font-size: 0.75rem;">
-                        <i class="fas fa-chart-line me-1"></i>All orders today
-                    </div>
-                </div>
+        <div class="col-6 col-lg-3">
+            <div class="tsd-metric-card" style="background:linear-gradient(135deg,#10b981,#059669)">
+                <div class="tsd-metric-icon"><i class="fas fa-dollar-sign"></i></div>
+                <div class="tsd-metric-label">Today's Revenue</div>
+                <div class="tsd-metric-value">₹@Model.TodayRevenue.ToString("N0")</div>
+                <div class="tsd-metric-sub"><i class="fas fa-chart-line me-1"></i>All orders today</div>
             </div>
         </div>
 
         <!-- Revenue Per Table Card -->
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 shadow-sm h-100" style="border-radius: 16px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
-                <div class="card-body text-white p-4">
-                    <div class="d-flex align-items-center mb-3">
-                        <div class="flex-shrink-0 me-3">
-                            <div class="bg-white bg-opacity-25 rounded-circle p-3">
-                                <i class="fas fa-chart-pie fa-2x"></i>
-                            </div>
-                        </div>
-                        <div class="flex-grow-1">
-                            <h6 class="text-white text-opacity-90 mb-1 fw-semibold" style="font-size: 0.85rem;">Avg. Revenue/Table</h6>
-                            <h2 class="mb-0 fw-bold">₹@Model.AverageRevenuePerTable.ToString("N0")</h2>
-                        </div>
-                    </div>
-                    <div class="text-white text-opacity-75" style="font-size: 0.75rem;">
-                        <i class="fas fa-utensils me-1"></i>Per table performance
-                    </div>
-                </div>
+        <div class="col-6 col-lg-3">
+            <div class="tsd-metric-card" style="background:linear-gradient(135deg,#f59e0b,#d97706)">
+                <div class="tsd-metric-icon"><i class="fas fa-chart-pie"></i></div>
+                <div class="tsd-metric-label">Avg. Revenue/Table</div>
+                <div class="tsd-metric-value">₹@Model.AverageRevenuePerTable.ToString("N0")</div>
+                <div class="tsd-metric-sub"><i class="fas fa-utensils me-1"></i>Per table performance</div>
             </div>
         </div>
 
         <!-- Peak Hours Card -->
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 shadow-sm h-100" style="border-radius: 16px; background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);">
-                <div class="card-body text-white p-4">
-                    <div class="d-flex align-items-center mb-3">
-                        <div class="flex-shrink-0 me-3">
-                            <div class="bg-white bg-opacity-25 rounded-circle p-3">
-                                <i class="fas fa-fire fa-2x"></i>
-                            </div>
-                        </div>
-                        <div class="flex-grow-1">
-                            <h6 class="text-white text-opacity-90 mb-1 fw-semibold" style="font-size: 0.85rem;">Peak Hours</h6>
-                            @if (Model.PeakHours.Any(p => p.IsPeakHour))
-                            {
-                                var peakHours = Model.PeakHours.Where(p => p.IsPeakHour).Take(2);
-                                <h2 class="mb-0 fw-bold" style="font-size: 1.5rem;">@string.Join(", ", peakHours.Select(p => p.Hour.ToString()))</h2>
-                            }
-                            else
-                            {
-                                <h2 class="mb-0 fw-bold">N/A</h2>
-                            }
-                        </div>
-                    </div>
-                    <div class="text-white text-opacity-75" style="font-size: 0.75rem;">
-                        <i class="fas fa-users me-1"></i>Busiest hours today
-                    </div>
+        <div class="col-6 col-lg-3">
+            <div class="tsd-metric-card" style="background:linear-gradient(135deg,#ec4899,#db2777)">
+                <div class="tsd-metric-icon"><i class="fas fa-fire"></i></div>
+                <div class="tsd-metric-label">Peak Hours</div>
+                <div class="tsd-metric-value">
+                    @if (Model.PeakHours.Any(p => p.IsPeakHour))
+                    {
+                        var peakHours = Model.PeakHours.Where(p => p.IsPeakHour).Take(2);
+                        @string.Join(", ", peakHours.Select(p => p.Hour.ToString()))
+                    }
+                    else
+                    {
+                        <text>N/A</text>
+                    }
                 </div>
+                <div class="tsd-metric-sub"><i class="fas fa-users me-1"></i>Busiest hours today</div>
             </div>
         </div>
     </div>
 
     <!-- Server Performance & Peak Hours Details -->
-    <div class="row mt-4 g-3">
+    <div class="row mb-3 g-2">
         <!-- Server Performance Section -->
         @if (Model.ServerPerformance.Any())
         {
             <div class="col-lg-8">
-                <div class="card border-0 shadow-sm" style="border-radius: 16px;">
-                    <div class="card-header bg-white border-0 py-3 px-4">
-                        <div class="d-flex align-items-center">
-                            <i class="fas fa-user-tie text-primary me-2 fs-5"></i>
-                            <h5 class="mb-0 fw-bold">Server Performance</h5>
-                            <span class="badge bg-primary ms-2">Live</span>
-                        </div>
+                <div class="tsd-section-card">
+                    <div class="tsd-section-header">
+                        <span><i class="fas fa-user-tie me-2"></i>Server Performance</span>
+                        <span class="badge ms-2" style="background:#7c3aed22;color:#7c3aed;font-size:10px">Live</span>
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
@@ -258,24 +220,20 @@
         @if (Model.PeakHours.Any())
         {
             <div class="col-lg-4">
-                <div class="card border-0 shadow-sm h-100" style="border-radius: 16px;">
-                    <div class="card-header bg-white border-0 py-3 px-4">
-                        <div class="d-flex align-items-center w-100">
-                            <div class="d-flex align-items-center">
-                                <i class="fas fa-chart-bar text-warning me-2 fs-5"></i>
-                                <h5 class="mb-0 fw-bold">Hourly Activity</h5>
-                            </div>
-                            <button class="btn btn-sm btn-outline-secondary ms-auto hourly-collapse-btn collapsed"
-                                    type="button"
-                                    data-bs-toggle="collapse"
-                                    data-bs-target="#hourlyActivityCollapse"
-                                    aria-expanded="false"
-                                    aria-controls="hourlyActivityCollapse">
-                                <span class="label-expand">Expand</span>
-                                <span class="label-collapse">Collapse</span>
-                                <i class="fas fa-chevron-down ms-1 chevron"></i>
-                            </button>
-                        </div>
+                <div class="tsd-section-card h-100">
+                    <div class="tsd-section-header">
+                        <span><i class="fas fa-chart-bar me-2"></i>Hourly Activity</span>
+                        <button class="btn btn-sm ms-auto hourly-collapse-btn collapsed"
+                                style="background:rgba(124,58,237,.1);color:#7c3aed;border:none;font-size:12px"
+                                type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#hourlyActivityCollapse"
+                                aria-expanded="false"
+                                aria-controls="hourlyActivityCollapse">
+                            <span class="label-expand">Expand</span>
+                            <span class="label-collapse">Collapse</span>
+                            <i class="fas fa-chevron-down ms-1 chevron"></i>
+                        </button>
                     </div>
                     <div id="hourlyActivityCollapse" class="collapse">
                         <div class="card-body px-4 py-3">
@@ -316,23 +274,20 @@
         }
     </div>
 
+    <!-- All Tables -->
     <div class="row">
-        <!-- All Tables Section -->
-        <div class="col-lg-12 mt-4">
-            <div class="card shadow-lg border-0" style="border-radius: 20px; overflow: hidden;">
-                <div class="card-header text-white d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border: none;">
-                    <h5 class="mb-0 fw-bold d-flex align-items-center">
-                        <i class="fas fa-th-large me-3" style="font-size: 1.3rem;"></i>
-                        <span style="font-size: 1.25rem; letter-spacing: 0.5px;">All Tables</span>
-                    </h5>
-                    <div class="d-flex gap-3 align-items-center">
-                        <span class="badge" style="background: rgba(255,255,255,0.25); padding: 0.5rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;"><i class="fas fa-circle text-success me-1"></i>Available</span>
-                        <span class="badge" style="background: rgba(255,255,255,0.25); padding: 0.5rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;"><i class="fas fa-circle text-info me-1"></i>Reserved</span>
-                        <span class="badge" style="background: rgba(255,255,255,0.25); padding: 0.5rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;"><i class="fas fa-circle text-danger me-1"></i>Occupied</span>
-                        <span class="badge" style="background: rgba(255,255,255,0.25); padding: 0.5rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;"><i class="fas fa-circle text-warning me-1"></i>Dirty</span>
+        <div class="col-12">
+            <div class="tsd-section-card">
+                <div class="tsd-section-header" style="flex-wrap:wrap;gap:6px">
+                    <span><i class="fas fa-th-large me-2"></i>All Tables</span>
+                    <div class="d-flex flex-wrap gap-2 ms-auto">
+                        <span class="tsd-legend"><i class="fas fa-circle" style="color:#22c55e"></i> Available</span>
+                        <span class="tsd-legend"><i class="fas fa-circle" style="color:#3b82f6"></i> Reserved</span>
+                        <span class="tsd-legend"><i class="fas fa-circle" style="color:#ef4444"></i> Occupied</span>
+                        <span class="tsd-legend"><i class="fas fa-circle" style="color:#f59e0b"></i> Dirty</span>
                     </div>
                 </div>
-                <div class="card-body p-4" style="background: linear-gradient(to bottom, #f8f9fa 0%, #ffffff 100%); max-height: calc(100vh - 300px); overflow-y: auto;">
+                <div class="card-body p-3" style="background:#f9fafb;max-height:calc(100vh - 280px);overflow-y:auto">
                     @if (Model.UnoccupiedTables.Any())
                     {
                         var tableCount = Model.UnoccupiedTables.Count;
@@ -496,109 +451,120 @@
 
 @section Scripts {
     <style>
+        /* ---- Page Header ---- */
+        .tsd-page-header {
+            background: linear-gradient(135deg, #1e0a4a 0%, #2a106d 60%, #4a1fa8 100%);
+            box-shadow: 0 4px 18px rgba(42,16,109,.35);
+        }
+        .tsd-header-icon {
+            width: 40px; height: 40px;
+            background: rgba(255,255,255,.15);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 1.1rem;
+            flex-shrink: 0;
+        }
+
+        /* ---- KPI Status Cards (Row 1) ---- */
+        .tsd-kpi-card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 2px 10px rgba(0,0,0,.07);
+            border-left: 4px solid var(--kpi-border, #7c3aed);
+        }
+        .tsd-kpi-icon {
+            width: 40px; height: 40px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 1rem;
+            flex-shrink: 0;
+        }
+        .tsd-kpi-label { font-size: 0.72rem; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+        .tsd-kpi-value { font-size: 1.6rem; font-weight: 800; line-height: 1.1; }
+
+        /* ---- Metric Cards (Row 2 - Analytics) ---- */
+        .tsd-metric-card {
+            border-radius: 12px;
+            padding: 14px 16px;
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(0,0,0,.15);
+            min-height: 95px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .tsd-metric-icon { font-size: 1.25rem; opacity: .85; margin-bottom: 4px; }
+        .tsd-metric-label { font-size: 0.7rem; font-weight: 600; opacity: .9; text-transform: uppercase; letter-spacing: .4px; }
+        .tsd-metric-value { font-size: 1.4rem; font-weight: 800; line-height: 1.2; }
+        .tsd-metric-value small { font-size: 0.9rem; font-weight: 600; }
+        .tsd-metric-sub { font-size: 0.65rem; opacity: .8; margin-top: 2px; }
+
+        /* ---- Section Cards ---- */
+        .tsd-section-card {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,.07);
+            overflow: hidden;
+            height: 100%;
+        }
+        .tsd-section-header {
+            background: linear-gradient(135deg, #f5f3ff 0%, #fff 100%);
+            border-bottom: 1px solid #ede9fe;
+            padding: 10px 16px;
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: #2a106d;
+            display: flex;
+            align-items: center;
+        }
+
+        /* ---- Legend pills ---- */
+        .tsd-legend {
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: #374151;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        /* ---- Table Cards ---- */
         .table-card {
             transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            border-radius: 20px !important;
+            border-radius: 16px !important;
             overflow: hidden;
         }
-        
         .table-card:not(.table-disabled):hover {
-            transform: translateY(-8px) scale(1.03);
-            box-shadow: 0 20px 50px rgba(0,0,0,0.2), 0 8px 16px rgba(0,0,0,0.1) !important;
+            transform: translateY(-6px) scale(1.02);
+            box-shadow: 0 16px 40px rgba(0,0,0,.18), 0 6px 14px rgba(0,0,0,.08) !important;
         }
-        
         .table-card:not(.table-disabled):hover .table-icon-wrapper {
             transform: rotate(0deg) scale(1.1);
-            box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+            box-shadow: 0 6px 22px rgba(0,0,0,.22);
         }
-        
-        .table-card.table-disabled {
-            pointer-events: none;
-        }
-        
+        .table-card.table-disabled { pointer-events: none; }
         .table-card:not(.table-disabled):hover .create-order-btn {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.35) !important;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(0,0,0,.3) !important;
         }
-        
-        .table-card:not(.table-disabled):hover .table-name {
-            transform: scale(1.05);
-            transition: transform 0.3s ease;
-        }
-        
-        @@keyframes slideInUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .table-card {
-            animation: slideInUp 0.5s ease-out;
-        }
-        
+
         .create-order-btn {
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             border: none !important;
             font-weight: 700 !important;
-            letter-spacing: 0.8px;
         }
-        
-        .table-card .badge {
-            transition: all 0.3s ease;
+
+        @@keyframes slideInUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
-        
-        .table-card:hover .badge {
-            transform: scale(1.1);
-        }
-        
-        .table-card .card-title {
-            text-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            letter-spacing: 1.5px;
-            transition: all 0.3s ease;
-        }
-        
-        .table-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(145deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0.1) 100%);
-            pointer-events: none;
-            border-radius: 15px;
-            z-index: 1;
-        }
-        
-        .table-card::after {
-            content: '';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            right: 2px;
-            bottom: 2px;
-            background: linear-gradient(145deg, #f1f3f4 0%, #e8eaed 100%);
-            border-radius: 13px;
-            z-index: 0;
-            box-shadow: inset 0 2px 10px rgba(0,0,0,0.05);
-        }
-        
-        .row.g-2 {
-            gap: 15px !important;
-        }
-        
-        .table-card {
-            background-image: 
-                radial-gradient(circle at 20% 20%, rgba(255,255,255,0.3) 1px, transparent 1px),
-                radial-gradient(circle at 80% 80%, rgba(255,255,255,0.3) 1px, transparent 1px);
-            background-size: 20px 20px;
-        }
-        
-        @@keyframes ripple {
-            to {
-                transform: scale(4);
-                opacity: 0;
-            }
-        }
+        .table-card { animation: slideInUp 0.45s ease-out; }
+
+        @@keyframes ripple { to { transform: scale(4); opacity: 0; } }
     </style>
     
     <script>
