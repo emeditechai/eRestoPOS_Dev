@@ -18,6 +18,11 @@ namespace RestaurantManagementSystem.Models
         public int CompletedOrdersCount { get; set; }
         public int CancelledOrdersCount { get; set; }
         public decimal TotalSales { get; set; }
+        // POS-specific KPIs (populated only by GetPOSOrderDashboard)
+        public int POSTakeoutCount { get; set; }
+        public int POSDeliveryCount { get; set; }
+        public int POSTodayOrderCount { get; set; }
+        public decimal POSTodayAvgOrderValue { get; set; }
     }
     
     public class OrderSummary
@@ -33,6 +38,8 @@ namespace RestaurantManagementSystem.Models
         public string CounterDisplay { get; set; }
         public string TableName { get; set; }
         public string GuestName { get; set; }
+        public string CustomerPhone { get; set; }
+        public decimal GstAmount { get; set; }
         // Room Service only (optional)
         public int? HBranchId { get; set; }
         public string HBookingNo { get; set; }

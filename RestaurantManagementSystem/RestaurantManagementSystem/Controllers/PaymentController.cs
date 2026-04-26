@@ -5650,7 +5650,7 @@ END", connection))
         }
 
         // GET: Payment/PrintPOS
-        public IActionResult PrintPOS(int orderId, decimal? discount = null, string discountType = null)
+        public IActionResult PrintPOS(int orderId, decimal? discount = null, string discountType = null, bool hideKot = false)
         {
             try
             {
@@ -5775,7 +5775,7 @@ END", connection))
 
                 // Load KOT data if POS KOT Print is required (only for POS orders: Takeout=1, Delivery=2)
                 bool isPosOrder = model.OrderType == 1 || model.OrderType == 2;
-                ViewBag.IsPOSKOTPrintRequired = (settings?.IsPOSKOTPrintRequired ?? false) && isPosOrder;
+                ViewBag.IsPOSKOTPrintRequired = !hideKot && (settings?.IsPOSKOTPrintRequired ?? false) && isPosOrder;
                 ViewBag.POSPaperSize = settings?.POSPaperSize ?? "80mm";
                 if (settings?.IsPOSKOTPrintRequired == true && isPosOrder)
                 {

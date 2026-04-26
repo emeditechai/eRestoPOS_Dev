@@ -4668,7 +4668,245 @@ SELECT @result;", connection))
             }
         }
     
-    private OrderDashboardViewModel GetOrderDashboard(DateTime? fromDate = null, DateTime? toDate = null)
+        // POS Order Dashboard
+        [RequirePermission("NAV_POS_ORDER_DASH", PermissionAction.View)]
+        public IActionResult POSDashboard(DateTime? fromDate = null, DateTime? toDate = null)
+        {
+            if (!GetActiveBranchId().HasValue)
+            {
+                TempData["ErrorMessage"] = "No active branch selected. Please select a branch first.";
+                return RedirectToAction("Index", "Home");
+            }
+
+            var model = GetPOSOrderDashboard(fromDate, toDate);
+            if (model?.ActiveOrders != null)
+            {
+                model.ActiveOrders = model.ActiveOrders
+                    .OrderByDescending(o => o.CreatedAt)
+                    .ThenByDescending(o => o.Id)
+                    .ToList();
+            }
+
+            ViewBag.FromDate = fromDate?.ToString("yyyy-MM-dd");
+            ViewBag.ToDate   = toDate?.ToString("yyyy-MM-dd");
+            return View(model);
+        }
+
+        private OrderDashboardViewModel GetPOSOrderDashboard(DateTime? fromDate = null, DateTime? toDate = null)
+        {
+            var activeBranchId = GetActiveBranchId();
+            if (!activeBranchId.HasValue)
+                return new OrderDashboardViewModel
+                {
+                    ActiveOrders = new List<OrderSummary>(),
+                    CompletedOrders = new List<OrderSummary>(),
+                    CancelledOrders = new List<OrderSummary>()
+                };
+
+            var hasOrdersBranchColumn = ColumnExistsInTable("Orders", "BranchId");
+            var canViewAllRecords = CurrentUserCanViewAllOrderData();
+            var currentUserId = GetCurrentUserId();
+            var model = new OrderDashboardViewModel
+            {
+                ActiveOrders = new List<OrderSummary>(),
+                CompletedOrders = new List<OrderSummary>(),
+                CancelledOrders = new List<OrderSummary>()
+            };
+
+            string branchWhere = hasOrdersBranchColumn ? " AND o.BranchId = @BranchId" : "";
+            string userWhere   = canViewAllRecords ? "" : " AND o.UserId = @UserId";
+
+            using var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString);
+            connection.Open();
+
+            // ── KPI summary ────────────────────────────────────────────────────
+            var summarySql = @"
+                SELECT
+                    SUM(CASE WHEN Status < 3  AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS ActiveCount,
+                    SUM(CASE WHEN Status = 3  AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS CompletedCount,
+                    SUM(CASE WHEN Status = 3  AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN TotalAmount ELSE 0 END) AS TotalSales,
+                    SUM(CASE WHEN Status = 4  AND CAST(ISNULL(UpdatedAt, CreatedAt) AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS CancelledCount,
+                    SUM(CASE WHEN OrderType = 1 AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS TakeoutCount,
+                    SUM(CASE WHEN OrderType = 2 AND CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS DeliveryCount
+                FROM Orders o
+                WHERE OrderType IN (1, 2)
+                  AND NULLIF(LTRIM(RTRIM(OrderNumber)), '') IS NOT NULL"
+                + (hasOrdersBranchColumn ? " AND o.BranchId = @BranchId" : "")
+                + (canViewAllRecords ? "" : " AND o.UserId = @UserId");
+
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(summarySql, connection))
+            {
+                if (hasOrdersBranchColumn) cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                if (!canViewAllRecords)    cmd.Parameters.AddWithValue("@UserId", currentUserId);
+                using var rdr = cmd.ExecuteReader();
+                if (rdr.Read())
+                {
+                    int activeCount    = rdr.IsDBNull(0) ? 0 : rdr.GetInt32(0);
+                    model.CompletedOrdersCount = rdr.IsDBNull(1) ? 0 : rdr.GetInt32(1);
+                    model.TotalSales           = rdr.IsDBNull(2) ? 0 : rdr.GetDecimal(2);
+                    model.CancelledOrdersCount = rdr.IsDBNull(3) ? 0 : rdr.GetInt32(3);
+                    model.POSTakeoutCount      = rdr.IsDBNull(4) ? 0 : rdr.GetInt32(4);
+                    model.POSDeliveryCount     = rdr.IsDBNull(5) ? 0 : rdr.GetInt32(5);
+                    model.POSTodayOrderCount   = activeCount + model.CompletedOrdersCount;
+                    model.POSTodayAvgOrderValue = model.POSTodayOrderCount > 0
+                        ? Math.Round(model.TotalSales / model.POSTodayOrderCount, 2)
+                        : 0;
+                    // Map active breakdown to existing props for summary cards
+                    model.OpenOrdersCount    = activeCount;
+                }
+            }
+
+            // ── Active orders (Status < 3) ─────────────────────────────────────
+            var activeOrderSql = @"
+                SELECT
+                    o.Id, o.OrderNumber, o.OrderType, o.Status,
+                    o.CustomerName AS GuestName,
+                    o.CustomerPhone,
+                    CONCAT(u.FirstName, ' ', ISNULL(u.LastName, '')) AS ServerName,
+                    (SELECT COUNT(1) FROM OrderItems WHERE OrderId = o.Id) AS ItemCount,
+                    o.TotalAmount, o.CreatedAt,
+                    DATEDIFF(MINUTE, o.CreatedAt, GETDATE()) AS DurationMinutes
+                FROM Orders o
+                LEFT JOIN Users u ON o.UserId = u.Id
+                WHERE o.OrderType IN (1, 2)
+                  AND o.Status < 3
+                  AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL"
+                + branchWhere + userWhere +
+                " ORDER BY o.CreatedAt DESC";
+
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(activeOrderSql, connection))
+            {
+                if (hasOrdersBranchColumn) cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                if (!canViewAllRecords)    cmd.Parameters.AddWithValue("@UserId", currentUserId);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                {
+                    var orderType = rdr.IsDBNull(2) ? 1 : Convert.ToInt32(rdr.GetValue(2));
+                    var status    = rdr.IsDBNull(3) ? 0 : Convert.ToInt32(rdr.GetValue(3));
+                    model.ActiveOrders.Add(new OrderSummary
+                    {
+                        Id              = rdr.IsDBNull(0) ? 0 : Convert.ToInt32(rdr.GetValue(0)),
+                        OrderNumber     = rdr.IsDBNull(1) ? "" : Convert.ToString(rdr.GetValue(1)),
+                        OrderType       = orderType,
+                        OrderTypeDisplay = orderType == 1 ? "Takeout" : "Delivery",
+                        Status          = status,
+                        StatusDisplay   = status switch { 0 => "Open", 1 => "In Progress", 2 => "Ready", _ => "Unknown" },
+                        GuestName       = rdr.IsDBNull(4) ? null : Convert.ToString(rdr.GetValue(4)),
+                        CustomerPhone   = rdr.IsDBNull(5) ? null : Convert.ToString(rdr.GetValue(5)),
+                        ServerName      = rdr.IsDBNull(6) ? null : Convert.ToString(rdr.GetValue(6)),
+                        ItemCount       = rdr.IsDBNull(7) ? 0 : Convert.ToInt32(rdr.GetValue(7)),
+                        TotalAmount     = rdr.IsDBNull(8) ? 0 : rdr.GetDecimal(8),
+                        CreatedAt       = rdr.IsDBNull(9) ? DateTime.MinValue : rdr.GetDateTime(9),
+                        Duration        = TimeSpan.FromMinutes(rdr.IsDBNull(10) ? 0 : Convert.ToInt32(rdr.GetValue(10)))
+                    });
+                }
+            }
+
+            // ── Completed orders ───────────────────────────────────────────────
+            var completedSql = @"
+                SELECT
+                    o.Id, o.OrderNumber, o.OrderType, o.Status,
+                    o.CustomerName AS GuestName,
+                    o.CustomerPhone,
+                    CONCAT(u.FirstName, ' ', ISNULL(u.LastName, '')) AS ServerName,
+                    (SELECT COUNT(1) FROM OrderItems WHERE OrderId = o.Id) AS ItemCount,
+                    o.TotalAmount, o.CreatedAt,
+                    DATEDIFF(MINUTE, o.CreatedAt, o.CompletedAt) AS DurationMinutes,
+                    ISNULL(o.TaxAmount, 0) AS GstAmount
+                FROM Orders o
+                LEFT JOIN Users u ON o.UserId = u.Id
+                WHERE o.OrderType IN (1, 2)
+                  AND o.Status = 3
+                  AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL"
+                + branchWhere + userWhere;
+
+            completedSql += fromDate.HasValue && toDate.HasValue
+                ? " AND CAST(o.CreatedAt AS DATE) BETWEEN @FromDate AND @ToDate ORDER BY o.CompletedAt DESC"
+                : " AND CAST(o.CreatedAt AS DATE) = CAST(GETDATE() AS DATE) ORDER BY o.CompletedAt DESC";
+
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(completedSql, connection))
+            {
+                if (hasOrdersBranchColumn) cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                if (!canViewAllRecords)    cmd.Parameters.AddWithValue("@UserId", currentUserId);
+                if (fromDate.HasValue && toDate.HasValue)
+                {
+                    cmd.Parameters.AddWithValue("@FromDate", fromDate.Value.Date);
+                    cmd.Parameters.AddWithValue("@ToDate", toDate.Value.Date);
+                }
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                {
+                    var orderType = rdr.IsDBNull(2) ? 1 : Convert.ToInt32(rdr.GetValue(2));
+                    model.CompletedOrders.Add(new OrderSummary
+                    {
+                        Id              = rdr.IsDBNull(0) ? 0 : Convert.ToInt32(rdr.GetValue(0)),
+                        OrderNumber     = rdr.IsDBNull(1) ? "" : Convert.ToString(rdr.GetValue(1)),
+                        OrderType       = orderType,
+                        OrderTypeDisplay = orderType == 1 ? "Takeout" : "Delivery",
+                        Status          = 3,
+                        StatusDisplay   = "Completed",
+                        GuestName       = rdr.IsDBNull(4) ? null : Convert.ToString(rdr.GetValue(4)),
+                        CustomerPhone   = rdr.IsDBNull(5) ? null : Convert.ToString(rdr.GetValue(5)),
+                        ServerName      = rdr.IsDBNull(6) ? null : Convert.ToString(rdr.GetValue(6)),
+                        ItemCount       = rdr.IsDBNull(7) ? 0 : Convert.ToInt32(rdr.GetValue(7)),
+                        TotalAmount     = rdr.IsDBNull(8) ? 0 : rdr.GetDecimal(8),
+                        CreatedAt       = rdr.IsDBNull(9) ? DateTime.MinValue : rdr.GetDateTime(9),
+                        Duration        = TimeSpan.FromMinutes(rdr.IsDBNull(10) ? 0 : Convert.ToInt32(rdr.GetValue(10))),
+                        GstAmount       = rdr.IsDBNull(11) ? 0 : rdr.GetDecimal(11)
+                    });
+                }
+            }
+
+            // ── Cancelled orders (today only) ─────────────────────────────────
+            var cancelledSql = @"
+                SELECT
+                    o.Id, o.OrderNumber, o.OrderType, o.Status,
+                    o.CustomerName AS GuestName,
+                    o.CustomerPhone,
+                    CONCAT(u.FirstName, ' ', ISNULL(u.LastName, '')) AS ServerName,
+                    (SELECT COUNT(1) FROM OrderItems WHERE OrderId = o.Id) AS ItemCount,
+                    o.TotalAmount, o.CreatedAt,
+                    DATEDIFF(MINUTE, o.CreatedAt, ISNULL(o.UpdatedAt, GETDATE())) AS DurationMinutes
+                FROM Orders o
+                LEFT JOIN Users u ON o.UserId = u.Id
+                WHERE o.OrderType IN (1, 2)
+                  AND o.Status = 4
+                  AND NULLIF(LTRIM(RTRIM(o.OrderNumber)), '') IS NOT NULL
+                  AND CAST(ISNULL(o.UpdatedAt, o.CreatedAt) AS DATE) = CAST(GETDATE() AS DATE)"
+                + branchWhere + userWhere +
+                " ORDER BY ISNULL(o.UpdatedAt, o.CreatedAt) DESC";
+
+            using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(cancelledSql, connection))
+            {
+                if (hasOrdersBranchColumn) cmd.Parameters.AddWithValue("@BranchId", activeBranchId.Value);
+                if (!canViewAllRecords)    cmd.Parameters.AddWithValue("@UserId", currentUserId);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                {
+                    var orderType = rdr.IsDBNull(2) ? 1 : Convert.ToInt32(rdr.GetValue(2));
+                    model.CancelledOrders.Add(new OrderSummary
+                    {
+                        Id              = rdr.IsDBNull(0) ? 0 : Convert.ToInt32(rdr.GetValue(0)),
+                        OrderNumber     = rdr.IsDBNull(1) ? "" : Convert.ToString(rdr.GetValue(1)),
+                        OrderType       = orderType,
+                        OrderTypeDisplay = orderType == 1 ? "Takeout" : "Delivery",
+                        Status          = 4,
+                        StatusDisplay   = "Cancelled",
+                        GuestName       = rdr.IsDBNull(4) ? null : Convert.ToString(rdr.GetValue(4)),
+                        CustomerPhone   = rdr.IsDBNull(5) ? null : Convert.ToString(rdr.GetValue(5)),
+                        ServerName      = rdr.IsDBNull(6) ? null : Convert.ToString(rdr.GetValue(6)),
+                        ItemCount       = rdr.IsDBNull(7) ? 0 : Convert.ToInt32(rdr.GetValue(7)),
+                        TotalAmount     = rdr.IsDBNull(8) ? 0 : rdr.GetDecimal(8),
+                        CreatedAt       = rdr.IsDBNull(9) ? DateTime.MinValue : rdr.GetDateTime(9),
+                        Duration        = TimeSpan.FromMinutes(rdr.IsDBNull(10) ? 0 : Convert.ToInt32(rdr.GetValue(10)))
+                    });
+                }
+            }
+
+            return model;
+        }
+
+        private OrderDashboardViewModel GetOrderDashboard(DateTime? fromDate = null, DateTime? toDate = null)
         {
             var activeBranchId = GetActiveBranchId();
             if (!activeBranchId.HasValue)

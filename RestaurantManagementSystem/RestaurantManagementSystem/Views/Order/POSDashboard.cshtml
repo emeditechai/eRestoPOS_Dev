@@ -1,0 +1,583 @@
+@model OrderDashboardViewModel
+@{
+    ViewData["Title"] = "POS Order Dashboard";
+    string fromDate = ViewBag.FromDate ?? "";
+    string toDate   = ViewBag.ToDate   ?? "";
+
+    decimal avgVal = Model.POSTodayOrderCount > 0
+        ? Math.Round(Model.TotalSales / Model.POSTodayOrderCount, 2)
+        : 0;
+}
+
+<div class="container-fluid p-3 pos-dash-shell">
+
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+        <h1 class="pos-dash-title mb-0">
+            <i class="fas fa-cash-register me-2" style="color:#7c3aed"></i>POS Order Dashboard
+        </h1>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <small id="refreshCountdown" class="text-muted">Refresh in 120s</small>
+            <button type="button" id="toggleAutoRefreshBtn" class="btn btn-sm btn-outline-secondary">Pause Auto Refresh</button>
+            <button type="button" id="refreshNowBtn" class="btn btn-sm" style="border:1px solid #7c3aed;color:#7c3aed;background:transparent">
+                <i class="fas fa-rotate-right me-1"></i>Refresh
+            </button>
+            <a asp-action="POSOrder" asp-controller="Order" class="btn fw-semibold" style="background:#7c3aed;color:#fff;border-color:#7c3aed" target="_blank" rel="noopener noreferrer">
+                <i class="fas fa-plus-circle me-1"></i>New POS Order
+            </a>
+        </div>
+    </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show py-2">
+            @TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2">
+            @TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <style>
+        /* ── Full-screen layout overrides ── */
+        main[role="main"] { padding-bottom: 0 !important; overflow: hidden !important; }
+
+        .pos-dash-shell {
+            height: calc(100vh - 56px);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+            background:
+                radial-gradient(circle at 6% 10%, rgba(167,139,250,.15), transparent 28%),
+                radial-gradient(circle at 94% 10%, rgba(124,58,237,.10), transparent 26%),
+                linear-gradient(180deg, #f5f3ff 0%, #ede9fe 30%, #f8f5ff 100%);
+            border-radius: 0;
+        }
+
+        /* Active orders: limited height, scrolls when many cards */
+        .pos-active-section {
+            flex: 0 0 auto;
+            max-height: 32vh;
+            min-height: 80px;
+            overflow-y: auto;
+        }
+
+        /* History card: fills remaining space */
+        .pos-history-section {
+            flex: 1 1 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .pos-history-section .card-header { flex-shrink: 0; }
+        .pos-history-section .pos-history-body {
+            flex: 1 1 0;
+            min-height: 0;
+            overflow-y: auto;
+        }
+        .pos-dash-title { font-size: 1.45rem; font-weight: 700; color: #4c1d95; }
+
+        /* KPI Cards */
+        .pos-kpi-card {
+            border-radius: 12px;
+            border: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,.07);
+            transition: transform .15s;
+        }
+        .pos-kpi-card:hover { transform: translateY(-2px); }
+        .pos-kpi-icon { font-size: 1.6rem; opacity: .85; }
+        .pos-kpi-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; opacity: .7; }
+        .pos-kpi-value { font-size: 1.65rem; font-weight: 800; line-height: 1.1; }
+
+        /* Order cards (active) */
+        .pos-order-card {
+            border-radius: 10px;
+            border-left: 4px solid #7c3aed;
+            background: #faf5ff;
+            box-shadow: 0 2px 6px rgba(124,58,237,.09);
+            transition: box-shadow .15s;
+        }
+        .pos-order-card:hover { box-shadow: 0 4px 14px rgba(124,58,237,.16); }
+        .pos-order-card.delivery { border-left-color: #3b82f6; }
+
+        .badge-takeout { background: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe; }
+        .badge-delivery { background: #dbeafe; color: #1e3a8a; border: 1px solid #bfdbfe; }
+
+        .pos-status-badge { font-size: .7rem; font-weight: 700; letter-spacing: .04em; }
+
+        /* Tables tab */
+        .pos-tab-table th { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; background: #ede9fe; color: #4c1d95; border-bottom: 2px solid #ddd6fe; }
+        .pos-tab-table td { vertical-align: middle; font-size: .82rem; }
+        .pos-tab-table tbody tr:hover { background: #f5f3ff; }
+
+        /* Date range form */
+        .pos-date-form { background: rgba(250,245,255,.85); border-radius: 10px; border: 1px solid #ddd6fe; }
+
+        /* Stat progress bar */
+        .pos-type-bar { height: 6px; border-radius: 3px; }
+
+        /* ── Responsive ────────────────────────────────────────────── */
+        @@media (max-width: 767.98px) {
+            .pos-dash-shell { padding: .75rem !important; border-radius: 8px; }
+            .pos-dash-title { font-size: 1.15rem; }
+            .pos-kpi-value { font-size: 1.45rem; }
+            /* Topbar: stack title + actions */
+            .pos-dash-shell > .d-flex.justify-content-between:first-child {
+                flex-direction: column;
+                align-items: stretch !important;
+                gap: .75rem;
+            }
+            .pos-dash-shell > .d-flex.justify-content-between:first-child > div {
+                flex-wrap: wrap;
+                justify-content: flex-start;
+            }
+            /* Active orders: single column */
+            #activeOrdersGrid > .col-sm-6,
+            #activeOrdersGrid > .col-lg-4,
+            #activeOrdersGrid > .col-xl-3 { width: 100%; }
+            /* Search full width */
+            #activeSearch { max-width: 100% !important; width: 100%; }
+            /* Tabs + filter form: stack vertically */
+            .pos-date-form { flex-direction: column !important; align-items: stretch !important; }
+            .pos-date-form input[type="date"] { max-width: 100% !important; }
+            /* History tables: hide less critical cols */
+            .pos-tab-table thead th:nth-child(4),  /* Phone */
+            .pos-tab-table thead th:nth-child(6),  /* Time */
+            .pos-tab-table tbody td:nth-child(4),
+            .pos-tab-table tbody td:nth-child(6) { display: none; }
+        }
+        @@media (max-width: 991.98px) and (min-width: 768px) {
+            .pos-dash-shell { padding: 1rem !important; }
+            #activeOrdersGrid > .col-xl-3 { width: 50%; }
+        }
+        /* Card header tab+filter wrap on small screens */
+        @@media (max-width: 860px) {
+            #historyTabs.nav-tabs ~ form.pos-date-form {
+                flex-wrap: wrap;
+            }
+            .card-header .d-flex.justify-content-between { flex-wrap: wrap; gap: .5rem; }
+        }
+    </style>
+
+    <!-- ── KPI Row ────────────────────────────────────────────────────────── -->
+    <div class="row g-2 mb-2">
+        <!-- Today's Orders -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card pos-kpi-card h-100 p-2" style="background:linear-gradient(135deg,#f5f3ff,#ddd6fe)">
+                <div class="pos-kpi-icon mb-1" style="color:#7c3aed"><i class="fas fa-receipt"></i></div>
+                <div class="pos-kpi-label" style="color:#6d28d9">Today's Orders</div>
+                <div class="pos-kpi-value" style="color:#4c1d95">@Model.POSTodayOrderCount</div>
+            </div>
+        </div>
+        <!-- Takeout -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card pos-kpi-card h-100 p-2" style="background:linear-gradient(135deg,#faf5ff,#ede9fe)">
+                <div class="pos-kpi-icon mb-1" style="color:#9333ea"><i class="fas fa-bag-shopping"></i></div>
+                <div class="pos-kpi-label" style="color:#7c3aed">Takeout</div>
+                <div class="pos-kpi-value" style="color:#5b21b6">@Model.POSTakeoutCount</div>
+            </div>
+        </div>
+        <!-- Delivery -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card pos-kpi-card h-100 p-2" style="background:linear-gradient(135deg,#eff6ff,#bfdbfe)">
+                <div class="pos-kpi-icon mb-1" style="color:#2563eb"><i class="fas fa-motorcycle"></i></div>
+                <div class="pos-kpi-label" style="color:#2563eb">Delivery</div>
+                <div class="pos-kpi-value" style="color:#1d4ed8">@Model.POSDeliveryCount</div>
+            </div>
+        </div>
+        <!-- Revenue -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card pos-kpi-card h-100 p-2" style="background:linear-gradient(135deg,#f0fdf4,#bbf7d0)">
+                <div class="pos-kpi-icon mb-1" style="color:#16a34a"><i class="fas fa-indian-rupee-sign"></i></div>
+                <div class="pos-kpi-label" style="color:#16a34a">Today's Revenue</div>
+                <div class="pos-kpi-value" style="color:#15803d; font-size:1.4rem">₹@Model.TotalSales.ToString("N0")</div>
+            </div>
+        </div>
+        <!-- Avg Order Value -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card pos-kpi-card h-100 p-2" style="background:linear-gradient(135deg,#fdf4ff,#e9d5ff)">
+                <div class="pos-kpi-icon mb-1" style="color:#9333ea"><i class="fas fa-chart-bar"></i></div>
+                <div class="pos-kpi-label" style="color:#9333ea">Avg Order Value</div>
+                <div class="pos-kpi-value" style="color:#7e22ce; font-size:1.4rem">₹@Model.POSTodayAvgOrderValue.ToString("N0")</div>
+            </div>
+        </div>
+        <!-- Cancelled -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card pos-kpi-card h-100 p-2" style="background:linear-gradient(135deg,#fef2f2,#fecaca)">
+                <div class="pos-kpi-icon mb-1" style="color:#dc2626"><i class="fas fa-ban"></i></div>
+                <div class="pos-kpi-label" style="color:#dc2626">Cancelled</div>
+                <div class="pos-kpi-value" style="color:#b91c1c">@Model.CancelledOrdersCount</div>
+            </div>
+        </div>
+    </div>
+
+    @{
+        int totalTypeCount = Model.POSTakeoutCount + Model.POSDeliveryCount;
+        int takeoutPct  = totalTypeCount > 0 ? (int)Math.Round(Model.POSTakeoutCount  * 100.0 / totalTypeCount) : 0;
+        int deliveryPct = totalTypeCount > 0 ? 100 - takeoutPct : 0;
+    }
+    <!-- Type split bar -->
+    <div class="d-flex align-items-center gap-3 mb-2 px-1">
+        <small class="text-muted" style="white-space:nowrap">Order Mix:</small>
+        <div class="flex-grow-1">
+            <div class="d-flex rounded overflow-hidden" style="height:10px">
+                <div class="pos-type-bar" style="width:@takeoutPct%;background:#7c3aed"></div>
+                <div class="pos-type-bar" style="width:@deliveryPct%;background:#3b82f6"></div>
+            </div>
+        </div>
+        <small class="text-muted" style="white-space:nowrap">
+            <span class="me-1" style="color:#7c3aed">■</span>Takeout @takeoutPct%
+            &nbsp;<span class="me-1" style="color:#3b82f6">■</span>Delivery @deliveryPct%
+        </small>
+    </div>
+
+    <!-- ── Active Orders ──────────────────────────────────────────────────── -->
+    <div class="mb-2 pos-active-section">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0 fw-bold" style="color:#4c1d95">
+                <i class="fas fa-circle-dot me-2" style="color:#7c3aed"></i>Active Orders
+                <span class="badge ms-1" style="background:#7c3aed;font-size:.72rem">@Model.ActiveOrders.Count</span>
+            </h5>
+            <input type="text" id="activeSearch" class="form-control form-control-sm" placeholder="Search orders…"
+                   style="max-width:200px;border-color:#ddd6fe">
+        </div>
+
+        @if (!Model.ActiveOrders.Any())
+        {
+            <div class="text-center py-5" style="color:#6d28d9">
+                <i class="fas fa-cash-register fa-3x mb-3 opacity-25"></i>
+                <div class="fw-semibold">No active POS orders right now</div>
+                <div class="small text-muted mt-1">Takeout and Delivery orders will appear here</div>
+            </div>
+        }
+        else
+        {
+            <div class="row g-2" id="activeOrdersGrid">
+                @foreach (var o in Model.ActiveOrders)
+                {
+                    string cardClass = o.OrderType == 2 ? "delivery" : "";
+                    string statusColor = o.Status switch
+                    {
+                        0 => "#7c3aed",
+                        1 => "#3b82f6",
+                        2 => "#10b981",
+                        _ => "#6b7280"
+                    };
+                    string statusBg = o.Status switch
+                    {
+                        0 => "#ede9fe",
+                        1 => "#dbeafe",
+                        2 => "#d1fae5",
+                        _ => "#f3f4f6"
+                    };
+                    <div class="col-sm-6 col-lg-4 col-xl-3 active-order-card-wrap">
+                        <div class="pos-order-card @cardClass p-3 h-100">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <div>
+                                    <span class="fw-bold" style="font-size:.85rem">#@o.OrderNumber</span>
+                                    @if (o.OrderType == 1)
+                                    {
+                                        <span class="badge badge-takeout ms-1"><i class="fas fa-bag-shopping me-1"></i>Takeout</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge badge-delivery ms-1"><i class="fas fa-motorcycle me-1"></i>Delivery</span>
+                                    }
+                                </div>
+                                <span class="badge pos-status-badge" style="background:@statusBg;color:@statusColor;border:1px solid @statusColor">@o.StatusDisplay</span>
+                            </div>
+
+                            <div class="mb-2">
+                                <div class="fw-semibold" style="font-size:.9rem">
+                                    <i class="fas fa-user me-1 text-muted"></i>@(string.IsNullOrWhiteSpace(o.GuestName) ? "—" : o.GuestName)
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(o.CustomerPhone))
+                                {
+                                    <div class="text-muted" style="font-size:.78rem">
+                                        <i class="fas fa-phone me-1"></i>@o.CustomerPhone
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="d-flex justify-content-between align-items-end">
+                                <div>
+                                    <div class="text-muted" style="font-size:.75rem">
+                                        <i class="fas fa-box me-1"></i>@o.ItemCount item@(o.ItemCount != 1 ? "s" : "")
+                                    </div>
+                                    <div class="fw-bold" style="color:#15803d; font-size:1.05rem">₹@o.TotalAmount.ToString("N2")</div>
+                                </div>
+                                <div class="text-end">
+                                    <div class="text-muted" style="font-size:.72rem">
+                                        <i class="fas fa-clock me-1"></i>@((int)o.Duration.TotalMinutes)m ago
+                                    </div>
+                                    <a asp-action="Details" asp-controller="Order" asp-route-id="@o.Id"
+                                       class="btn btn-sm mt-1" style="background:#7c3aed;color:#fff;font-size:.72rem;border-color:#7c3aed">
+                                        <i class="fas fa-eye me-1"></i>View
+                                    </a>
+                                    <button type="button" class="btn btn-sm btn-outline-danger mt-1 cancel-order-trigger"
+                                            data-order-id="@o.Id" data-order-number="@o.OrderNumber"
+                                            title="Cancel Order" style="font-size:.72rem">
+                                        <i class="fas fa-times-circle"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <!-- ── Completed / Cancelled Tabs ────────────────────────────────────── -->
+    <div class="card border-0 shadow-sm pos-history-section">
+        <div class="card-header bg-white pt-3 pb-0 border-bottom-0">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <ul class="nav nav-tabs border-0" id="historyTabs">
+                    <li class="nav-item">
+                        <button class="nav-link active fw-semibold px-3" data-bs-toggle="tab" data-bs-target="#completedTab">
+                            <i class="fas fa-check-circle me-1 text-success"></i>Completed
+                            <span class="badge bg-success ms-1" style="font-size:.68rem">@Model.CompletedOrders.Count</span>
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link fw-semibold px-3" data-bs-toggle="tab" data-bs-target="#cancelledTab">
+                            <i class="fas fa-ban me-1 text-danger"></i>Cancelled
+                            <span class="badge bg-danger ms-1" style="font-size:.68rem">@Model.CancelledOrders.Count</span>
+                        </button>
+                    </li>
+                </ul>
+                <!-- Date range filter -->
+                <form method="get" asp-action="POSDashboard" class="pos-date-form d-flex align-items-center gap-2 p-2">
+                    <label class="text-muted small mb-0" style="white-space:nowrap">Date Range:</label>
+                    <input type="date" name="fromDate" value="@fromDate" class="form-control form-control-sm" style="max-width:140px;border-color:#ddd6fe">
+                    <span class="text-muted small">–</span>
+                    <input type="date" name="toDate" value="@toDate" class="form-control form-control-sm" style="max-width:140px;border-color:#ddd6fe">
+                    <button type="submit" class="btn btn-sm" style="background:#7c3aed;color:#fff;border-color:#7c3aed">
+                        <i class="fas fa-filter me-1"></i>Filter
+                    </button>
+                    @if (!string.IsNullOrEmpty(fromDate))
+                    {
+                        <a asp-action="POSDashboard" class="btn btn-sm btn-outline-secondary">Clear</a>
+                    }
+                </form>
+            </div>
+        </div>
+        <div class="card-body p-0 pos-history-body">
+            <div class="tab-content">
+
+                <!-- Completed Tab -->
+                <div class="tab-pane fade show active" id="completedTab">
+                    @if (!Model.CompletedOrders.Any())
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <i class="fas fa-check-circle fa-2x mb-2 opacity-25"></i>
+                            <div class="small">No completed POS orders @(string.IsNullOrEmpty(fromDate) ? "today" : "for this range")</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0 pos-tab-table">
+                                <thead>
+                                    <tr>
+                                        <th class="ps-3">Order #</th>
+                                        <th>Type</th>
+                                        <th>Customer</th>
+                                        <th>Phone</th>
+                                        <th>Items</th>
+                                        <th>Amount</th>
+                                        <th>GST</th>
+                                        <th>Time</th>
+                                        <th>Duration</th>
+                                        <th class="pe-3"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var o in Model.CompletedOrders)
+                                    {
+                                        <tr>
+                                            <td class="ps-3 fw-semibold">@o.OrderNumber</td>
+                                            <td>
+                                                @if (o.OrderType == 1)
+                                                {
+                                                    <span class="badge badge-takeout"><i class="fas fa-bag-shopping me-1"></i>Takeout</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge badge-delivery"><i class="fas fa-motorcycle me-1"></i>Delivery</span>
+                                                }
+                                            </td>
+                                            <td>@(string.IsNullOrWhiteSpace(o.GuestName) ? "—" : o.GuestName)</td>
+                                            <td class="text-muted">@(string.IsNullOrWhiteSpace(o.CustomerPhone) ? "—" : o.CustomerPhone)</td>
+                                            <td class="text-center">@o.ItemCount</td>
+                                            <td class="fw-semibold text-success">₹@o.TotalAmount.ToString("N2")</td>
+                                            <td class="text-muted">@(o.GstAmount > 0 ? "₹" + o.GstAmount.ToString("N2") : "—")</td>
+                                            <td class="text-muted">@o.CreatedAt.ToString("HH:mm")</td>
+                                            <td class="text-muted">@((int)o.Duration.TotalMinutes)m</td>
+                                            <td class="pe-3">
+                                                <div class="d-flex gap-1">
+                                                    <a asp-action="Details" asp-controller="Order" asp-route-id="@o.Id"
+                                                       class="btn btn-sm btn-outline-secondary" title="View Order">
+                                                        <i class="fas fa-eye"></i>
+                                                    </a>
+                                                    <a href="@Url.Action("PrintPOS", "Payment", new { orderId = o.Id, hideKot = true })"
+                                                       class="btn btn-sm btn-outline-secondary" title="Print POS Bill" target="_blank" rel="noopener noreferrer">
+                                                        <i class="fas fa-print"></i>
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <!-- Cancelled Tab -->
+                <div class="tab-pane fade" id="cancelledTab">
+                    @if (!Model.CancelledOrders.Any())
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <i class="fas fa-ban fa-2x mb-2 opacity-25"></i>
+                            <div class="small">No cancelled POS orders today</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0 pos-tab-table">
+                                <thead>
+                                    <tr>
+                                        <th class="ps-3">Order #</th>
+                                        <th>Type</th>
+                                        <th>Customer</th>
+                                        <th>Phone</th>
+                                        <th>Items</th>
+                                        <th>Amount</th>
+                                        <th>Time</th>
+                                        <th class="pe-3"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var o in Model.CancelledOrders)
+                                    {
+                                        <tr class="table-danger bg-opacity-25">
+                                            <td class="ps-3 fw-semibold">@o.OrderNumber</td>
+                                            <td>
+                                                @if (o.OrderType == 1)
+                                                {
+                                                    <span class="badge badge-takeout"><i class="fas fa-bag-shopping me-1"></i>Takeout</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge badge-delivery"><i class="fas fa-motorcycle me-1"></i>Delivery</span>
+                                                }
+                                            </td>
+                                            <td>@(string.IsNullOrWhiteSpace(o.GuestName) ? "—" : o.GuestName)</td>
+                                            <td class="text-muted">@(string.IsNullOrWhiteSpace(o.CustomerPhone) ? "—" : o.CustomerPhone)</td>
+                                            <td class="text-center">@o.ItemCount</td>
+                                            <td class="text-danger">₹@o.TotalAmount.ToString("N2")</td>
+                                            <td class="text-muted">@o.CreatedAt.ToString("HH:mm")</td>
+                                            <td class="pe-3">
+                                                <a asp-action="Details" asp-controller="Order" asp-route-id="@o.Id"
+                                                   class="btn btn-sm btn-outline-secondary">
+                                                    <i class="fas fa-eye"></i>
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Cancel Order Confirmation Modal -->
+<div class="modal fade" id="cancelOrderModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle me-2"></i>Confirm Cancellation</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="cancelOrderId" />
+                <p class="mb-2">You are about to cancel order: <strong id="cancelOrderInfo"></strong></p>
+                <div class="alert alert-warning mb-0 small"><i class="fas fa-info-circle me-1"></i>This action cannot be undone and items will be marked as cancelled.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Keep Order</button>
+                <button type="button" class="btn btn-danger" id="confirmCancelOrderBtn">Yes, Cancel Order</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var modalEl       = document.getElementById('cancelOrderModal');
+    var confirmBtn    = document.getElementById('confirmCancelOrderBtn');
+    var orderInfoSpan = document.getElementById('cancelOrderInfo');
+    var hiddenOrderId = document.getElementById('cancelOrderId');
+    var bsModal       = new bootstrap.Modal(modalEl);
+
+    document.querySelectorAll('.cancel-order-trigger').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            hiddenOrderId.value       = btn.getAttribute('data-order-id');
+            orderInfoSpan.textContent = btn.getAttribute('data-order-number');
+            bsModal.show();
+        });
+    });
+
+    confirmBtn.addEventListener('click', function () {
+        if (!hiddenOrderId.value) return;
+        window.location.href = '/Order/CancelOrder/' + hiddenOrderId.value + '?returnUrl=/Order/POSDashboard';
+    });
+});
+</script>
+<script>
+(function () {
+    // ── Auto-refresh ─────────────────────────────────────────────────────
+    let secondsLeft = 120;
+    let paused = false;
+    const countdownEl = document.getElementById('refreshCountdown');
+    const toggleBtn   = document.getElementById('toggleAutoRefreshBtn');
+    const refreshBtn  = document.getElementById('refreshNowBtn');
+
+    setInterval(() => {
+        if (paused) return;
+        secondsLeft--;
+        if (countdownEl) countdownEl.textContent = `Refresh in ${secondsLeft}s`;
+        if (secondsLeft <= 0) location.reload();
+    }, 1000);
+
+    toggleBtn?.addEventListener('click', () => {
+        paused = !paused;
+        toggleBtn.textContent = paused ? 'Resume Auto Refresh' : 'Pause Auto Refresh';
+    });
+    refreshBtn?.addEventListener('click', () => location.reload());
+
+    // ── Active order search ───────────────────────────────────────────────
+    document.getElementById('activeSearch')?.addEventListener('input', function () {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('.active-order-card-wrap').forEach(card => {
+            card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+    });
+})();
+</script>
+}
