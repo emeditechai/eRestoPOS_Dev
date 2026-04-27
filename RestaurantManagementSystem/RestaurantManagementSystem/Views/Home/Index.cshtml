@@ -91,10 +91,28 @@
         50% { transform: scale(1.1); opacity: 0.8; }
     }
     
+    .hdr-layout {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 20px;
+        position: relative;
+        z-index: 1;
+    }
+    .hdr-left {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+    .hdr-right {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 12px;
+    }
+
     .dashboard-header .brand-logo-wrapper {
-        position: absolute;
-        top: 15px;
-        right: 30px;
+        position: static;
         display: flex;
         align-items: center;
         gap: 10px;
@@ -505,8 +523,7 @@
     /* Live Clock Styles */
     .live-clock { 
         position: static; 
-        margin-top: 8px; 
-        padding: 6px 14px; 
+        padding: 8px 16px; 
         border-radius: 12px; 
         background: rgba(255,255,255,0.15);
         backdrop-filter: blur(10px);
@@ -517,6 +534,7 @@
         gap: 10px; 
         box-shadow: 0 3px 12px rgba(0,0,0,0.2);
         border: 1px solid rgba(255,255,255,0.2);
+        white-space: nowrap;
     } 
     .live-clock .date { 
         font-size: 0.8rem; 
@@ -573,24 +591,26 @@
     
     /* Responsive */
     @@media (max-width: 768px) { 
+        .hdr-layout {
+            flex-direction: column-reverse;
+        }
+        .hdr-right {
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+        }
         .live-clock { 
-            position: static; 
-            margin: 8px 0 0; 
+            font-size: 0.85rem;
         }
         .dashboard-header {
-            padding: 18px 15px;
+            padding: 15px;
         }
         .dashboard-header h1 {
-            font-size: 1.5rem;
-        }
-        .dashboard-header .brand-logo-wrapper {
-            position: relative;
-            top: auto;
-            right: auto;
-            margin-bottom: 15px;
+            font-size: 1.4rem;
         }
         .stats-card {
-            min-height: 130px;
+            min-height: 120px;
         }
     }
 </style>
@@ -661,80 +681,79 @@
         }
 
         <div class="dashboard-header">
-            <div class="brand-logo-wrapper" title="@Model.RestaurantName">
-                @if (!string.IsNullOrEmpty(Model.LogoPath))
-                {
-                    <img src="@Model.LogoPath" alt="@Model.RestaurantName Logo" class="brand-logo" />
-                }
-                else
-                {
-                    <i class="fas fa-store fa-2x text-white" aria-hidden="true"></i>
-                }
-                <span class="brand-name">@Model.RestaurantName</span>
-            </div>
-            @* Removed in favor of single consolidated Help button under navbar brand *@
-            <div class="d-flex justify-content-between align-items-start mb-2 pt-2">
-                <h1 class="me-3"><i class="fas fa-utensils me-2" aria-hidden="true"></i>@Model.RestaurantName Dashboard</h1>
-            </div>
-            <p>Welcome back, <strong>@Model.UserFullName</strong>!</p>
-            <p class="mb-1">
-                Active Branch: <strong>@activeBranchName</strong>
-                @if (isActiveMainBranch)
-                {
-                    <span class="badge bg-light text-primary ms-2" style="font-size: 0.75rem; vertical-align: middle;">Main Branch</span>
-                }
-            </p>
-            <div class="d-flex justify-content-end">
-                <div class="live-clock" id="liveClock">
-                    <span class="date" id="liveDate">—</span>
-                    <span class="time" id="liveTime">00:00:00</span>
+            <div class="hdr-layout">
+                <div class="hdr-left">
+                    <h1><i class="fas fa-utensils me-2" aria-hidden="true"></i>@Model.RestaurantName Dashboard</h1>
+                    <p class="mt-1 mb-1">Welcome back, <strong>@Model.UserFullName</strong>!</p>
+                    <p class="mb-0">
+                        Active Branch: <strong>@activeBranchName</strong>
+                        @if (isActiveMainBranch)
+                        {
+                            <span class="badge bg-light text-primary ms-2" style="font-size: 0.75rem; vertical-align: middle;">Main Branch</span>
+                        }
+                    </p>
+                    <div class="user-info">
+                        <div>
+                            <strong>Roles:</strong>
+                            @foreach (var role in Model.UserRoles)
+                            {
+                                <span class="user-role-badge">@role</span>
+                            }
+                        </div>
+                        <div class="last-login">
+                            <i class="fas fa-clock me-1"></i> Last login: @Model.LastLoginDate.ToString("MMM d, yyyy h:mm tt")
+                        </div>
+                    </div>
                 </div>
-            </div>
-            
-            <div class="user-info">
-                <div>
-                    <strong>Roles:</strong>
-                    @foreach (var role in Model.UserRoles)
-                    {
-                        <span class="user-role-badge">@role</span>
-                    }
-                </div>
-                
-                <div class="last-login">
-                    <i class="fas fa-clock me-1"></i> Last login: @Model.LastLoginDate.ToString("MMM d, yyyy h:mm tt")
+                <div class="hdr-right">
+                    <div class="brand-logo-wrapper" title="@Model.RestaurantName">
+                        @if (!string.IsNullOrEmpty(Model.LogoPath))
+                        {
+                            <img src="@Model.LogoPath" alt="@Model.RestaurantName Logo" class="brand-logo" />
+                        }
+                        else
+                        {
+                            <i class="fas fa-store fa-2x text-white" aria-hidden="true"></i>
+                        }
+                        <span class="brand-name">@Model.RestaurantName</span>
+                    </div>
+                    <div class="live-clock" id="liveClock">
+                        <span class="date" id="liveDate">—</span>
+                        <span class="time" id="liveTime">00:00:00</span>
+                    </div>
                 </div>
             </div>
         </div>
         
 
         <!-- Stats Cards -->
-        <div class="row stats-container">
-            <div class="col-md-3 col-sm-6 mb-3">
-                <div class="stats-card sales py-2">
+        <div class="row g-3 stats-container">
+            <div class="col-6 col-md-3">
+                <div class="stats-card sales h-100">
                     <div class="sparkline"><canvas id="spark-sales"></canvas></div>
                     <span class="icon"><i class="fas fa-rupee-sign"></i></span>
                     <h3>Today's Sales</h3>
                     <p class="number">₹@Model.TodaySales.ToString("N2")</p>
                 </div>
             </div>
-            <div class="col-md-3 col-sm-6 mb-3">
-                <div class="stats-card orders py-2">
+            <div class="col-6 col-md-3">
+                <div class="stats-card orders h-100">
                     <div class="sparkline"><canvas id="spark-orders"></canvas></div>
                     <span class="icon"><i class="fas fa-shopping-cart"></i></span>
                     <h3>Today's Orders</h3>
                     <p class="number">@Model.TodayOrders</p>
                 </div>
             </div>
-            <div class="col-md-3 col-sm-6 mb-3">
-                <div class="stats-card tables py-2">
+            <div class="col-6 col-md-3">
+                <div class="stats-card tables h-100">
                     <div class="sparkline"><canvas id="spark-tables"></canvas></div>
                     <span class="icon"><i class="fas fa-chair"></i></span>
                     <h3>Active Tables</h3>
                     <p class="number">@Model.ActiveTables</p>
                 </div>
             </div>
-            <div class="col-md-3 col-sm-6 mb-3">
-                <div class="stats-card reservations py-2">
+            <div class="col-6 col-md-3">
+                <div class="stats-card reservations h-100">
                     <div class="sparkline"><canvas id="spark-reservations"></canvas></div>
                     <span class="icon"><i class="fas fa-calendar-check"></i></span>
                     <h3>Upcoming Reservations</h3>
