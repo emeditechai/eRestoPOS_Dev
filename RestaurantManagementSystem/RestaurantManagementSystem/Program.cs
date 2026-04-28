@@ -90,6 +90,7 @@ namespace RestaurantManagementSystem
             builder.Services.AddScoped<ILicensingService, LicensingService>();
             builder.Services.AddScoped<IEmailSender, DatabaseEmailSender>();
             builder.Services.AddScoped<IDayClosingService, DayClosingService>();
+            builder.Services.AddScoped<EscPosService>();
             // Hosted service for non-blocking admin initialization
             builder.Services.AddHostedService<AdminInitializationHostedService>();
 

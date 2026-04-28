@@ -1,0 +1,377 @@
+@{
+    ViewData["Title"] = "Printer Setup";
+    Layout = "_Layout";
+}
+
+@section Styles {
+    <style>
+        .printer-setup-page {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 24px 16px;
+        }
+        .ps-card {
+            background: var(--bs-body-bg);
+            border: 1px solid var(--bs-border-color);
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 20px;
+        }
+        .ps-card-title {
+            font-weight: 600;
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+        .ps-card-subtitle {
+            font-size: 13px;
+            color: var(--bs-secondary-color);
+            margin-bottom: 16px;
+        }
+        .printer-status-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            background: var(--bs-tertiary-bg);
+        }
+        .printer-icon-wrap {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            background: #7c3aed1a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+        .printer-name-text {
+            font-weight: 600;
+            font-size: 15px;
+        }
+        .printer-uuid-text {
+            font-size: 11px;
+            color: var(--bs-secondary-color);
+            word-break: break-all;
+        }
+        .status-dot {
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            margin-right: 5px;
+            background: #6b7280;
+        }
+        .status-dot.connected { background: #22c55e; }
+        .status-dot.testing   { background: #f59e0b; animation: pulse 1s infinite; }
+        @@keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.4; }
+        }
+        #psLog {
+            background: #0f172a;
+            color: #94a3b8;
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-size: 12px;
+            font-family: monospace;
+            min-height: 56px;
+            max-height: 160px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        #psLog .log-ok   { color: #22c55e; }
+        #psLog .log-err  { color: #ef4444; }
+        #psLog .log-warn { color: #f59e0b; }
+        .ps-action-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 14px;
+        }
+    </style>
+}
+
+<div class="printer-setup-page">
+    <h4 class="fw-bold mb-1"><i class="fas fa-print me-2 text-primary"></i>Printer Setup</h4>
+    <p class="text-muted mb-4" style="font-size:13px;">
+        Pair your Bluetooth thermal printer once — it will print silently on every order.
+        Requires Chrome / Chromium on Android over HTTPS.
+    </p>
+
+    <!-- Current printer card -->
+    <div class="ps-card" id="psSavedCard" style="display:none;">
+        <div class="ps-card-title">Saved Printer</div>
+        <div class="ps-card-subtitle">This printer will be used automatically for all receipts.</div>
+        <div class="printer-status-row">
+            <div class="printer-icon-wrap">&#128424;</div>
+            <div class="flex-grow-1">
+                <div class="printer-name-text" id="psSavedName">—</div>
+                <div class="printer-uuid-text" id="psSavedUUID"></div>
+            </div>
+            <span id="psSavedDot" class="status-dot ms-auto"></span>
+        </div>
+        <div class="ps-action-row">
+            <button class="btn btn-sm btn-outline-primary" id="psTestBtn" onclick="testPrint()">
+                <i class="fas fa-print me-1"></i> Test Print
+            </button>
+            <button class="btn btn-sm btn-outline-danger" id="psForgetBtn" onclick="forgetPrinter()">
+                <i class="fas fa-trash me-1"></i> Remove Printer
+            </button>
+        </div>
+    </div>
+
+    <!-- No printer — setup card -->
+    <div class="ps-card" id="psSetupCard">
+        <div class="ps-card-title">No Printer Configured</div>
+        <div class="ps-card-subtitle">
+            Tap <strong>Scan for Printers</strong>, select your thermal printer from the list,
+            and the app will detect the correct settings automatically.
+        </div>
+        <div class="alert alert-warning py-2 px-3 mb-0" style="font-size:12px;" id="psBrowserWarning" style="display:none;">
+            <i class="fas fa-exclamation-triangle me-1"></i>
+            Web Bluetooth requires <strong>Chrome / Chromium</strong> on Android. Safari and Firefox are not supported.
+        </div>
+    </div>
+
+    <!-- Scan / Save card (shown after scanning) -->
+    <div class="ps-card" id="psScanCard" style="display:none;">
+        <div class="ps-card-title">Found Printer</div>
+        <div class="ps-card-subtitle">Verify this is the right device, then tap <strong>Save as Default</strong>.</div>
+        <div class="printer-status-row">
+            <div class="printer-icon-wrap">&#128268;</div>
+            <div class="flex-grow-1">
+                <div class="printer-name-text" id="psScannedName">—</div>
+                <div class="printer-uuid-text" id="psScannedUUID"></div>
+            </div>
+        </div>
+        <div class="ps-action-row">
+            <button class="btn btn-sm btn-success" id="psSaveBtn" onclick="saveScanned()">
+                <i class="fas fa-check me-1"></i> Save as Default
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="cancelScan()">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Scan button (always visible until a printer is being scanned) -->
+    <div class="d-grid mb-3" id="psScanBtnWrap">
+        <button class="btn btn-primary" id="psScanBtn" onclick="startScan()">
+            <i class="fas fa-bluetooth me-2"></i> Scan for Printers
+        </button>
+    </div>
+
+    <!-- Status log -->
+    <div id="psLog" style="display:none;"></div>
+</div>
+
+@section Scripts {
+    <script src="~/js/printer-manager.js"></script>
+    <script>
+    (function () {
+        'use strict';
+
+        var _scannedDevice = null;
+        var _scannedSvc    = '';
+        var _scannedChr    = '';
+
+        var logEl       = document.getElementById('psLog');
+        var savedCard   = document.getElementById('psSavedCard');
+        var setupCard   = document.getElementById('psSetupCard');
+        var scanCard    = document.getElementById('psScanCard');
+        var scanBtnWrap = document.getElementById('psScanBtnWrap');
+        var scanBtn     = document.getElementById('psScanBtn');
+        var browserWarn = document.getElementById('psBrowserWarning');
+
+        // ── Log helper ─────────────────────────────────────────────────
+        function log(msg, cls) {
+            logEl.style.display = 'block';
+            var line = document.createElement('div');
+            line.className = cls ? 'log-' + cls : '';
+            line.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+            logEl.appendChild(line);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        // ── Render saved printer card ───────────────────────────────────
+        function renderSaved(cfg) {
+            if (!cfg || !cfg.name) {
+                savedCard.style.display = 'none';
+                setupCard.style.display = '';
+                return;
+            }
+            document.getElementById('psSavedName').textContent = cfg.name;
+            var uuidText = '';
+            if (cfg.svcUUID) uuidText = 'Service: ' + cfg.svcUUID;
+            if (cfg.chrUUID) uuidText += (uuidText ? '\nChar: ' : 'Char: ') + cfg.chrUUID;
+            document.getElementById('psSavedUUID').textContent = uuidText;
+            savedCard.style.display = '';
+            setupCard.style.display = 'none';
+        }
+
+        // ── Show/hide browser warning ───────────────────────────────────
+        if (!navigator.bluetooth) {
+            browserWarn.style.display = '';
+        }
+
+        // ── Init: load saved printer on page open ───────────────────────
+        PrinterManager.init().then(function () {
+            renderSaved(PrinterManager.getConfig());
+        });
+
+        // ── Scan ────────────────────────────────────────────────────────
+        window.startScan = function () {
+            if (!navigator.bluetooth) {
+                log('Web Bluetooth not supported. Use Chrome on Android.', 'err');
+                return;
+            }
+            scanBtn.disabled = true;
+            scanBtn.textContent = 'Scanning\u2026';
+            scanCard.style.display = 'none';
+
+            PrinterManager.scan(function (msg) { log(msg); })
+                .then(function (result) {
+                    _scannedDevice = result.device;
+                    _scannedSvc    = result.svcUUID || '';
+                    _scannedChr    = result.chrUUID || '';
+
+                    document.getElementById('psScannedName').textContent = result.device.name || 'Unknown Device';
+                    var uuidText = '';
+                    if (_scannedSvc) uuidText = 'Service: ' + _scannedSvc;
+                    if (_scannedChr) uuidText += (uuidText ? '\nChar: ' : 'Char: ') + _scannedChr;
+                    if (!uuidText)   uuidText = 'UUIDs will be detected on first print';
+                    document.getElementById('psScannedUUID').textContent = uuidText;
+
+                    scanCard.style.display = '';
+                    log('Found: ' + (result.device.name || 'device') + '. Ready to save.', 'ok');
+                })
+                .catch(function (err) {
+                    if (err && err.name === 'NotFoundError') {
+                        log('Scan cancelled.', 'warn');
+                    } else {
+                        log('Scan error: ' + (err && err.message ? err.message : String(err)), 'err');
+                    }
+                })
+                .finally(function () {
+                    scanBtn.disabled = false;
+                    scanBtn.innerHTML = '<i class="fas fa-bluetooth me-2"></i> Scan for Printers';
+                });
+        };
+
+        // ── Save scanned printer ────────────────────────────────────────
+        window.saveScanned = function () {
+            if (!_scannedDevice) return;
+            var saveBtn = document.getElementById('psSaveBtn');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving\u2026';
+
+            PrinterManager.savePrinter(_scannedDevice, _scannedSvc, _scannedChr)
+                .then(function (res) {
+                    if (res && res.success) {
+                        log('Printer saved: ' + _scannedDevice.name, 'ok');
+                        renderSaved(PrinterManager.getConfig());
+                        scanCard.style.display = 'none';
+                        _scannedDevice = null;
+                    } else {
+                        log('Saved locally. (Server save failed — you may need to log in again.)', 'warn');
+                        renderSaved(PrinterManager.getConfig());
+                        scanCard.style.display = 'none';
+                    }
+                })
+                .catch(function (err) {
+                    log('Save error: ' + (err && err.message ? err.message : String(err)), 'err');
+                })
+                .finally(function () {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save as Default';
+                });
+        };
+
+        // ── Cancel scan ─────────────────────────────────────────────────
+        window.cancelScan = function () {
+            _scannedDevice = null;
+            scanCard.style.display = 'none';
+            log('Scan discarded.');
+        };
+
+        // ── Test print ──────────────────────────────────────────────────
+        window.testPrint = function () {
+            var testBtn = document.getElementById('psTestBtn');
+            testBtn.disabled = true;
+            testBtn.textContent = 'Printing\u2026';
+
+            // Build a minimal ESC/POS test receipt
+            var ESC = 0x1B, GS = 0x1D, LF = 0x0A;
+            var lines = [
+                // Initialize
+                ESC, 0x40,
+                // Center align
+                ESC, 0x61, 0x01,
+                // Bold ON
+                ESC, 0x45, 0x01
+            ];
+
+            function pushText(str) {
+                for (var i = 0; i < str.length; i++) lines.push(str.charCodeAt(i));
+                lines.push(LF);
+            }
+
+            pushText('** TEST PRINT **');
+            // Bold OFF
+            lines.push(ESC, 0x45, 0x00);
+            // Left align
+            lines.push(ESC, 0x61, 0x00);
+            pushText('Printer is working correctly.');
+            pushText(new Date().toLocaleString());
+            // Feed + cut
+            lines.push(LF, LF, LF);
+            lines.push(GS, 0x56, 0x00);  // full cut
+
+            var arr = new Uint8Array(lines);
+            var b64 = btoa(String.fromCharCode.apply(null, arr));
+
+            var dot = document.getElementById('psSavedDot');
+            if (dot) { dot.className = 'status-dot testing'; }
+
+            PrinterManager.print(b64, function (msg, cls) { log(msg, cls === 'ok' ? 'ok' : cls || ''); })
+                .then(function () {
+                    if (dot) { dot.className = 'status-dot connected'; }
+                    log('Test print successful!', 'ok');
+                })
+                .catch(function (err) {
+                    if (dot) { dot.className = 'status-dot'; }
+                    log('Test print failed: ' + (err && err.message ? err.message : String(err)), 'err');
+                })
+                .finally(function () {
+                    testBtn.disabled = false;
+                    testBtn.innerHTML = '<i class="fas fa-print me-1"></i> Test Print';
+                });
+        };
+
+        // ── Forget printer ──────────────────────────────────────────────
+        window.forgetPrinter = function () {
+            if (!confirm('Remove the saved printer? You will need to pair again for wireless printing.')) return;
+            var forgetBtn = document.getElementById('psForgetBtn');
+            forgetBtn.disabled = true;
+            forgetBtn.textContent = 'Removing\u2026';
+
+            PrinterManager.forget()
+                .then(function () {
+                    log('Printer removed.', 'warn');
+                    renderSaved(null);
+                    _scannedDevice = null;
+                    scanCard.style.display = 'none';
+                })
+                .catch(function (err) {
+                    log('Remove error: ' + (err && err.message ? err.message : String(err)), 'err');
+                })
+                .finally(function () {
+                    forgetBtn.disabled = false;
+                    forgetBtn.innerHTML = '<i class="fas fa-trash me-1"></i> Remove Printer';
+                });
+        };
+
+    })();
+    </script>
+}

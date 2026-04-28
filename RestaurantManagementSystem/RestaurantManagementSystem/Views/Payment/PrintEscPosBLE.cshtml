@@ -1,0 +1,253 @@
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery AntiforgeryPrint
+@{
+    Layout = null;
+    var bytesB64   = ViewBag.EscPosBytesB64 as string ?? "";
+    var bleOrderId = ViewBag.BleOrderId ?? 0;
+    var afToken    = AntiforgeryPrint.GetAndStoreTokens(Context).RequestToken;
+}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <meta name="request-verification-token" content="@afToken" />
+    <title>Print Receipt</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0f0826;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 24px 20px;
+            text-align: center;
+            gap: 18px;
+        }
+        .icon { font-size: 52px; line-height: 1; }
+        h1   { font-size: 22px; font-weight: 700; }
+        .sub { font-size: 14px; color: #a09abe; line-height: 1.5; }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #7c3aed, #4f46e5);
+            color: #fff;
+            border: none;
+            border-radius: 16px;
+            font-size: 20px;
+            font-weight: 700;
+            padding: 20px 48px;
+            cursor: pointer;
+            width: 100%;
+            max-width: 340px;
+            box-shadow: 0 8px 24px rgba(124,58,237,0.45);
+            touch-action: manipulation;
+            user-select: none;
+            transition: opacity .2s, transform .15s;
+        }
+        .btn-primary:active   { transform: scale(0.97); }
+        .btn-primary:disabled { opacity: 0.55; cursor: default; transform: none; }
+
+        .btn-secondary {
+            background: transparent;
+            color: #a09abe;
+            border: 1px solid #3b2d6e;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            padding: 12px 32px;
+            cursor: pointer;
+            width: 100%;
+            max-width: 340px;
+            touch-action: manipulation;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+        .btn-secondary:hover { background: #1e1040; color: #d0c8f5; }
+
+        #status       { font-size: 15px; min-height: 22px; color: #22c55e; }
+        #status.err   { color: #ef4444; }
+        #status.warn  { color: #f59e0b; }
+
+        .close-hint { font-size: 12px; color: #4b5563; }
+
+        .badge {
+            display: none;
+            font-size: 12px;
+            color: #22c55e;
+            background: #052e16;
+            border: 1px solid #166534;
+            border-radius: 8px;
+            padding: 5px 14px;
+            max-width: 340px;
+        }
+
+        .link-btn {
+            background: transparent;
+            color: #6b7280;
+            border: none;
+            font-size: 12px;
+            cursor: pointer;
+            text-decoration: underline;
+            padding: 0;
+        }
+
+        .no-bt-msg {
+            display: none;
+            background: #1e0a3c;
+            border: 1px solid #3b2d6e;
+            border-radius: 12px;
+            padding: 16px 20px;
+            font-size: 13px;
+            color: #a09abe;
+            max-width: 340px;
+            line-height: 1.7;
+        }
+        .no-bt-msg strong { color: #d8b4fe; }
+    </style>
+</head>
+<body>
+    <div class="icon">&#128268;</div>
+    <h1>Print Receipt</h1>
+    <p class="sub" id="printSub">Tap the button to print wirelessly.</p>
+
+    <!-- Primary print button -->
+    <button id="bleBtn" class="btn-primary" onclick="startBLEPrint()">&#128424; Print Receipt</button>
+
+    <div id="status"></div>
+
+    <!-- No Web Bluetooth support message -->
+    <div class="no-bt-msg" id="noBtMsg">
+        <strong>Web Bluetooth not available.</strong><br>
+        Please open this page in <strong>Chrome on Android</strong> over HTTPS.<br>
+        Safari and Firefox do not support Web Bluetooth.
+    </div>
+
+    <!-- Green badge: shows saved BLE printer name -->
+    <div id="defaultPrinterBadge" class="badge">&#10003; BT Printer: <span id="defaultPrinterName"></span></div>
+
+    <!-- View HTML receipt fallback -->
+    <a class="btn-secondary" href="/Payment/PrintPOS?orderId=@bleOrderId&htmlOnly=true" target="_blank">&#128196; View Receipt</a>
+
+    <!-- Setup / Change printer links -->
+    <a id="setupPrinterLink" class="btn-secondary" href="/Utility/PrinterSetup"
+       style="display:none; background:transparent; color:#7c3aed; border-color:#7c3aed;">
+        &#128268; Setup Printer
+    </a>
+    <button id="changePrinterBtn" class="link-btn" onclick="changePrinter()" style="display:none;">
+        &#8635; Change BT Printer
+    </button>
+
+    <div class="close-hint">Window closes automatically after printing.</div>
+
+    <script src="/js/printer-manager.js"></script>
+    <script>
+    (function () {
+        'use strict';
+
+        var BLE_BYTES_B64 = '@Html.Raw(bytesB64)';
+        var ORDER_ID      = @bleOrderId;
+
+        var bleBtn           = document.getElementById('bleBtn');
+        var badge            = document.getElementById('defaultPrinterBadge');
+        var badgeName        = document.getElementById('defaultPrinterName');
+        var setupLink        = document.getElementById('setupPrinterLink');
+        var changePrinterBtn = document.getElementById('changePrinterBtn');
+        var noBtMsg          = document.getElementById('noBtMsg');
+        var statusEl         = document.getElementById('status');
+        var printSub         = document.getElementById('printSub');
+
+        // ── Helpers ───────────────────────────────────────────────────────────────
+        function setStatus(msg, cls) {
+            statusEl.textContent = msg;
+            statusEl.className   = cls || '';
+        }
+
+        function showBadge(name) {
+            if (!name) { badge.style.display = 'none'; return; }
+            badgeName.textContent = name;
+            badge.style.display   = 'inline-block';
+        }
+
+        // ── Print via Web Bluetooth ───────────────────────────────────────────────
+        function doPrint() {
+            bleBtn.disabled    = true;
+            bleBtn.textContent = 'Connecting\u2026';
+            setStatus('');
+
+            PrinterManager.print(BLE_BYTES_B64, function (msg, cls) {
+                setStatus(msg, cls === 'ok' ? '' : (cls || ''));
+            })
+            .then(function (cfg) {
+                showBadge(cfg.name);
+                changePrinterBtn.style.display = 'inline';
+                if (setupLink) setupLink.style.display = 'none';
+                bleBtn.textContent = '\ud83d\udda8 Print to ' + cfg.name + ' (again)';
+                bleBtn.disabled = false;
+                setTimeout(function () { try { window.close(); } catch (e) {} }, 2000);
+            })
+            .catch(function (err) {
+                bleBtn.disabled    = false;
+                bleBtn.textContent = '\ud83d\udda8 Print Receipt';
+                // User cancelled the picker — don't show a scary error
+                if (err && (err.name === 'NotFoundError' || err.name === 'AbortError')) {
+                    setStatus('Print cancelled.', 'warn');
+                } else {
+                    setStatus('Error: ' + (err && err.message ? err.message : String(err)), 'err');
+                }
+                if (!PrinterManager.isReady() && setupLink) setupLink.style.display = 'inline-block';
+            });
+        }
+
+        window.startBLEPrint = function () {
+            if (!navigator.bluetooth) {
+                bleBtn.style.display  = 'none';
+                noBtMsg.style.display = 'block';
+                return;
+            }
+            doPrint();
+        };
+
+        window.changePrinter = function () {
+            PrinterManager.forget().then(function () {
+                badge.style.display            = 'none';
+                changePrinterBtn.style.display = 'none';
+                setStatus('');
+                bleBtn.textContent = '\ud83d\udda8 Print Receipt';
+                doPrint();
+            });
+        };
+
+        // ── On page load: show saved printer state ────────────────────────────────
+        // Do NOT auto-print — Web Bluetooth requestDevice() requires a user gesture.
+        document.addEventListener('DOMContentLoaded', function () {
+            if (!navigator.bluetooth) {
+                bleBtn.style.display  = 'none';
+                noBtMsg.style.display = 'block';
+                return;
+            }
+
+            PrinterManager.init().then(function () {
+                var cfg = PrinterManager.getConfig();
+                if (cfg && cfg.name) {
+                    showBadge(cfg.name);
+                    changePrinterBtn.style.display = 'inline';
+                    if (setupLink) setupLink.style.display = 'none';
+                    bleBtn.textContent = '\ud83d\udda8 Print to ' + cfg.name;
+                    if (printSub) printSub.textContent = 'Paired with ' + cfg.name + ' \u2014 tap to print.';
+                } else {
+                    // No saved printer — direct user to setup
+                    if (setupLink) setupLink.style.display = 'inline-block';
+                    bleBtn.textContent = '\ud83d\udda8 Print via Bluetooth';
+                    if (printSub) printSub.textContent = 'No printer saved. Tap to select your printer.';
+                }
+            });
+        });
+
+    })();
+    </script>
+</body>
+</html>

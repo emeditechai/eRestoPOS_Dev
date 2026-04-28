@@ -141,6 +141,15 @@
                                     <li><span>Restrict Menu Edit from Non-Main Branch</span><span class="pill @(Model.IsRestrictMenuEditNonMainBranch ? "pill-yes" : "pill-no")">@(Model.IsRestrictMenuEditNonMainBranch ? "Yes" : "No")</span></li>
                                     <li><span>POS KOT Print Required</span><span class="pill @(Model.IsPOSKOTPrintRequired ? "pill-yes" : "pill-no")">@(Model.IsPOSKOTPrintRequired ? "Yes" : "No")</span></li>
                                     <li><span>ESCPOS Print Enable</span><span class="pill @(Model.IsESCPOSPrintEnabled ? "pill-yes" : "pill-no")">@(Model.IsESCPOSPrintEnabled ? "Yes" : "No")</span></li>
+                                    @if (Model.IsESCPOSPrintEnabled)
+                                    {
+                                        <li><span>ESCPOS Mode</span><span class="pill pill-yes">@(Model.ESCPOSMode ?? "BLE")</span></li>
+                                        @if (string.Equals(Model.ESCPOSMode, "TCP", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <li><span>Printer IP</span><span>@(Model.ESCPOSPrinterIP ?? "—")</span></li>
+                                            <li><span>Printer Port</span><span>@Model.ESCPOSPrinterPort</span></li>
+                                        }
+                                    }
                                 </ul>
                             </div>
                         </div>

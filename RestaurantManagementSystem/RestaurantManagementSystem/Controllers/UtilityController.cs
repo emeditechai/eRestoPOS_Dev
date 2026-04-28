@@ -308,6 +308,115 @@ ORDER  BY b.BranchName", conn);
             cmd.Parameters.AddWithValue("@BranchId", branchId);
             return (int)cmd.ExecuteScalar() > 0;
         }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  GET – Printer Setup page
+        // ═══════════════════════════════════════════════════════════════
+        public IActionResult PrinterSetup()
+        {
+            return View();
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  AJAX – Get saved BLE printer for current user/branch
+        // ═══════════════════════════════════════════════════════════════
+        [HttpGet]
+        public IActionResult GetBlePrinter()
+        {
+            var userId   = User.GetUserId();
+            var branchId = GetActiveBranchId();
+            if (!userId.HasValue || !branchId.HasValue)
+                return Json(new { success = false, message = "Not authenticated." });
+
+            using var conn = new SqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new SqlCommand(
+                @"SELECT PrinterName, PrinterDeviceId, ServiceUUID, CharacteristicUUID
+                  FROM   dbo.BluetoothPrinterSettings
+                  WHERE  UserId = @UserId AND BranchId = @BranchId", conn);
+            cmd.Parameters.AddWithValue("@UserId",   userId.Value);
+            cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+            using var rdr = cmd.ExecuteReader();
+            if (rdr.Read())
+            {
+                return Json(new
+                {
+                    success = true,
+                    printer = new
+                    {
+                        name    = rdr.GetString(0),
+                        id      = rdr.GetString(1),
+                        svcUUID = rdr.GetString(2),
+                        chrUUID = rdr.GetString(3)
+                    }
+                });
+            }
+            return Json(new { success = true, printer = (object?)null });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  AJAX – Save BLE printer for current user/branch
+        // ═══════════════════════════════════════════════════════════════
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult SaveBlePrinter([FromBody] BlePrinterRequest req)
+        {
+            if (req == null || string.IsNullOrWhiteSpace(req.Name))
+                return Json(new { success = false, message = "Invalid request." });
+
+            var userId   = User.GetUserId();
+            var branchId = GetActiveBranchId();
+            if (!userId.HasValue || !branchId.HasValue)
+                return Json(new { success = false, message = "Not authenticated." });
+
+            using var conn = new SqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new SqlCommand(
+                @"MERGE dbo.BluetoothPrinterSettings AS target
+                  USING (SELECT @UserId AS UserId, @BranchId AS BranchId) AS source
+                     ON target.UserId = source.UserId AND target.BranchId = source.BranchId
+                  WHEN MATCHED THEN
+                      UPDATE SET PrinterName         = @Name,
+                                 PrinterDeviceId     = @DeviceId,
+                                 ServiceUUID         = @SvcUUID,
+                                 CharacteristicUUID  = @ChrUUID,
+                                 SavedAt             = SYSUTCDATETIME()
+                  WHEN NOT MATCHED THEN
+                      INSERT (UserId, BranchId, PrinterName, PrinterDeviceId, ServiceUUID, CharacteristicUUID, SavedAt)
+                      VALUES (@UserId, @BranchId, @Name, @DeviceId, @SvcUUID, @ChrUUID, SYSUTCDATETIME());", conn);
+            cmd.Parameters.AddWithValue("@UserId",   userId.Value);
+            cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+            cmd.Parameters.AddWithValue("@Name",     req.Name);
+            cmd.Parameters.AddWithValue("@DeviceId", req.Id      ?? "");
+            cmd.Parameters.AddWithValue("@SvcUUID",  req.SvcUUID ?? "");
+            cmd.Parameters.AddWithValue("@ChrUUID",  req.ChrUUID ?? "");
+            cmd.ExecuteNonQuery();
+
+            return Json(new { success = true, message = "Printer saved." });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  AJAX – Delete saved BLE printer for current user/branch
+        // ═══════════════════════════════════════════════════════════════
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult DeleteBlePrinter()
+        {
+            var userId   = User.GetUserId();
+            var branchId = GetActiveBranchId();
+            if (!userId.HasValue || !branchId.HasValue)
+                return Json(new { success = false, message = "Not authenticated." });
+
+            using var conn = new SqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new SqlCommand(
+                "DELETE FROM dbo.BluetoothPrinterSettings WHERE UserId = @UserId AND BranchId = @BranchId", conn);
+            cmd.Parameters.AddWithValue("@UserId",   userId.Value);
+            cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+            cmd.ExecuteNonQuery();
+
+            return Json(new { success = true, message = "Printer removed." });
+        }
     }
 
     // ─────────────────────────────────────────────────────────
@@ -340,5 +449,16 @@ ORDER  BY b.BranchName", conn);
     public class SaveAllRatesRequest
     {
         public List<SaveRateRequest> Items { get; set; } = new();
+    }
+
+    // ─────────────────────────────────────────────────────────
+    //  BLE printer request model
+    // ─────────────────────────────────────────────────────────
+    public class BlePrinterRequest
+    {
+        public string? Name    { get; set; }
+        public string? Id      { get; set; }
+        public string? SvcUUID { get; set; }
+        public string? ChrUUID { get; set; }
     }
 }

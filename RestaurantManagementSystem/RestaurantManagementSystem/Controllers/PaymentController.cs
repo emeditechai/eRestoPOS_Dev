@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Caching.Memory;
 using RestaurantManagementSystem.Models;
 using RestaurantManagementSystem.Services;
 using RestaurantManagementSystem.ViewModels;
@@ -23,6 +24,7 @@ namespace RestaurantManagementSystem.Controllers
         private readonly string _connectionString;
         private readonly ILogger<PaymentController> _logger;
         private readonly UrlEncryptionService _encryptionService;
+        private readonly IMemoryCache _receiptCache;
 
         // Helper to get merged table display name for an order
         private string GetMergedTableDisplayName(int orderId, string existingTableName)
@@ -56,12 +58,26 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        public PaymentController(IConfiguration configuration, ILogger<PaymentController> logger, UrlEncryptionService encryptionService)
+        public PaymentController(IConfiguration configuration, ILogger<PaymentController> logger, UrlEncryptionService encryptionService, IMemoryCache receiptCache)
         {
             _configuration = configuration;
             _connectionString = _configuration.GetConnectionString("DefaultConnection");
             _logger = logger;
             _encryptionService = encryptionService;
+            _receiptCache = receiptCache;
+        }
+
+        // GET: /Payment/GetRawReceipt/{token}
+        // RawBT fetches this URL and prints the raw ESC/POS bytes directly.
+        // Token is stored in memory cache for 10 minutes after generation.
+        [HttpGet]
+        [Route("Payment/GetRawReceipt/{token}")]
+        [AllowAnonymous]
+        public IActionResult GetRawReceipt(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token) || !_receiptCache.TryGetValue("escpos_" + token, out byte[]? bytes) || bytes == null)
+                return NotFound();
+            return File(bytes, "application/octet-stream");
         }
 
         private int? GetActiveBranchId()
@@ -408,10 +424,14 @@ namespace RestaurantManagementSystem.Controllers
                 ViewBag.BillFormat = !string.IsNullOrWhiteSpace(orderSettings?.BillFormat)
                     ? orderSettings.BillFormat
                     : "A4";
+                ViewBag.IsESCPOSPrintEnabled = orderSettings?.IsESCPOSPrintEnabled ?? false;
+                ViewBag.ESCPOSMode = orderSettings?.ESCPOSMode ?? "BLE";
             }
             catch
             {
                 ViewBag.BillFormat = "A4"; // default
+                ViewBag.IsESCPOSPrintEnabled = false;
+                ViewBag.ESCPOSMode = "BLE";
             }
             
             // Trigger auto bill email if order is completed
@@ -5650,7 +5670,7 @@ END", connection))
         }
 
         // GET: Payment/PrintPOS
-        public IActionResult PrintPOS(int orderId, decimal? discount = null, string discountType = null, bool hideKot = false)
+        public async Task<IActionResult> PrintPOS(int orderId, decimal? discount = null, string discountType = null, bool hideKot = false, bool htmlOnly = false, [FromServices] EscPosService escPosService = null)
         {
             try
             {
@@ -5793,12 +5813,185 @@ END", connection))
                     }
                 }
 
+                // ── ESC/POS interception ────────────────────────────────────
+                if (!htmlOnly && settings?.IsESCPOSPrintEnabled == true && escPosService != null)
+                {
+                    try
+                    {
+                        var paperSize  = settings.ESCPOSPaperSize ?? "58mm";
+                        var counterDisp = ViewBag.PosCounterDisplay as string ?? "";
+                        var branchName  = ViewBag.PrintBranchName  as string ?? "";
+                        bool inclKot    = ViewBag.IsPOSKOTPrintRequired is bool bk && bk;
+                        var kotItems2   = (ViewBag.KOTItems as IList<dynamic>) ?? new List<dynamic>();
+                        var kotTicketNo = ViewBag.KOTTicketNumber as string ?? "";
+
+                        var bytes = escPosService.BuildReceiptBytes(
+                            model, settings, paperSize, counterDisp, branchName,
+                            inclKot, kotItems2, kotTicketNo);
+
+                        if (settings.ESCPOSMode == "TCP" && !string.IsNullOrWhiteSpace(settings.ESCPOSPrinterIP))
+                        {
+                            try { await escPosService.SendViaTcpAsync(settings.ESCPOSPrinterIP, settings.ESCPOSPrinterPort, bytes); }
+                            catch (Exception tcpEx)
+                            {
+                                _logger?.LogError(tcpEx, "TCP auto-print failed for order {OrderId}", orderId);
+                                // Fall through to HTML print so user always gets a receipt
+                                return View("PrintPOS", model);
+                            }
+                            return View("PrintEscPosDone");
+                        }
+
+                        if (settings.ESCPOSMode == "BLE")
+                        {
+                            // Pass ESC/POS bytes as standard base64 to the BLE print popup.
+                            // Web Bluetooth API reads this client-side and writes directly to the paired printer.
+                            ViewBag.EscPosBytesB64 = Convert.ToBase64String(bytes);
+                            ViewBag.BleOrderId     = orderId;
+                            return View("PrintEscPosBLE");
+                        }
+                    }
+                    catch (Exception escEx)
+                    {
+                        _logger?.LogError(escEx, "ESC/POS setup failed for order {OrderId}, falling back to HTML print", orderId);
+                        // Fall through to standard HTML print
+                    }
+                }
+
                 return View("PrintPOS", model);
             }
             catch (Exception ex)
             {
                 TempData["ErrorMessage"] = $"Error loading POS bill for printing: {ex.Message}";
                 return RedirectToAction("Index", new { id = orderId });
+            }
+        }
+
+        // GET: Payment/GetEscPosBytes?orderId=X
+        // Returns Base64-encoded ESC/POS receipt bytes for BLE printing from the browser.
+        [HttpGet]
+        public IActionResult GetEscPosBytes(int orderId, [FromServices] EscPosService escPosService)
+        {
+            try
+            {
+                if (!IsOrderInActiveBranch(orderId))
+                    return Json(new { success = false, error = "Order not found." });
+
+                var model = GetPaymentViewModel(orderId);
+                if (model == null)
+                    return Json(new { success = false, error = "Order not found." });
+
+                var settings = LoadRestaurantSettingsForOrder(orderId)
+                    ?? new RestaurantSettings { RestaurantName = "Restaurant" };
+
+                var printBranchName = ResolveBranchNameForOrder(orderId);
+
+                // Counter display
+                string counterDisplay = string.Empty;
+                try
+                {
+                    var resolved = ResolvePosCounterForOrder(orderId);
+                    counterDisplay = resolved.CounterDisplay;
+                    if (string.IsNullOrWhiteSpace(counterDisplay))
+                        counterDisplay = HttpContext?.Session?.GetString("POS.SelectedCounterDisplay") ?? string.Empty;
+                }
+                catch { }
+
+                // KOT data
+                bool isPosOrder = model.OrderType == 1 || model.OrderType == 2;
+                bool includeKot = settings.IsPOSKOTPrintRequired && isPosOrder;
+                IList<dynamic> kotItems = null;
+                string kotTicketNumber = null;
+                if (includeKot)
+                {
+                    try
+                    {
+                        var (ktn, ki) = LoadKOTDataForOrder(orderId);
+                        kotTicketNumber = ktn;
+                        kotItems = ki;
+                    }
+                    catch { }
+                }
+
+                var bytes = escPosService.BuildReceiptBytes(
+                    model, settings,
+                    settings.ESCPOSPaperSize ?? "58mm",
+                    counterDisplay, printBranchName,
+                    includeKot && kotItems != null && kotItems.Any(),
+                    kotItems, kotTicketNumber);
+
+                return Json(new { success = true, data = Convert.ToBase64String(bytes) });
+            }
+            catch (Exception ex)
+            {
+                return Json(new { success = false, error = ex.Message });
+            }
+        }
+
+        // POST: Payment/PrintEscPosTCP
+        // Server-side: fetches ESC/POS bytes and sends them to the printer IP via TCP.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> PrintEscPosTCP(int orderId, [FromServices] EscPosService escPosService)
+        {
+            try
+            {
+                if (!IsOrderInActiveBranch(orderId))
+                    return Json(new { success = false, error = "Order not found." });
+
+                var model = GetPaymentViewModel(orderId);
+                if (model == null)
+                    return Json(new { success = false, error = "Order not found." });
+
+                var settings = LoadRestaurantSettingsForOrder(orderId)
+                    ?? new RestaurantSettings { RestaurantName = "Restaurant" };
+
+                if (string.IsNullOrWhiteSpace(settings.ESCPOSPrinterIP))
+                    return Json(new { success = false, error = "Printer IP is not configured in Restaurant Settings." });
+
+                var printBranchName = ResolveBranchNameForOrder(orderId);
+
+                string counterDisplay = string.Empty;
+                try
+                {
+                    var resolved = ResolvePosCounterForOrder(orderId);
+                    counterDisplay = resolved.CounterDisplay;
+                    if (string.IsNullOrWhiteSpace(counterDisplay))
+                        counterDisplay = HttpContext?.Session?.GetString("POS.SelectedCounterDisplay") ?? string.Empty;
+                }
+                catch { }
+
+                bool isPosOrder = model.OrderType == 1 || model.OrderType == 2;
+                bool includeKot = settings.IsPOSKOTPrintRequired && isPosOrder;
+                IList<dynamic> kotItems = null;
+                string kotTicketNumber = null;
+                if (includeKot)
+                {
+                    try
+                    {
+                        var (ktn, ki) = LoadKOTDataForOrder(orderId);
+                        kotTicketNumber = ktn;
+                        kotItems = ki;
+                    }
+                    catch { }
+                }
+
+                var bytes = escPosService.BuildReceiptBytes(
+                    model, settings,
+                    settings.ESCPOSPaperSize ?? "58mm",
+                    counterDisplay, printBranchName,
+                    includeKot && kotItems != null && kotItems.Any(),
+                    kotItems, kotTicketNumber);
+
+                await escPosService.SendViaTcpAsync(
+                    settings.ESCPOSPrinterIP,
+                    settings.ESCPOSPrinterPort > 0 ? settings.ESCPOSPrinterPort : 9100,
+                    bytes);
+
+                return Json(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                return Json(new { success = false, error = ex.Message });
             }
         }
 
@@ -6124,6 +6317,10 @@ END", connection))
                                 try { settings.FssaiNo = reader["FssaiNo"]?.ToString(); } catch { }
                                 try { settings.IsPOSKOTPrintRequired = reader["IsPOSKOTPrintRequired"] != DBNull.Value && Convert.ToBoolean(reader["IsPOSKOTPrintRequired"]); } catch { }
                                 try { settings.POSPaperSize = reader["POSPaperSize"]?.ToString() ?? "80mm"; } catch { }
+                                try { settings.IsESCPOSPrintEnabled = reader["IsESCPOSPrintEnabled"] != DBNull.Value && Convert.ToBoolean(reader["IsESCPOSPrintEnabled"]); } catch { }
+                                try { settings.ESCPOSMode = reader["ESCPOSMode"]?.ToString() ?? "BLE"; } catch { }
+                                try { settings.ESCPOSPrinterIP = reader["ESCPOSPrinterIP"]?.ToString(); } catch { }
+                                try { settings.ESCPOSPrinterPort = reader["ESCPOSPrinterPort"] != DBNull.Value ? Convert.ToInt32(reader["ESCPOSPrinterPort"]) : 9100; } catch { }
                                 return settings;
                             }
                         }

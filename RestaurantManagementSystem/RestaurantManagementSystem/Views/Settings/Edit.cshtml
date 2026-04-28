@@ -444,6 +444,43 @@
                                             <div class="help-text">When enabled, bills and KOTs will be sent to the printer using ESC/POS commands (thermal printer protocol)</div>
                                         </div>
                                     </div>
+                                    <!-- ESC/POS extended settings (shown only when enabled) -->
+                                    <div class="col-md-4" id="escposModeRow">
+                                        <div class="form-group mb-3">
+                                            <label asp-for="ESCPOSMode" class="control-label"></label>
+                                            <select asp-for="ESCPOSMode" class="form-select" id="escposModeSelect">
+                                                <option value="BLE">BLE (Bluetooth – Android Chrome)</option>
+                                                <option value="TCP">TCP (WiFi – all browsers)</option>
+                                            </select>
+                                            <span asp-validation-for="ESCPOSMode" class="field-validation-error"></span>
+                                            <div class="help-text">BLE = direct Bluetooth from browser (Android Chrome only). TCP = server sends to printer over WiFi network.</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4" id="escposTcpRow" style="display:none;">
+                                        <div class="form-group mb-3">
+                                            <label asp-for="ESCPOSPrinterIP" class="control-label"></label>
+                                            <input asp-for="ESCPOSPrinterIP" class="form-control" placeholder="e.g. 192.168.1.100" />
+                                            <span asp-validation-for="ESCPOSPrinterIP" class="field-validation-error"></span>
+                                        </div>
+                                        <div class="form-group mb-3">
+                                            <label asp-for="ESCPOSPrinterPort" class="control-label"></label>
+                                            <input asp-for="ESCPOSPrinterPort" class="form-control" type="number" min="1" max="65535" />
+                                            <span asp-validation-for="ESCPOSPrinterPort" class="field-validation-error"></span>
+                                            <div class="help-text">Default: 9100</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-4" id="escposPaperSizeRow">
+                                        <div class="form-group mb-3">
+                                            <label asp-for="ESCPOSPaperSize" class="control-label">ESC/POS Paper Size</label>
+                                            <select asp-for="ESCPOSPaperSize" class="form-select">
+                                                <option value="58mm">58mm / 2 inch (32 chars)</option>
+                                                <option value="76mm">76mm (40 chars)</option>
+                                                <option value="80mm">80mm (42 chars)</option>
+                                            </select>
+                                            <div class="help-text">Match your thermal printer paper roll width</div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -493,5 +530,24 @@
                 $(this).closest('.form-group').removeClass('focused');
             });
         });
+
+        // ESC/POS settings show/hide logic
+        (function () {
+            var toggle = document.getElementById('isESCPOSPrintEnabled');
+            var modeRow = document.getElementById('escposModeRow');
+            var tcpRow  = document.getElementById('escposTcpRow');
+            var modeSelect = document.getElementById('escposModeSelect');
+
+            function updateVisibility() {
+                var enabled = toggle && toggle.checked;
+                if (modeRow) modeRow.style.display = enabled ? '' : 'none';
+                var isTcp = modeSelect && modeSelect.value === 'TCP';
+                if (tcpRow)  tcpRow.style.display  = (enabled && isTcp) ? '' : 'none';
+            }
+
+            if (toggle) toggle.addEventListener('change', updateVisibility);
+            if (modeSelect) modeSelect.addEventListener('change', updateVisibility);
+            updateVisibility();
+        })();
     </script>
 }

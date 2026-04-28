@@ -120,6 +120,21 @@ namespace RestaurantManagementSystem.Models
 
     [Display(Name = "ESCPOS Print Enable")]
     public bool IsESCPOSPrintEnabled { get; set; } = false;
+
+    [Display(Name = "ESCPOS Mode")]
+    [StringLength(10)]
+    public string ESCPOSMode { get; set; } = "BLE"; // BLE or TCP
+
+    [Display(Name = "ESCPOS Printer IP")]
+    [StringLength(100)]
+    public string ESCPOSPrinterIP { get; set; }
+
+    [Display(Name = "ESCPOS Printer Port")]
+    public int ESCPOSPrinterPort { get; set; } = 9100;
+
+    [Display(Name = "ESCPOS Paper Size")]
+    [StringLength(10)]
+    public string ESCPOSPaperSize { get; set; } = "58mm";
         
         [Required(ErrorMessage = "Bill Format is required")]
         [Display(Name = "Bill Format")]
