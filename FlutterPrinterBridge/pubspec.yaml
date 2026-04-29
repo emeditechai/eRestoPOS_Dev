@@ -27,6 +27,9 @@ dependencies:
   # Runtime permission dialogs (Android 12+ requires explicit BT permissions)
   permission_handler: ^11.3.1
 
+  # Keep screen/CPU awake while HTTP server is active (prevents network throttle)
+  wakelock_plus: ^1.2.8
+
   # Icons
   cupertino_icons: ^1.0.8
 

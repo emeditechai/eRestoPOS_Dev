@@ -30,12 +30,14 @@ class PrinterStatus {
   final bool connected;
   final int printSuccess;
   final int printFailed;
+  final DateTime? lastPrintAt;
   const PrinterStatus({
     required this.ready,
     this.printerName,
     required this.connected,
     this.printSuccess = 0,
     this.printFailed  = 0,
+    this.lastPrintAt,
   });
 
   Map<String, dynamic> toJson() => {
@@ -44,6 +46,7 @@ class PrinterStatus {
     'connected': connected,
     'printSuccess': printSuccess,
     'printFailed':  printFailed,
+    'lastPrintAt': lastPrintAt?.toIso8601String(),
   };
 }
 
@@ -62,11 +65,13 @@ class PrinterService {
   // Print stats
   int _printSuccess = 0;
   int _printFailed  = 0;
+  DateTime? _lastPrintAt;
 
-  String? get savedName    => _savedName;
-  String? get savedMac     => _savedMac;
-  int     get printSuccess => _printSuccess;
-  int     get printFailed  => _printFailed;
+  String?   get savedName    => _savedName;
+  String?   get savedMac     => _savedMac;
+  int       get printSuccess => _printSuccess;
+  int       get printFailed  => _printFailed;
+  DateTime? get lastPrintAt  => _lastPrintAt;
 
   // ── Persistence ──────────────────────────────────────────────────────────────
 
@@ -119,6 +124,7 @@ class PrinterService {
       connected: connected,
       printSuccess: _printSuccess,
       printFailed: _printFailed,
+      lastPrintAt: _lastPrintAt,
     );
   }
 
@@ -209,12 +215,44 @@ class PrinterService {
       await _ensureConnected();
       await _writeChunked(_characteristic!, bytes);
       _printSuccess++;
+      _lastPrintAt = DateTime.now();
     } catch (e) {
       _printFailed++;
       rethrow;
     } finally {
       _isPrinting = false;
     }
+  }
+
+  /// Sends a minimal test page to verify the printer is working.
+  /// ESC/POS: initialise → center → bold on → text → bold off → 3 feeds → cut.
+  Future<void> testPrint() async {
+    // ESC/POS byte sequence:
+    // ESC @ — initialise printer
+    // ESC a 1 — centre alignment
+    // ESC E 1 — bold on
+    // text line
+    // ESC E 0 — bold off
+    // ESC a 0 — left alignment
+    // 3× LF — feed
+    // GS V 66 3 — partial cut with 3mm feed
+    const line1 = 'PRINT BRIDGE v1.0';
+    const line2 = 'Connection OK  Ready to print!';
+    const line3 = '--------------------------------';
+    final data = Uint8List.fromList([
+      0x1B, 0x40,       // ESC @ init
+      0x1B, 0x61, 0x01, // ESC a 1 centre
+      0x1B, 0x45, 0x01, // ESC E 1 bold on
+      ...line1.codeUnits, 0x0A,
+      0x1B, 0x45, 0x00, // ESC E 0 bold off
+      ...line3.codeUnits, 0x0A,
+      ...line2.codeUnits, 0x0A,
+      ...line3.codeUnits, 0x0A,
+      0x1B, 0x61, 0x00, // ESC a 0 left
+      0x0A, 0x0A, 0x0A, // 3 line feeds
+      0x1D, 0x56, 0x42, 0x03, // GS V B 3 — partial cut
+    ]);
+    await print(data);
   }
 
   Future<void> _ensureConnected() async {

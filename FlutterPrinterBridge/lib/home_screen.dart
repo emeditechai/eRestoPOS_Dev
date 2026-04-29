@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'printer_service.dart';
 import 'http_server.dart';
 
@@ -17,6 +18,7 @@ class _HomeScreenState extends State<HomeScreen> {
   PrinterStatus _status = const PrinterStatus(ready: false, connected: false);
   bool _serviceRunning = false;
   bool _scanning = false;
+  bool _testPrinting = false;
 
   // Keep-alive timer: fires every 30s to keep the Dart event loop active.
   // This prevents Android from throttling the HTTP server's network I/O
@@ -36,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _keepAliveTimer?.cancel();
+    WakelockPlus.disable();
     super.dispose();
   }
 
@@ -44,6 +47,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final server = PrinterHttpServer(_printerService);
       await server.start();
       if (mounted) setState(() => _serviceRunning = true);
+      // Keep screen + CPU awake so Android doesn't throttle network I/O.
+      WakelockPlus.enable();
     } catch (_) {
       if (mounted) setState(() => _serviceRunning = false);
     }
@@ -158,6 +163,27 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) _showSnack('Error: $e', error: true);
     } finally {
       if (mounted) setState(() => _scanning = false);
+    }
+  }
+
+  // ── Test Print ───────────────────────────────────────────────────────────────
+
+  Future<void> _doTestPrint() async {
+    if (_testPrinting) return;
+    if (!_status.ready) {
+      _showSnack('Pair a printer first before sending a test print.', error: true);
+      return;
+    }
+    setState(() => _testPrinting = true);
+    try {
+      await _printerService.testPrint();
+      await _refresh();
+      _showSnack('Test print sent successfully!', success: true);
+    } catch (e) {
+      await _refresh();
+      _showSnack('Test print failed: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _testPrinting = false);
     }
   }
 
@@ -359,6 +385,32 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
 
+              // ── Last print timestamp ──────────────────────────────────────
+              const SizedBox(height: 10),
+              _LastPrintLabel(lastPrintAt: _status.lastPrintAt),
+
+              const SizedBox(height: 24),
+
+              // ── Test print button ─────────────────────────────────────────
+              if (_status.ready)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: (_testPrinting || _scanning) ? null : _doTestPrint,
+                    icon: _testPrinting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.print_outlined),
+                    label: Text(_testPrinting ? 'Sending test…' : 'Send Test Print'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+
               const SizedBox(height: 32),
 
               // ── Instructions ─────────────────────────────────────────────
@@ -396,6 +448,60 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         ),
       ),
+    );
+  }
+}
+
+// ── Last print label ─────────────────────────────────────────────────────────
+
+class _LastPrintLabel extends StatefulWidget {
+  final DateTime? lastPrintAt;
+  const _LastPrintLabel({this.lastPrintAt});
+
+  @override
+  State<_LastPrintLabel> createState() => _LastPrintLabelState();
+}
+
+class _LastPrintLabelState extends State<_LastPrintLabel> {
+  late Timer _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    // Refresh the relative label every 30 seconds
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick.cancel();
+    super.dispose();
+  }
+
+  String _label() {
+    final t = widget.lastPrintAt;
+    if (t == null) return 'No prints yet this session';
+    final diff = DateTime.now().difference(t);
+    if (diff.inSeconds < 60) return 'Last print: just now';
+    if (diff.inMinutes < 60) return 'Last print: ${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return 'Last print: ${diff.inHours} hr ago';
+    return 'Last print: ${diff.inDays}d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.access_time, size: 13, color: Colors.grey.shade500),
+        const SizedBox(width: 4),
+        Text(
+          _label(),
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+        ),
+      ],
     );
   }
 }
