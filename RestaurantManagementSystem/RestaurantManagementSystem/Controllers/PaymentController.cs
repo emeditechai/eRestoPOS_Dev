@@ -3344,7 +3344,7 @@ END", connection))
                                     if (splitBillId > 0)
                                     {
                                         SyncSplitBillBranchFromOrder(splitBillId, model.OrderId);
-                                        TempData["SuccessMessage"] = $"Split bill created successfully for ${totalAmount:F2}.";
+                                        TempData["SuccessMessage"] = $"Split bill created successfully for ₹{totalAmount:F2}.";
                                         return RedirectToAction("Index", new { id = model.OrderId });
                                     }
                                     else

@@ -1,193 +1,370 @@
 @model CreateSplitBillViewModel
 @{
     ViewData["Title"] = "Split Bill";
+    var taxRate = Model.Subtotal > 0 ? (Model.TaxAmount / Model.Subtotal) : 0m;
+    var taxRateJs = taxRate.ToString("F6", System.Globalization.CultureInfo.InvariantCulture);
+    var orderTotalJs = Model.TotalAmount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
 }
 
+<style>
+    .item-row { transition: background-color 0.15s ease; }
+    .item-row.row-selected { background-color: #eef5ff !important; }
+    .item-row.row-selected td { border-color: #cfe0ff; }
+    .split-item-cb { width: 18px; height: 18px; cursor: pointer; }
+    .qty-input { width: 72px; margin: 0 auto; text-align: center; }
+    .avail-badge { font-size: 0.76rem; font-weight: 600; letter-spacing: 0.02em; }
+    .line-total-cell { font-weight: 600; color: #198754; }
+    .summary-card { position: sticky; top: 80px; }
+    .order-strip { background: linear-gradient(135deg, #f0f4ff, #faf5ff); border: 1px solid #d4d8f0; }
+    .summary-total-box { background: #f1f5ff; border: 1px solid #c8d6ff; border-radius: 10px; padding: 14px 16px; }
+    .split-progress { height: 7px; border-radius: 4px; }
+    .items-preview-row { padding: 5px 0; border-bottom: 1px dashed #e0e0e0; font-size: 0.85rem; }
+    .items-preview-row:last-child { border-bottom: none; }
+    .hint-bar { background: #fff9ec; border: 1px solid #ffe082; border-radius: 8px; padding: 8px 14px; font-size: 0.84rem; color: #7b5700; }
+</style>
+
 <div class="container-fluid p-3">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>@ViewData["Title"]</h1>
+
+    @* Page Header *@
+    <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
-            <a asp-action="Index" asp-route-id="@Model.OrderId" class="btn btn-outline-secondary">
-                <i class="fas fa-arrow-left"></i> Back to Payment Management
-            </a>
+            <h2 class="fw-bold mb-0">Split Bill</h2>
+            <div class="text-muted small mt-1">
+                <i class="fas fa-hashtag me-1"></i>Order <strong>@Model.OrderNumber</strong>
+            </div>
         </div>
+        <a asp-action="Index" asp-route-id="@Model.OrderId" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i>Back to Payment
+        </a>
     </div>
 
-    <div class="row">
-        <div class="col-lg-12">
-            <div class="card mb-4">
-                <div class="card-header bg-light">
-                    <h5 class="mb-0">Split Bill for Order #@Model.OrderNumber</h5>
+    @* Order Summary Strip *@
+    <div class="card order-strip mb-4">
+        <div class="card-body py-2 px-4">
+            <div class="row text-center">
+                <div class="col-4 border-end">
+                    <div class="small text-muted">Order Subtotal</div>
+                    <div class="fw-semibold">₹@Model.Subtotal.ToString("F2")</div>
                 </div>
-                <div class="card-body">
-                    <form asp-action="SplitBill" method="post" id="splitBillForm">
-                        <div asp-validation-summary="ModelOnly" class="text-danger"></div>
-                        <input type="hidden" asp-for="OrderId" />
-                        <input type="hidden" asp-for="OrderNumber" />
-                        <input type="hidden" asp-for="Subtotal" />
-                        <input type="hidden" asp-for="TaxAmount" />
-                        <input type="hidden" asp-for="TotalAmount" />
-                        
-                        <div class="row">
-                            <div class="col-md-8">
-                                <div class="card">
-                                    <div class="card-header bg-light">
-                                        <h5 class="mb-0">Select Items for Split Bill</h5>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="table-responsive">
-                                            <table class="table table-striped table-hover">
-                                                <thead>
-                                                    <tr>
-                                                        <th style="width: 5%">Select</th>
-                                                        <th style="width: 45%">Item</th>
-                                                        <th style="width: 20%">Available</th>
-                                                        <th style="width: 20%">Quantity</th>
-                                                        <th style="width: 10%">Price</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    @if (Model.AvailableItems.Any())
-                                                    {
-                                                        for (int i = 0; i < Model.AvailableItems.Count; i++)
-                                                        {
-                                                            var item = Model.AvailableItems[i];
-                                                            <tr class="item-row" data-unit-price="@item.UnitPrice" data-item-id="@item.OrderItemId">
-                                                                <td>
-                                                                    <div class="form-check">
-                                                                        <input class="form-check-input item-checkbox" type="checkbox" 
-                                                                               id="item-@item.OrderItemId" 
-                                                                               name="selectedItems" 
-                                                                               value="@item.OrderItemId" 
-                                                                               @(item.IsSelected ? "checked" : "")>
-                                                                    </div>
-                                                                </td>
-                                                                <td>@item.Name</td>
-                                                                <td>@item.AvailableQuantity of @item.Quantity</td>
-                                                                <td>
-                                                                    <input type="number" class="form-control form-control-sm item-quantity"
-                                                                           name="itemQuantities" 
-                                                                           min="1" 
-                                                                           max="@item.AvailableQuantity" 
-                                                                           value="@(item.IsSelected ? item.SelectedQuantity : 1)" 
-                                                                           @(item.IsSelected ? "" : "disabled")>
-                                                                </td>
-                                                                <td>$@item.UnitPrice.ToString("F2")</td>
-                                                            </tr>
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        <tr>
-                                                            <td colspan="5" class="text-center">No available items found for splitting.</td>
-                                                        </tr>
-                                                    }
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="col-md-4">
-                                <div class="card">
-                                    <div class="card-header bg-light">
-                                        <h5 class="mb-0">Split Bill Summary</h5>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="mb-3">
-                                            <label asp-for="Notes" class="form-label"></label>
-                                            <textarea asp-for="Notes" class="form-control" rows="3"></textarea>
-                                            <span asp-validation-for="Notes" class="text-danger"></span>
-                                        </div>
-                                        
-                                        <div class="row mb-2">
-                                            <div class="col-6 text-end">Subtotal:</div>
-                                            <div class="col-6 text-end" id="splitSubtotal">₹0.00</div>
-                                        </div>
-                                        <div class="row mb-2">
-                                            <div class="col-6 text-end">Tax:</div>
-                                            <div class="col-6 text-end" id="splitTax">₹0.00</div>
-                                        </div>
-                                        <div class="row mb-3">
-                                            <div class="col-6 text-end"><strong>Total:</strong></div>
-                                            <div class="col-6 text-end"><strong id="splitTotal">₹0.00</strong></div>
-                                        </div>
-                                        
-                                        <div class="d-grid gap-2">
-                                            <button type="submit" class="btn btn-primary btn-lg" id="createSplitBillButton" disabled>
-                                                <i class="fas fa-receipt"></i> Create Split Bill
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </form>
+                <div class="col-4 border-end">
+                    <div class="small text-muted">GST / Tax</div>
+                    <div class="fw-semibold">₹@Model.TaxAmount.ToString("F2")</div>
+                </div>
+                <div class="col-4">
+                    <div class="small text-muted">Order Total</div>
+                    <div class="fw-bold text-primary fs-6">₹@Model.TotalAmount.ToString("F2")</div>
                 </div>
             </div>
         </div>
     </div>
+
+    <form asp-action="SplitBill" method="post" id="splitBillForm">
+        <div asp-validation-summary="ModelOnly" class="alert alert-danger py-2"></div>
+        <input type="hidden" asp-for="OrderId" />
+        <input type="hidden" asp-for="OrderNumber" />
+        <input type="hidden" asp-for="Subtotal" />
+        <input type="hidden" asp-for="TaxAmount" />
+        <input type="hidden" asp-for="TotalAmount" />
+
+        <div class="row g-4">
+
+            @* LEFT — Item Selection *@
+            <div class="col-lg-8">
+                <div class="card shadow-sm h-auto">
+                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center border-bottom">
+                        <h6 class="mb-0 fw-bold">
+                            <i class="fas fa-list-check me-2 text-primary"></i>Select Items to Split
+                        </h6>
+                        @if (Model.AvailableItems.Any())
+                        {
+                            <div class="d-flex align-items-center gap-3">
+                                <span id="selectedCount" class="badge bg-primary rounded-pill px-3">0 selected</span>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" id="selectAll" role="switch" title="Select / Deselect All">
+                                    <label class="form-check-label small text-muted" for="selectAll">All</label>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    <div class="card-body p-0">
+                        @if (Model.AvailableItems.Any())
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0" id="itemsTable">
+                                    <thead class="table-light border-bottom">
+                                        <tr>
+                                            <th class="ps-3" style="width:52px;"></th>
+                                            <th>Item</th>
+                                            <th class="text-center" style="width:130px;">Available</th>
+                                            <th class="text-center" style="width:130px;">Qty to Split</th>
+                                            <th class="text-end" style="width:110px;">Unit Price</th>
+                                            <th class="text-end pe-3" style="width:120px;">Line Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @for (int i = 0; i < Model.AvailableItems.Count; i++)
+                                        {
+                                            var item = Model.AvailableItems[i];
+                                            <tr class="item-row @(item.IsSelected ? "row-selected" : "")"
+                                                data-unit-price="@item.UnitPrice.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)"
+                                                data-item-id="@item.OrderItemId"
+                                                data-item-name="@item.Name">
+                                                <td class="ps-3">
+                                                    <input class="form-check-input split-item-cb item-checkbox"
+                                                           type="checkbox"
+                                                           id="item-@item.OrderItemId"
+                                                           name="selectedItems"
+                                                           value="@item.OrderItemId"
+                                                           @(item.IsSelected ? "checked" : "")>
+                                                </td>
+                                                <td>
+                                                    <label for="item-@item.OrderItemId" class="mb-0 fw-semibold d-block" style="cursor:pointer;">
+                                                        @item.Name
+                                                    </label>
+                                                    <span class="small text-muted">₹@item.UnitPrice.ToString("F2") / unit</span>
+                                                </td>
+                                                <td class="text-center">
+                                                    @{
+                                                        var isFullyAvail = item.AvailableQuantity == item.Quantity;
+                                                    }
+                                                    <span class="badge avail-badge px-3 py-2 @(isFullyAvail ? "bg-success" : "bg-warning text-dark")">
+                                                        @item.AvailableQuantity / @item.Quantity
+                                                    </span>
+                                                </td>
+                                                <td class="text-center">
+                                                    <input type="number"
+                                                           class="form-control form-control-sm item-quantity qty-input"
+                                                           name="itemQuantities"
+                                                           min="1"
+                                                           max="@item.AvailableQuantity"
+                                                           value="@(item.IsSelected ? item.SelectedQuantity : 1)"
+                                                           @(item.IsSelected ? "" : "disabled")>
+                                                </td>
+                                                <td class="text-end text-muted">₹@item.UnitPrice.ToString("F2")</td>
+                                                <td class="text-end pe-3 item-line-total">
+                                                    @if (item.IsSelected)
+                                                    {
+                                                        <span class="line-total-cell">₹@((item.UnitPrice * item.SelectedQuantity).ToString("F2"))</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted">—</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center py-5 px-3">
+                                <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                                <h5 class="text-muted mb-1">All items have been split</h5>
+                                <p class="small text-muted mb-0">No remaining items available for a new split.</p>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @* RIGHT — Summary Panel *@
+            <div class="col-lg-4">
+                <div class="card shadow-sm summary-card">
+                    <div class="card-header bg-white py-3 border-bottom">
+                        <h6 class="mb-0 fw-bold">
+                            <i class="fas fa-calculator me-2 text-primary"></i>Split Summary
+                        </h6>
+                    </div>
+                    <div class="card-body">
+
+                        @* Notes *@
+                        <div class="mb-3">
+                            <label asp-for="Notes" class="form-label small fw-semibold text-uppercase text-muted mb-1">
+                                Notes <span class="text-muted fw-normal">(optional)</span>
+                            </label>
+                            <textarea asp-for="Notes" class="form-control form-control-sm" rows="2"
+                                      placeholder="e.g. Table 5 – Guest 1"></textarea>
+                            <span asp-validation-for="Notes" class="text-danger small"></span>
+                        </div>
+
+                        <hr class="my-3">
+
+                        @* Selected Items Preview *@
+                        <div id="selectedItemsPreview" style="display:none;" class="mb-3">
+                            <div class="small fw-semibold text-muted text-uppercase mb-2">Items in this split</div>
+                            <div id="selectedItemsList"></div>
+                            <hr class="my-2">
+                        </div>
+
+                        @* Financial Breakdown *@
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted small">Subtotal</span>
+                                <span class="fw-semibold" id="splitSubtotal">₹0.00</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted small">
+                                    GST / Tax
+                                    @if (taxRate > 0)
+                                    {
+                                        <span class="text-muted">&nbsp;(@((taxRate * 100).ToString("F1"))%)</span>
+                                    }
+                                </span>
+                                <span class="fw-semibold" id="splitTax">₹0.00</span>
+                            </div>
+                        </div>
+
+                        <div class="summary-total-box d-flex justify-content-between align-items-center mb-3">
+                            <span class="fw-bold">Split Total</span>
+                            <span class="fw-bold fs-5 text-primary" id="splitTotal">₹0.00</span>
+                        </div>
+
+                        @* % of Order Progress *@
+                        <div class="mb-4">
+                            <div class="d-flex justify-content-between small text-muted mb-1">
+                                <span>% of full order</span>
+                                <span id="splitPercent">0%</span>
+                            </div>
+                            <div class="progress split-progress">
+                                <div class="progress-bar" role="progressbar" id="splitProgressBar"
+                                     style="width:0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                            </div>
+                        </div>
+
+                        @* Submit *@
+                        <div class="d-grid mb-2">
+                            <button type="submit" class="btn btn-primary btn-lg" id="createSplitBillButton" disabled>
+                                <i class="fas fa-receipt me-2"></i>Create Split Bill
+                            </button>
+                        </div>
+                        <div id="noSelectionHint" class="hint-bar text-center">
+                            <i class="fas fa-info-circle me-1"></i>Select at least one item above
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </form>
 </div>
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
-    
     <script>
-        $(document).ready(function() {
-            // Enable/disable quantity inputs based on checkbox status
-            $('.item-checkbox').change(function() {
-                var row = $(this).closest('tr');
-                var quantityInput = row.find('.item-quantity');
-                
-                if ($(this).is(':checked')) {
-                    quantityInput.prop('disabled', false);
-                } else {
-                    quantityInput.prop('disabled', true);
-                }
-                
-                updateSplitBillTotals();
-            });
-            
-            // Update totals when quantity changes
-            $('.item-quantity').change(function() {
-                updateSplitBillTotals();
-            });
-            
-            // Initial calculation
-            updateSplitBillTotals();
-            
-            function updateSplitBillTotals() {
-                var subtotal = 0;
-                var taxRate = @(Model.TaxAmount / Model.Subtotal);
-                var hasSelectedItems = false;
-                
-                $('.item-row').each(function() {
-                    var checkbox = $(this).find('.item-checkbox');
-                    
-                    if (checkbox.is(':checked')) {
-                        hasSelectedItems = true;
-                        var unitPrice = parseFloat($(this).data('unit-price'));
-                        var quantity = parseInt($(this).find('.item-quantity').val()) || 0;
-                        
-                        subtotal += unitPrice * quantity;
+        $(document).ready(function () {
+            var TAX_RATE   = @taxRateJs;
+            var ORDER_TOTAL = @orderTotalJs;
+
+            function updateAll() {
+                var subtotal     = 0;
+                var selectedCount = 0;
+                var itemLines    = [];
+
+                $('.item-row').each(function () {
+                    var $row      = $(this);
+                    var $cb       = $row.find('.item-checkbox');
+                    var isChecked = $cb.is(':checked');
+                    var $qty      = $row.find('.item-quantity');
+                    var $lineCell = $row.find('.item-line-total');
+
+                    if (isChecked) {
+                        selectedCount++;
+                        var unitPrice = parseFloat($row.data('unit-price')) || 0;
+                        var qty       = Math.max(1, parseInt($qty.val()) || 1);
+                        var lineAmt   = unitPrice * qty;
+                        subtotal     += lineAmt;
+
+                        itemLines.push({
+                            name:  $row.data('item-name'),
+                            qty:   qty,
+                            total: lineAmt
+                        });
+
+                        $lineCell.html('<span class="line-total-cell">₹' + lineAmt.toFixed(2) + '</span>');
+                        $row.addClass('row-selected');
+                    } else {
+                        $lineCell.html('<span class="text-muted">—</span>');
+                        $row.removeClass('row-selected');
                     }
                 });
-                
-                var tax = subtotal * taxRate;
+
+                var tax   = subtotal * TAX_RATE;
                 var total = subtotal + tax;
-                
+                var pct   = ORDER_TOTAL > 0 ? Math.min((total / ORDER_TOTAL) * 100, 100) : 0;
+
                 $('#splitSubtotal').text('₹' + subtotal.toFixed(2));
                 $('#splitTax').text('₹' + tax.toFixed(2));
                 $('#splitTotal').text('₹' + total.toFixed(2));
-                
-                // Enable/disable submit button
-                if (hasSelectedItems) {
-                    $('#createSplitBillButton').prop('disabled', false);
+                $('#selectedCount').text(selectedCount + ' selected');
+                $('#splitPercent').text(pct.toFixed(1) + '%');
+                $('#splitProgressBar').css('width', pct + '%').attr('aria-valuenow', pct.toFixed(1));
+
+                // Items preview
+                if (itemLines.length > 0) {
+                    var html = '';
+                    $.each(itemLines, function (_, l) {
+                        html += '<div class="items-preview-row d-flex justify-content-between">' +
+                            '<span class="text-truncate me-2">' + $('<div/>').text(l.name).html() + ' &times; ' + l.qty + '</span>' +
+                            '<span class="fw-semibold text-nowrap">₹' + l.total.toFixed(2) + '</span>' +
+                            '</div>';
+                    });
+                    $('#selectedItemsList').html(html);
+                    $('#selectedItemsPreview').show();
                 } else {
-                    $('#createSplitBillButton').prop('disabled', true);
+                    $('#selectedItemsPreview').hide();
+                }
+
+                var canSubmit = selectedCount > 0;
+                $('#createSplitBillButton').prop('disabled', !canSubmit);
+                $('#noSelectionHint').toggle(!canSubmit);
+
+                // Select-all switch state
+                var total_cbs = $('.item-checkbox').length;
+                if (total_cbs > 0) {
+                    $('#selectAll').prop('indeterminate', selectedCount > 0 && selectedCount < total_cbs);
+                    $('#selectAll').prop('checked', selectedCount === total_cbs);
                 }
             }
+
+            // Checkbox toggle
+            $(document).on('change', '.item-checkbox', function () {
+                var $qty = $(this).closest('tr').find('.item-quantity');
+                $qty.prop('disabled', !$(this).is(':checked'));
+                updateAll();
+            });
+
+            // Quantity change (clamp to min/max)
+            $(document).on('input change', '.item-quantity', function () {
+                var min = parseInt($(this).attr('min')) || 1;
+                var max = parseInt($(this).attr('max')) || 999;
+                var val = parseInt($(this).val()) || min;
+                if (val < min) $(this).val(min);
+                if (val > max) $(this).val(max);
+                updateAll();
+            });
+
+            // Select-all switch
+            $('#selectAll').on('change', function () {
+                var checked = $(this).is(':checked');
+                $('.item-checkbox').each(function () {
+                    $(this).prop('checked', checked);
+                    $(this).closest('tr').find('.item-quantity').prop('disabled', !checked);
+                });
+                updateAll();
+            });
+
+            // Click on item name label toggles checkbox
+            $(document).on('click', '.item-row label', function (e) {
+                e.preventDefault();
+                var $cb = $(this).closest('tr').find('.item-checkbox');
+                $cb.prop('checked', !$cb.is(':checked')).trigger('change');
+            });
+
+            // Initial calculation
+            updateAll();
         });
     </script>
 }
