@@ -91,6 +91,27 @@
             gap: 10px;
             margin-top: 14px;
         }
+        /* ── Print Bridge App card ─────────────────────────────────────── */
+        .bridge-card {
+            background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+            border: 1px solid #c4b5fd;
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 20px;
+        }
+        .bridge-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+        .bridge-badge.active   { background: #dcfce7; color: #16a34a; }
+        .bridge-badge.no-pair  { background: #fef9c3; color: #ca8a04; }
     </style>
 }
 
@@ -100,6 +121,38 @@
         Pair your Bluetooth thermal printer once — it will print silently on every order.
         Requires Chrome / Chromium on Android over HTTPS.
     </p>
+
+    <!-- ── Print Bridge App card ─────────────────────────────────────────── -->
+    <div class="bridge-card mb-4" id="bridgeCard">
+        <div class="d-flex align-items-start gap-3">
+            <div style="font-size:32px; line-height:1;">&#128241;</div>
+            <div class="flex-grow-1">
+                <div class="fw-bold mb-1" style="font-size:15px;">
+                    Print Bridge App
+                    <span class="bridge-badge ms-2" id="bridgeBadge">
+                        <span id="bridgeDot">&#9679;</span> Checking…
+                    </span>
+                </div>
+                <p class="text-muted mb-2" style="font-size:12px;">
+                    Install the <strong>Print Bridge</strong> app on this Android phone for <strong>fully silent printing</strong> —
+                    no Bluetooth picker, no permission dialogs, works even after page reload.
+                </p>
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="@Url.Action("DownloadPrinterApp", "Utility")" class="btn btn-sm btn-primary" id="bridgeDownloadBtn">
+                        <i class="fas fa-download me-1"></i> Download App (.apk)
+                    </a>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="checkBridgeStatus()">
+                        <i class="fas fa-sync-alt me-1"></i> Recheck
+                    </button>
+                </div>
+                <div class="mt-2" id="bridgeInstructions" style="font-size:11px; color:#7c3aed;">
+                    <i class="fas fa-info-circle me-1"></i>
+                    After installing: open the app, tap <strong>Pair Printer</strong>, then keep the app running in the background.
+                    Printing from this browser will use the app automatically.
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Current printer card -->
     <div class="ps-card" id="psSavedCard" style="display:none;">
@@ -183,6 +236,39 @@
         var scanBtnWrap = document.getElementById('psScanBtnWrap');
         var scanBtn     = document.getElementById('psScanBtn');
         var browserWarn = document.getElementById('psBrowserWarning');
+
+        // ── Print Bridge App status check ──────────────────────────────
+        var bridgeBadge = document.getElementById('bridgeBadge');
+        var bridgeDot   = document.getElementById('bridgeDot');
+
+        window.checkBridgeStatus = function () {
+            bridgeBadge.className = 'bridge-badge ms-2';
+            bridgeBadge.innerHTML = '<span>&#9679;</span> Checking\u2026';
+
+            fetch('http://127.0.0.1:9100/status', {
+                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.ready) {
+                    bridgeBadge.className = 'bridge-badge active ms-2';
+                    bridgeBadge.innerHTML = '&#9679; App running &nbsp;&mdash;&nbsp; Paired: ' + (data.printerName || 'printer');
+                    document.getElementById('bridgeInstructions').style.display = 'none';
+                } else {
+                    bridgeBadge.className = 'bridge-badge no-pair ms-2';
+                    bridgeBadge.innerHTML = '&#9679; App running &nbsp;&mdash;&nbsp; No printer paired';
+                    document.getElementById('bridgeInstructions').style.display = '';
+                }
+            })
+            .catch(function () {
+                bridgeBadge.className = 'bridge-badge ms-2';
+                bridgeBadge.innerHTML = '&#9679; App not running';
+                document.getElementById('bridgeInstructions').style.display = '';
+            });
+        };
+
+        // Check on load
+        checkBridgeStatus();
 
         // ── Log helper ─────────────────────────────────────────────────
         function log(msg, cls) {

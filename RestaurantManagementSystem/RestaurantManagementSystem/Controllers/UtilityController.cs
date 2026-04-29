@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace RestaurantManagementSystem.Controllers
@@ -13,11 +15,13 @@ namespace RestaurantManagementSystem.Controllers
     {
         private readonly IConfiguration _configuration;
         private readonly string _connectionString;
+        private readonly IWebHostEnvironment _env;
 
-        public UtilityController(IConfiguration configuration)
+        public UtilityController(IConfiguration configuration, IWebHostEnvironment env)
         {
             _configuration = configuration;
             _connectionString = _configuration.GetConnectionString("DefaultConnection")!;
+            _env = env;
         }
 
         private int? GetActiveBranchId() => User.GetActiveBranchId();
@@ -315,6 +319,20 @@ ORDER  BY b.BranchName", conn);
         public IActionResult PrinterSetup()
         {
             return View();
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  GET – Download Print Bridge Android APK
+        // ═══════════════════════════════════════════════════════════════
+        [HttpGet]
+        [AllowAnonymous]
+        public IActionResult DownloadPrinterApp()
+        {
+            var apkPath = Path.Combine(_env.WebRootPath, "download", "printer-bridge.apk");
+            if (!System.IO.File.Exists(apkPath))
+                return NotFound("Print Bridge app not available yet. Please contact your administrator.");
+
+            return PhysicalFile(apkPath, "application/vnd.android.package-archive", "PrintBridge.apk");
         }
 
         // ═══════════════════════════════════════════════════════════════

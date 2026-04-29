@@ -373,16 +373,70 @@ window.PrinterManager = (function () {
             });
     }
 
+    // ── Bridge: try the Flutter Print Bridge app first ───────────────────────────
+    // The app runs an HTTP server on localhost:9100 that talks to the paired
+    // Bluetooth printer natively — no Web BT picker, no permission dialog.
+    // Chrome on Android allows HTTPS → http://localhost (W3C Secure Contexts).
+    // Returns Promise<true> on success, Promise<null> if app is not running.
+    var BRIDGE_URL = 'http://127.0.0.1:9100';
+
+    function tryAppBridge(base64Bytes, status) {
+        return fetch(BRIDGE_URL + '/status', {
+            signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+                        ? AbortSignal.timeout(800)   // 800ms max to detect if app is running
+                        : undefined
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+            if (!data.ready) {
+                // App running but no printer paired — tell user to open app
+                status('Print Bridge app running but no printer paired. Open the app and tap Pair Printer.', 'warn');
+                return null;
+            }
+            status('Sending via Print Bridge app\u2026');
+            return fetch(BRIDGE_URL + '/print', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: base64Bytes })
+            })
+            .then(function (res) { return res.json(); })
+            .then(function (result) {
+                if (!result.success) throw new Error(result.error || 'Print failed');
+                status('\u2713 Printed via Print Bridge app!', 'ok');
+                return true;
+            });
+        })
+        .catch(function (e) {
+            // App not running or fetch aborted — fall through to Web Bluetooth
+            if (e && e.name !== 'AbortError' && e.message && e.message.indexOf('Print Bridge') >= 0) {
+                return Promise.reject(e);  // re-throw user-visible errors
+            }
+            return null;  // silent fallback to Web BT
+        });
+    }
+
     // ── Public: print ───────────────────────────────────────────────────────────
-    // Connects + sends ESC/POS bytes to the printer.
+    // 1. Tries the Flutter Print Bridge app (localhost:9100) — silent, no picker.
+    // 2. Falls back to Web Bluetooth if the app is not running.
     // @param base64Bytes  string — standard base64-encoded ESC/POS bytes
     // @param statusCallback function(msg, cls) — optional UI feedback
-    // Returns Promise<{ id, name, svcUUID, chrUUID }>
+    // Returns Promise<{ id, name, svcUUID, chrUUID } | true>
     function print(base64Bytes, statusCallback) {
         function status(msg, cls) {
             if (typeof statusCallback === 'function') statusCallback(msg, cls);
         }
 
+        // ── Step 1: try Print Bridge app ──────────────────────────────────────
+        return tryAppBridge(base64Bytes, status)
+            .then(function (bridgeResult) {
+                if (bridgeResult !== null) return bridgeResult;  // success or unrecoverable error already shown
+                // ── Step 2: fall back to Web Bluetooth ───────────────────────
+                status('Print Bridge app not detected — using Web Bluetooth\u2026');
+                return _printViaBluetooth(base64Bytes, status);
+            });
+    }
+
+    function _printViaBluetooth(base64Bytes, status) {
         var bytes;
         try {
             var str = atob(base64Bytes);

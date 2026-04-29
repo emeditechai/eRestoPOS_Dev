@@ -215,19 +215,15 @@
 
     // ── Main trigger ──────────────────────────────────────────────────────────
     function triggerPrint(e) {
-        if (MODE === 'BLE' && !navigator.bluetooth) {
-            // BLE not available (HTTP or unsupported browser) — open HTML receipt as fallback
-            // Don't prevent default: let the link open PrintPOS normally (htmlOnly=true skips BLE loop)
-            var url = '/Payment/PrintPOS?orderId=' + ORDER_ID + '&htmlOnly=true';
-            window.open(url, '_blank');
-            if (e && e.preventDefault) e.preventDefault();
-            return;
-        }
         if (e && e.preventDefault) e.preventDefault();
         if (MODE === 'TCP') {
+            // TCP mode: POST to server which sends raw bytes to the printer over WiFi
             printViaTCP();
         } else {
-            printViaBLE();
+            // BLE mode: open PrintPOS page which builds ESC/POS bytes and returns
+            // PrintEscPosBLE view — same flow as the POS Order "Print POS Bill" button.
+            // This uses printer-manager.js with the saved printer (silent, no picker).
+            window.open('/Payment/PrintPOS?orderId=' + ORDER_ID, '_blank');
         }
     }
 

@@ -1,0 +1,36 @@
+name: flutter_printer_bridge
+description: BLE Thermal Printer Bridge — runs a local HTTP server so the restaurant web app can print silently.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Local HTTP server (pure Dart — works in background isolate)
+  shelf: ^1.4.2
+  shelf_router: ^1.1.4
+
+  # BLE — gives real MAC addresses on Android (unlike Web Bluetooth opaque IDs)
+  flutter_blue_plus: ^1.32.0
+
+  # Persist printer MAC / UUIDs across app restarts
+  shared_preferences: ^2.3.0
+
+  # Keep the app alive as a foreground service with notification
+  flutter_background_service: ^5.0.5
+  flutter_background_service_android: ^6.2.2
+
+  # Runtime permission dialogs (Android 12+ requires explicit BT permissions)
+  permission_handler: ^11.3.1
+
+  # Icons
+  cupertino_icons: ^1.0.8
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/applogo.png

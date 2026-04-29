@@ -172,12 +172,34 @@
             badge.style.display   = 'inline-block';
         }
 
-        // ── Print via Web Bluetooth ───────────────────────────────────────────────
-        function doPrint() {
-            bleBtn.disabled    = true;
-            bleBtn.textContent = 'Connecting\u2026';
-            setStatus('');
+        // ── Print Bridge (localhost:9100) ─────────────────────────────────────────
+        // The Print Bridge Android app runs an HTTP server on port 9100.
+        // When the user opens this page on their phone (same device as the app),
+        // we POST directly to it — no Web Bluetooth picker, no session issues.
+        // Chrome allows HTTPS → http://localhost requests (mixed content exception).
+        var BRIDGE_URL = 'http://localhost:9100/print';
+        var _bridgeAvailable = null; // null=unknown, true/false after first attempt
 
+        function tryBridgePrint(bytes64) {
+            return fetch(BRIDGE_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: bytes64 }),
+                signal: AbortSignal.timeout(6000)
+            })
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function (data) {
+                if (!data.success) throw new Error(data.error || 'Bridge print failed');
+                _bridgeAvailable = true;
+                return data;
+            });
+        }
+
+        // ── Web Bluetooth fallback ────────────────────────────────────────────────
+        function doBLEPrint() {
             PrinterManager.print(BLE_BYTES_B64, function (msg, cls) {
                 setStatus(msg, cls === 'ok' ? '' : (cls || ''));
             })
@@ -192,7 +214,6 @@
             .catch(function (err) {
                 bleBtn.disabled    = false;
                 bleBtn.textContent = '\ud83d\udda8 Print Receipt';
-                // User cancelled the picker — don't show a scary error
                 if (err && (err.name === 'NotFoundError' || err.name === 'AbortError')) {
                     setStatus('Print cancelled.', 'warn');
                 } else {
@@ -202,14 +223,37 @@
             });
         }
 
-        window.startBLEPrint = function () {
-            if (!navigator.bluetooth) {
-                bleBtn.style.display  = 'none';
-                noBtMsg.style.display = 'block';
-                return;
-            }
-            doPrint();
-        };
+        // ── Main print: try Bridge first, fall back to Web Bluetooth ──────────────
+        function doPrint() {
+            bleBtn.disabled    = true;
+            bleBtn.textContent = 'Connecting\u2026';
+            setStatus('Sending to Print Bridge\u2026');
+
+            tryBridgePrint(BLE_BYTES_B64)
+            .then(function () {
+                // Success via Print Bridge app
+                setStatus('Printed successfully!', 'ok');
+                bleBtn.textContent = '\ud83d\udda8 Print Again';
+                bleBtn.disabled = false;
+                setTimeout(function () { try { window.close(); } catch (e) {} }, 1800);
+            })
+            .catch(function () {
+                // Print Bridge not running — fall back to Web Bluetooth
+                _bridgeAvailable = false;
+                setStatus('');
+                if (!navigator.bluetooth) {
+                    bleBtn.disabled    = false;
+                    bleBtn.textContent = '\ud83d\udda8 Print Receipt';
+                    bleBtn.style.display  = 'none';
+                    noBtMsg.style.display = 'block';
+                    return;
+                }
+                setStatus('Using Bluetooth\u2026');
+                doBLEPrint();
+            });
+        }
+
+        window.startBLEPrint = function () { doPrint(); };
 
         window.changePrinter = function () {
             PrinterManager.forget().then(function () {
@@ -221,29 +265,46 @@
             });
         };
 
-        // ── On page load: show saved printer state ────────────────────────────────
-        // Do NOT auto-print — Web Bluetooth requestDevice() requires a user gesture.
+        // ── On page load ──────────────────────────────────────────────────────────
         document.addEventListener('DOMContentLoaded', function () {
-            if (!navigator.bluetooth) {
-                bleBtn.style.display  = 'none';
-                noBtMsg.style.display = 'block';
-                return;
-            }
-
-            PrinterManager.init().then(function () {
-                var cfg = PrinterManager.getConfig();
-                if (cfg && cfg.name) {
-                    showBadge(cfg.name);
-                    changePrinterBtn.style.display = 'inline';
-                    if (setupLink) setupLink.style.display = 'none';
-                    bleBtn.textContent = '\ud83d\udda8 Print to ' + cfg.name;
-                    if (printSub) printSub.textContent = 'Paired with ' + cfg.name + ' \u2014 tap to print.';
+            // Check if Print Bridge is running (silent status ping)
+            fetch('http://localhost:9100/status', { signal: AbortSignal.timeout(1500) })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                _bridgeAvailable = true;
+                var name = data.printerName || data.printer_name || '';
+                if (name) {
+                    showBadge(name);
+                    if (printSub) printSub.textContent = 'Paired with ' + name + ' \u2014 tap to print.';
+                    bleBtn.textContent = '\ud83d\udda8 Print via Print Bridge';
                 } else {
-                    // No saved printer — direct user to setup
-                    if (setupLink) setupLink.style.display = 'inline-block';
-                    bleBtn.textContent = '\ud83d\udda8 Print via Bluetooth';
-                    if (printSub) printSub.textContent = 'No printer saved. Tap to select your printer.';
+                    if (printSub) printSub.textContent = 'Print Bridge running. Tap to print.';
+                    bleBtn.textContent = '\ud83d\udda8 Print Receipt';
                 }
+                if (setupLink) setupLink.style.display = 'none';
+            })
+            .catch(function () {
+                // Bridge not running — show Web Bluetooth UI
+                _bridgeAvailable = false;
+                if (!navigator.bluetooth) {
+                    bleBtn.style.display  = 'none';
+                    noBtMsg.style.display = 'block';
+                    return;
+                }
+                PrinterManager.init().then(function () {
+                    var cfg = PrinterManager.getConfig();
+                    if (cfg && cfg.name) {
+                        showBadge(cfg.name);
+                        changePrinterBtn.style.display = 'inline';
+                        if (setupLink) setupLink.style.display = 'none';
+                        bleBtn.textContent = '\ud83d\udda8 Print to ' + cfg.name;
+                        if (printSub) printSub.textContent = 'Paired with ' + cfg.name + ' \u2014 tap to print.';
+                    } else {
+                        if (setupLink) setupLink.style.display = 'inline-block';
+                        bleBtn.textContent = '\ud83d\udda8 Print via Bluetooth';
+                        if (printSub) printSub.textContent = 'No printer saved. Tap to select your printer.';
+                    }
+                });
             });
         });
 
