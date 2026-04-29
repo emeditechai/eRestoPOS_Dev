@@ -218,10 +218,14 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-          child: Column(
+        child: Center(
+          child: ConstrainedBox(
+            // Limit width on tablets — content looks bad stretched to 10"
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // ── Server badge ─────────────────────────────────────────────
@@ -388,6 +392,8 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 8),
             ],
           ),
+        ),
+        ),
         ),
       ),
     );

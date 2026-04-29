@@ -21,7 +21,18 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <!-- ── BLE feature declaration ────────────────────────────────────────── -->
-    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+    <!-- required=false so tablets without BLE can still install the APK.
+         The app handles missing Bluetooth gracefully at runtime. -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
+    <!-- ── Screen size support ────────────────────────────────────────────── -->
+    <supports-screens
+        android:smallScreens="true"
+        android:normalScreens="true"
+        android:largeScreens="true"
+        android:xlargeScreens="true"
+        android:resizeable="true"
+        android:anyDensity="true" />
 
     <application
         android:label="Print Bridge"
