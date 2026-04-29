@@ -96,7 +96,7 @@
             background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
             border: 1px solid #c4b5fd;
             border-radius: 12px;
-            padding: 18px 20px;
+            padding: 20px 22px;
             margin-bottom: 20px;
         }
         .bridge-badge {
@@ -112,6 +112,58 @@
         }
         .bridge-badge.active   { background: #dcfce7; color: #16a34a; }
         .bridge-badge.no-pair  { background: #fef9c3; color: #ca8a04; }
+        /* ── QR Code block ────────────────────────────────────────────── */
+        .qr-outer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #fff;
+            border: 2px solid #c4b5fd;
+            border-radius: 12px;
+            padding: 14px 14px 10px;
+            width: fit-content;
+        }
+        .qr-outer #apkQrCode img,
+        .qr-outer #apkQrCode canvas {
+            display: block;
+            border-radius: 4px;
+        }
+        .qr-label {
+            margin-top: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #7c3aed;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            text-align: center;
+        }
+        .apk-url-box {
+            background: #fff;
+            border: 1px solid #d8b4fe;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 11px;
+            font-family: monospace;
+            color: #5b21b6;
+            word-break: break-all;
+            margin-bottom: 12px;
+        }
+        .bridge-divider {
+            border: none;
+            border-top: 1px dashed #c4b5fd;
+            margin: 14px 0;
+        }
+        .btn-apk-download {
+            background: #7c3aed;
+            border-color: #7c3aed;
+            color: #fff;
+            font-weight: 600;
+        }
+        .btn-apk-download:hover {
+            background: #6d28d9;
+            border-color: #6d28d9;
+            color: #fff;
+        }
     </style>
 }
 
@@ -124,33 +176,70 @@
 
     <!-- ── Print Bridge App card ─────────────────────────────────────────── -->
     <div class="bridge-card mb-4" id="bridgeCard">
-        <div class="d-flex align-items-start gap-3">
-            <div style="font-size:32px; line-height:1;">&#128241;</div>
-            <div class="flex-grow-1">
-                <div class="fw-bold mb-1" style="font-size:15px;">
-                    Print Bridge App
-                    <span class="bridge-badge ms-2" id="bridgeBadge">
-                        <span id="bridgeDot">&#9679;</span> Checking…
-                    </span>
+
+        <!-- Header -->
+        <div class="d-flex align-items-center gap-2 mb-1">
+            <span style="font-size:26px; line-height:1;">&#128241;</span>
+            <div>
+                <div class="fw-bold" style="font-size:15px;">Print Bridge App</div>
+                <span class="bridge-badge mt-1" id="bridgeBadge">
+                    <span id="bridgeDot">&#9679;</span> Checking&hellip;
+                </span>
+            </div>
+        </div>
+
+        <p class="text-muted mt-2 mb-3" style="font-size:12px;">
+            Install the <strong>Print Bridge</strong> app on your Android phone for
+            <strong>fully silent printing</strong> — no Bluetooth picker, no permission dialogs,
+            works automatically after every page reload.
+        </p>
+
+        <hr class="bridge-divider">
+
+        <!-- QR + Info row -->
+        <div class="d-flex flex-wrap gap-4 align-items-start">
+
+            <!-- QR Code (server-generated, no CDN dependency) -->
+            <div class="qr-outer flex-shrink-0">
+                @if (!string.IsNullOrEmpty(ViewBag.ApkQrCodeBase64 as string))
+                {
+                    <img src="data:image/png;base64,@ViewBag.ApkQrCodeBase64"
+                         alt="Scan to download PrintBridge APK"
+                         width="160" height="160"
+                         style="display:block; border-radius:4px;">
+                }
+                <div class="qr-label">Scan to download APK</div>
+            </div>
+
+            <!-- Instructions column -->
+            <div class="flex-grow-1" style="min-width: 180px;">
+                <div class="fw-semibold mb-1" style="font-size:13px; color:#5b21b6;">
+                    <i class="fas fa-qrcode me-1"></i> Install in 3 steps
                 </div>
-                <p class="text-muted mb-2" style="font-size:12px;">
-                    Install the <strong>Print Bridge</strong> app on this Android phone for <strong>fully silent printing</strong> —
-                    no Bluetooth picker, no permission dialogs, works even after page reload.
-                </p>
+                <ol class="ps-3 mb-3" style="font-size:12px; color:#374151; line-height:1.9;">
+                    <li>Open your Android phone camera &amp; scan the QR code</li>
+                    <li>Tap the link → Chrome downloads <strong>PrintBridge.apk</strong></li>
+                    <li>Open the file, install it, then tap <strong>Pair Printer</strong></li>
+                </ol>
+
+                <div class="fw-semibold mb-1" style="font-size:12px; color:#6b7280;">Or open this URL on your phone:</div>
+                <div class="apk-url-box">@(ViewBag.ApkDownloadUrl ?? "/Utility/DownloadPrinterApp")</div>
+
                 <div class="d-flex flex-wrap gap-2">
-                    <a href="@Url.Action("DownloadPrinterApp", "Utility")" class="btn btn-sm btn-primary" id="bridgeDownloadBtn">
-                        <i class="fas fa-download me-1"></i> Download App (.apk)
+                    <a href="@Url.Action("DownloadPrinterApp", "Utility")" class="btn btn-sm btn-apk-download" id="bridgeDownloadBtn">
+                        <i class="fas fa-download me-1"></i> Download APK
                     </a>
                     <button class="btn btn-sm btn-outline-secondary" onclick="checkBridgeStatus()">
                         <i class="fas fa-sync-alt me-1"></i> Recheck
                     </button>
                 </div>
-                <div class="mt-2" id="bridgeInstructions" style="font-size:11px; color:#7c3aed;">
-                    <i class="fas fa-info-circle me-1"></i>
-                    After installing: open the app, tap <strong>Pair Printer</strong>, then keep the app running in the background.
-                    Printing from this browser will use the app automatically.
-                </div>
             </div>
+        </div>
+
+        <div class="mt-3" id="bridgeInstructions" style="font-size:11px; color:#7c3aed; display:none;">
+            <i class="fas fa-info-circle me-1"></i>
+            After installing: open the app, tap <strong>Pair Printer</strong>, then keep the app running in the background.
+            Printing from this browser will use the app automatically.
         </div>
     </div>
 

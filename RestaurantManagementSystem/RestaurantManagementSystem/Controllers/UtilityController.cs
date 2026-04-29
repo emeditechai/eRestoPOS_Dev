@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
+using QRCoder;
 using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
@@ -318,6 +319,17 @@ ORDER  BY b.BranchName", conn);
         // ═══════════════════════════════════════════════════════════════
         public IActionResult PrinterSetup()
         {
+            // Build absolute APK download URL for the QR code
+            var apkUrl = $"{Request.Scheme}://{Request.Host}/Utility/DownloadPrinterApp";
+
+            // Generate QR code as base64 PNG (server-side — no CDN dependency)
+            using var qrGenerator = new QRCodeGenerator();
+            using var qrData = qrGenerator.CreateQrCode(apkUrl, QRCodeGenerator.ECCLevel.H);
+            using var qrCode = new PngByteQRCode(qrData);
+            var pngBytes = qrCode.GetGraphic(6, new byte[] { 91, 33, 182 }, new byte[] { 255, 255, 255 }); // purple on white
+            ViewBag.ApkQrCodeBase64 = Convert.ToBase64String(pngBytes);
+            ViewBag.ApkDownloadUrl  = apkUrl;
+
             return View();
         }
 
