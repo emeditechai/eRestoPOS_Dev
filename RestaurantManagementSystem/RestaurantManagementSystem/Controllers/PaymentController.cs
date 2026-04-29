@@ -1505,48 +1505,31 @@ END", connection))
                                             catch { /* Audit logging should not break the main flow */ }
                                         }
 
-                                        // If discount provided and not already persisted, update order with proper GST recalculation
-                                        // NOTE: Discount is already persisted when user clicks Apply on Payment/Index page via ApplyDiscount endpoint
-                                        // Only update if discount wasn't already applied to avoid double-application
+                                        // If discount provided and not already persisted, update order with proper GST recalculation.
+                                        // NOTE: Discount is already persisted when user clicks Apply on Payment/Index page via ApplyDiscount endpoint.
+                                        // We use UpdateOrderFinancials (not inline SQL) so inclusive-GST orders are handled correctly.
+                                        // Inclusive GST: Orders.Subtotal is the ex-GST base; discount is on the gross price.
+                                        //   Wrong: NetSubtotal = Subtotal - Discount (mixes ex-GST base with gross discount → double-counts)
+                                        //   Right: extract GST from (gross - discount) via UpdateOrderFinancials
                                         if (model.DiscountAmount > 0)
                                         {
                                             if (!reader.IsClosed) reader.Close();
+                                            // Step 1: Persist DiscountAmount if not already set to the same value
                                             using (var discountCmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-                                                -- Get current order values
                                                 DECLARE @CurrentDiscount DECIMAL(18,2);
-                                                DECLARE @CurrentSubtotal DECIMAL(18,2);
-                                                DECLARE @CurrentTipAmount DECIMAL(18,2);
-                                                
-                                                SELECT @CurrentDiscount = ISNULL(DiscountAmount, 0),
-                                                       @CurrentSubtotal = Subtotal,
-                                                       @CurrentTipAmount = ISNULL(TipAmount, 0)
-                                                FROM Orders 
-                                                WHERE Id = @OrderId;
-                                                
-                                                -- Only apply discount if not already persisted (avoid double-application)
-                                                -- If discount already exists and matches, skip update
+                                                SELECT @CurrentDiscount = ISNULL(DiscountAmount, 0) FROM Orders WHERE Id = @OrderId;
                                                 IF @CurrentDiscount = 0 OR ABS(@CurrentDiscount - @Disc) > 0.01
                                                 BEGIN
-                                                    -- Calculate new values based on discount applied to subtotal
-                                                    DECLARE @NewDiscountAmount DECIMAL(18,2) = @Disc; -- Use provided discount, not CurrentDiscount + Disc
-                                                    DECLARE @NetSubtotal DECIMAL(18,2) = @CurrentSubtotal - @NewDiscountAmount;
-                                                    DECLARE @NewGSTAmount DECIMAL(18,2) = ROUND(@NetSubtotal * @GSTPerc / 100, 2);
-                                                    DECLARE @NewTotalAmount DECIMAL(18,2) = @NetSubtotal + @NewGSTAmount + @CurrentTipAmount;
-                                                    
-                                                    -- Update order with recalculated amounts
-                                                    UPDATE Orders 
-                                                    SET DiscountAmount = @NewDiscountAmount, 
-                                                        UpdatedAt = GETDATE(),
-                                                        TaxAmount = @NewGSTAmount,
-                                                        TotalAmount = @NewTotalAmount
-                                                    WHERE Id = @OrderId
+                                                    UPDATE Orders SET DiscountAmount = @Disc, UpdatedAt = GETDATE() WHERE Id = @OrderId;
                                                 END", connection))
                                             {
                                                 discountCmd.Parameters.AddWithValue("@Disc", model.DiscountAmount);
                                                 discountCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
-                                                discountCmd.Parameters.AddWithValue("@GSTPerc", paymentGstPercentage);
                                                 discountCmd.ExecuteNonQuery();
                                             }
+                                            // Step 2: Recalculate Subtotal, TaxAmount, TotalAmount correctly
+                                            // UpdateOrderFinancials knows whether to use inclusive or exclusive GST formula.
+                                            UpdateOrderFinancials(model.OrderId, connection, null);
                                             // Re-check order completion after discount/total recalculation
                                             try
                                             {
@@ -1999,46 +1982,27 @@ END", connection))
 
                 // Pre-update Orders for discount, GST, Total if discount applied (same logic as single flow)
                 // NOTE: Discount may already be persisted via ApplyDiscount endpoint - avoid double-application
+                // Use UpdateOrderFinancials (not inline SQL) so inclusive-GST orders are handled correctly.
                 if (discountAmount > 0)
                 {
                     using (var conn = new SqlConnection(_connectionString))
                     {
                         conn.Open();
+                        // Step 1: Persist DiscountAmount if not already set to the same value
                         using (var discountCmd = new SqlCommand(@"
                             DECLARE @CurrentDiscount DECIMAL(18,2);
-                            DECLARE @CurrentSubtotal DECIMAL(18,2);
-                            DECLARE @CurrentTipAmount DECIMAL(18,2);
-
-                            SELECT @CurrentDiscount = ISNULL(DiscountAmount, 0),
-                                   @CurrentSubtotal = Subtotal,
-                                   @CurrentTipAmount = ISNULL(TipAmount, 0)
-                            FROM Orders WHERE Id = @OrderId;
-
-                            -- Only apply discount if not already persisted (avoid double-application)
-                            -- If discount already exists and matches, skip update
+                            SELECT @CurrentDiscount = ISNULL(DiscountAmount, 0) FROM Orders WHERE Id = @OrderId;
                             IF @CurrentDiscount = 0 OR ABS(@CurrentDiscount - @Disc) > 0.01
                             BEGIN
-                                DECLARE @NewDiscountAmount DECIMAL(18,2) = @Disc; -- Use provided discount, not CurrentDiscount + Disc
-                                DECLARE @NetSubtotal DECIMAL(18,2) = @CurrentSubtotal - @NewDiscountAmount;
-                                IF @NetSubtotal < 0 SET @NetSubtotal = 0;
-                                DECLARE @NewGSTAmount DECIMAL(18,2) = ROUND(@NetSubtotal * @GstShare * @GSTPerc / 100, 2);
-                                -- Round total amount to match split payment rounding logic (round to nearest rupee)
-                                DECLARE @NewTotalAmount DECIMAL(18,2) = ROUND(@NetSubtotal + @NewGSTAmount + @CurrentTipAmount, 0);
-
-                                UPDATE Orders 
-                                SET DiscountAmount = @NewDiscountAmount, 
-                                    UpdatedAt = GETDATE(),
-                                    TaxAmount = @NewGSTAmount,
-                                    TotalAmount = @NewTotalAmount
-                                WHERE Id = @OrderId;
+                                UPDATE Orders SET DiscountAmount = @Disc, UpdatedAt = GETDATE() WHERE Id = @OrderId;
                             END", conn))
                         {
                             discountCmd.Parameters.AddWithValue("@Disc", discountAmount);
                             discountCmd.Parameters.AddWithValue("@OrderId", model.OrderId);
-                            discountCmd.Parameters.AddWithValue("@GSTPerc", gstPerc);
-                            discountCmd.Parameters.AddWithValue("@GstShare", gstApplicableShare);
                             discountCmd.ExecuteNonQuery();
                         }
+                        // Step 2: Recalculate Subtotal, TaxAmount, TotalAmount correctly
+                        UpdateOrderFinancials(model.OrderId, conn, null);
                     }
                 }
 
