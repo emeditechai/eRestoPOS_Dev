@@ -85,6 +85,71 @@ namespace RestaurantManagementSystem.Controllers
             return User.GetActiveBranchId();
         }
 
+        /// <summary>
+        /// Returns (discountApprovalRequired, cardPaymentApprovalRequired) for the branch that owns
+        /// the given order. Prefers branch-specific settings; falls back to the global (null-branch)
+        /// row or the highest-Id row when no branch match is found.
+        /// </summary>
+        private (bool discountApproval, bool cardApproval) GetApprovalSettings(int orderId)
+        {
+            // Branch-aware query: prefer the row whose BranchId matches the order's branch.
+            // Falls back to rows where BranchId IS NULL (global setting).
+            const string branchAwareSql = @"
+                SELECT TOP 1
+                    rs.IsDiscountApprovalRequired,
+                    rs.IsCardPaymentApprovalRequired
+                FROM dbo.RestaurantSettings rs
+                WHERE rs.BranchId IS NULL
+                   OR rs.BranchId = (SELECT BranchId FROM dbo.Orders WHERE Id = @OrderId)
+                ORDER BY
+                    CASE WHEN rs.BranchId = (SELECT BranchId FROM dbo.Orders WHERE Id = @OrderId) THEN 0 ELSE 1 END,
+                    rs.Id DESC";
+
+            try
+            {
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    conn.Open();
+                    using (var cmd = new SqlCommand(branchAwareSql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@OrderId", orderId);
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                bool disc = !reader.IsDBNull(0) && reader.GetBoolean(0);
+                                bool card = !reader.IsDBNull(1) && reader.GetBoolean(1);
+                                return (disc, card);
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // BranchId column may not exist in older installations — fall back to simple query
+                try
+                {
+                    using (var conn = new SqlConnection(_connectionString))
+                    {
+                        conn.Open();
+                        using (var cmd = new SqlCommand("SELECT TOP 1 IsDiscountApprovalRequired, IsCardPaymentApprovalRequired FROM dbo.RestaurantSettings ORDER BY Id DESC", conn))
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                bool disc = !reader.IsDBNull(0) && reader.GetBoolean(0);
+                                bool card = !reader.IsDBNull(1) && reader.GetBoolean(1);
+                                return (disc, card);
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+            return (false, false);
+        }
+
         private bool HasColumn(string tableName, string columnName)
         {
             try
@@ -863,33 +928,8 @@ END", connection))
                     bool requiresCardInfo = false;
                     string paymentMethodName = string.Empty;
                     
-                    // Read approval settings to decide if discounts or card payments need approval
-                    bool discountApprovalRequired = false;
-                    bool cardPaymentApprovalRequired = false;
-                    try
-                    {
-                        using (var settingsConn = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
-                        {
-                            settingsConn.Open();
-                            using (var settingsCmd = new Microsoft.Data.SqlClient.SqlCommand(@"SELECT TOP 1 IsDiscountApprovalRequired, IsCardPaymentApprovalRequired FROM dbo.RestaurantSettings ORDER BY Id DESC", settingsConn))
-                            {
-                                using (var rs = settingsCmd.ExecuteReader())
-                                {
-                                    if (rs.Read())
-                                    {
-                                        if (!rs.IsDBNull(0)) discountApprovalRequired = rs.GetBoolean(0);
-                                        if (!rs.IsDBNull(1)) cardPaymentApprovalRequired = rs.GetBoolean(1);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        // If settings read fails, default to existing behavior (no extra approvals)
-                        discountApprovalRequired = false;
-                        cardPaymentApprovalRequired = false;
-                    }
+                    // Read approval settings respecting the order's branch
+                    var (discountApprovalRequired, cardPaymentApprovalRequired) = GetApprovalSettings(model.OrderId);
 
                     using (Microsoft.Data.SqlClient.SqlConnection connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString))
                     {
@@ -1747,22 +1787,8 @@ END", connection))
 
             try
             {
-                // Read approval settings
-                bool discountApprovalRequired = false;
-                bool cardPaymentApprovalRequired = false;
-                using (var settingsConn = new SqlConnection(_connectionString))
-                {
-                    settingsConn.Open();
-                    using (var settingsCmd = new SqlCommand(@"SELECT TOP 1 IsDiscountApprovalRequired, IsCardPaymentApprovalRequired FROM dbo.RestaurantSettings ORDER BY Id DESC", settingsConn))
-                    using (var rs = settingsCmd.ExecuteReader())
-                    {
-                        if (rs.Read())
-                        {
-                            if (!rs.IsDBNull(0)) discountApprovalRequired = rs.GetBoolean(0);
-                            if (!rs.IsDBNull(1)) cardPaymentApprovalRequired = rs.GetBoolean(1);
-                        }
-                    }
-                }
+                // Read approval settings respecting the order's branch
+                var (discountApprovalRequired, cardPaymentApprovalRequired) = GetApprovalSettings(model.OrderId);
 
                 // Load order subtotal, GST percentage, and persisted GST values
                 decimal gstPerc = 5.0m; // default
@@ -2683,17 +2709,7 @@ END", connection))
                                     // FINAL SAFETY: consider pending payments but exclude pending discount payments when discount approvals are required
                                     try
                                     {
-                                        bool discountApprovalRequiredLocal = false;
-                                        try
-                                        {
-                                            using (var settingCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT TOP 1 IsDiscountApprovalRequired FROM dbo.RestaurantSettings", connection))
-                                            {
-                                                var settingObj = settingCmd.ExecuteScalar();
-                                                if (settingObj != null && settingObj != DBNull.Value)
-                                                    discountApprovalRequiredLocal = Convert.ToBoolean(settingObj);
-                                            }
-                                        }
-                                        catch { /* ignore */ }
+                                        var (discountApprovalRequiredLocal, _) = GetApprovalSettings(orderId);
 
                                         string finalSqlLocal;
                                         if (discountApprovalRequiredLocal)
@@ -2985,18 +3001,8 @@ END", connection))
                                     // FINAL SAFETY: consider pending + approved payments when marking complete
                                     try
                                     {
-                                            // Read discount approval setting so we don't count pending discount payments when approvals are required
-                                            bool discountApprovalRequired = false;
-                                            try
-                                            {
-                                                using (var settingCmd = new Microsoft.Data.SqlClient.SqlCommand("SELECT TOP 1 IsDiscountApprovalRequired FROM dbo.RestaurantSettings", connection))
-                                                {
-                                                    var settingObj = settingCmd.ExecuteScalar();
-                                                    if (settingObj != null && settingObj != DBNull.Value)
-                                                        discountApprovalRequired = Convert.ToBoolean(settingObj);
-                                                }
-                                            }
-                                            catch { /* ignore setting read errors, default to false */ }
+                                            // Read discount approval setting respecting the order's branch
+                                            var (discountApprovalRequired, _) = GetApprovalSettings(orderId);
 
                                             string finalSql;
                                             if (discountApprovalRequired)
