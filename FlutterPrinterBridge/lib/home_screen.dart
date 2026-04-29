@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -17,10 +18,25 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _serviceRunning = false;
   bool _scanning = false;
 
+  // Keep-alive timer: fires every 30s to keep the Dart event loop active.
+  // This prevents Android from throttling the HTTP server's network I/O
+  // when the app is backgrounded for several minutes.
+  Timer? _keepAliveTimer;
+
   @override
   void initState() {
     super.initState();
     _startServerAndRefresh();
+    _keepAliveTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _refresh(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _keepAliveTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _startServerAndRefresh() async {
