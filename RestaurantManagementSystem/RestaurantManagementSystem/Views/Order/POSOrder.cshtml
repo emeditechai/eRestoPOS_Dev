@@ -3259,6 +3259,23 @@
 
                 if (qcStartBtn) {
                     qcStartBtn.addEventListener('click', async function(){
+                        // Clear previous messages
+                        if (qcMsg) { qcMsg.classList.add('d-none'); qcMsg.textContent = ''; }
+
+                        // Pre-validate: delivery needs an address (error shown here, not in hidden form)
+                        if (qcOrderType === 2) {
+                            const addrVal = qcAddress ? qcAddress.value.trim() : '';
+                            if (!addrVal) {
+                                if (qcMsg) {
+                                    qcMsg.classList.remove('d-none');
+                                    qcMsg.className = 'alert alert-warning mt-2 py-2';
+                                    qcMsg.textContent = 'Please enter a delivery address.';
+                                }
+                                if (qcAddress) qcAddress.focus();
+                                return;
+                            }
+                        }
+
                         // Sync latest values to hidden form
                         if (mainType) mainType.value = String(qcOrderType);
                         if (mainName && qcName) mainName.value = qcName.value;
@@ -3271,6 +3288,17 @@
 
                         try {
                             await submitCreateForm();
+                            // Mirror any error from the hidden main-form message area to qcMsg
+                            const mainMsgEl = document.getElementById('posCreateMsg');
+                            if (mainMsgEl && !mainMsgEl.classList.contains('d-none') &&
+                                mainMsgEl.classList.contains('alert-danger')) {
+                                if (qcMsg) {
+                                    qcMsg.classList.remove('d-none');
+                                    qcMsg.className = 'alert alert-danger mt-2 py-2';
+                                    qcMsg.textContent = mainMsgEl.textContent;
+                                }
+                                mainMsgEl.classList.add('d-none');
+                            }
                         } catch(e) {
                             if (qcMsg) {
                                 qcMsg.classList.remove('d-none');
@@ -3358,6 +3386,11 @@
                 bar.style.display = '';
             }
         });
+
+        // Keep the Print Bridge APK awake so it never throttles.
+        // Android suspends network I/O for backgrounded apps after ~30s of silence.
+        // A silent ping every 25s prevents that without any user action.
+        PrinterManager.startHeartbeat(25000);
     })();
     </script>
 }

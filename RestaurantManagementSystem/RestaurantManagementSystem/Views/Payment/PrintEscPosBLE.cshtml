@@ -30,7 +30,6 @@
         .icon { font-size: 52px; line-height: 1; }
         h1   { font-size: 22px; font-weight: 700; }
         .sub { font-size: 14px; color: #a09abe; line-height: 1.5; }
-
         .btn-primary {
             background: linear-gradient(135deg, #7c3aed, #4f46e5);
             color: #fff;
@@ -49,7 +48,6 @@
         }
         .btn-primary:active   { transform: scale(0.97); }
         .btn-primary:disabled { opacity: 0.55; cursor: default; transform: none; }
-
         .btn-secondary {
             background: transparent;
             color: #a09abe;
@@ -67,13 +65,25 @@
             text-align: center;
         }
         .btn-secondary:hover { background: #1e1040; color: #d0c8f5; }
-
+        .btn-retry {
+            background: linear-gradient(135deg, #059669, #047857);
+            color: #fff;
+            border: none;
+            border-radius: 14px;
+            font-size: 16px;
+            font-weight: 700;
+            padding: 14px 32px;
+            cursor: pointer;
+            width: 100%;
+            max-width: 340px;
+            touch-action: manipulation;
+            display: none;
+        }
+        .btn-retry:disabled { opacity: 0.55; cursor: default; }
         #status       { font-size: 15px; min-height: 22px; color: #22c55e; }
         #status.err   { color: #ef4444; }
         #status.warn  { color: #f59e0b; }
-
         .close-hint { font-size: 12px; color: #4b5563; }
-
         .badge {
             display: none;
             font-size: 12px;
@@ -84,7 +94,6 @@
             padding: 5px 14px;
             max-width: 340px;
         }
-
         .link-btn {
             background: transparent;
             color: #6b7280;
@@ -94,7 +103,6 @@
             text-decoration: underline;
             padding: 0;
         }
-
         .no-bt-msg {
             display: none;
             background: #1e0a3c;
@@ -112,31 +120,29 @@
 <body>
     <div class="icon">&#128268;</div>
     <h1>Print Receipt</h1>
-    <p class="sub" id="printSub">Tap the button to print wirelessly.</p>
+    <p class="sub" id="printSub">Tap the button to print.</p>
 
-    <!-- Primary print button -->
-    <button id="bleBtn" class="btn-primary" onclick="startBLEPrint()">&#128424; Print Receipt</button>
+    <button id="printBtn" class="btn-primary" onclick="startPrint()">&#128424; Print Receipt</button>
 
     <div id="status"></div>
 
-    <!-- No Web Bluetooth support message -->
+    <button id="retryBridgeBtn" class="btn-retry" onclick="retryBridge()">&#8635; Retry Print Bridge</button>
+
     <div class="no-bt-msg" id="noBtMsg">
-        <strong>Web Bluetooth not available.</strong><br>
-        Please open this page in <strong>Chrome on Android</strong> over HTTPS.<br>
+        <strong>Web Bluetooth not available.</strong>
+        Please open this page in Chrome on Android over HTTPS.
         Safari and Firefox do not support Web Bluetooth.
     </div>
 
-    <!-- Green badge: shows saved BLE printer name -->
     <div id="defaultPrinterBadge" class="badge">&#10003; BT Printer: <span id="defaultPrinterName"></span></div>
 
-    <!-- View HTML receipt fallback -->
-    <a class="btn-secondary" href="/Payment/PrintPOS?orderId=@bleOrderId&htmlOnly=true" target="_blank">&#128196; View Receipt</a>
+    <a class="btn-secondary" href="/Payment/PrintPOS?orderId=@bleOrderId&amp;htmlOnly=true" target="_blank">&#128196; View Receipt</a>
 
-    <!-- Setup / Change printer links -->
     <a id="setupPrinterLink" class="btn-secondary" href="/Utility/PrinterSetup"
        style="display:none; background:transparent; color:#7c3aed; border-color:#7c3aed;">
         &#128268; Setup Printer
     </a>
+
     <button id="changePrinterBtn" class="link-btn" onclick="changePrinter()" style="display:none;">
         &#8635; Change BT Printer
     </button>
@@ -148,10 +154,11 @@
     (function () {
         'use strict';
 
-        var BLE_BYTES_B64 = '@Html.Raw(bytesB64)';
-        var ORDER_ID      = @bleOrderId;
+        var BLE_BYTES_B64    = '@Html.Raw(bytesB64)';
+        var ORDER_ID         = @bleOrderId;
 
-        var bleBtn           = document.getElementById('bleBtn');
+        var printBtn         = document.getElementById('printBtn');
+        var retryBridgeBtn   = document.getElementById('retryBridgeBtn');
         var badge            = document.getElementById('defaultPrinterBadge');
         var badgeName        = document.getElementById('defaultPrinterName');
         var setupLink        = document.getElementById('setupPrinterLink');
@@ -160,217 +167,210 @@
         var statusEl         = document.getElementById('status');
         var printSub         = document.getElementById('printSub');
 
-        // ── Helpers ───────────────────────────────────────────────────────────────
+        var BRIDGE_STATUS = 'http://localhost:9100/status';
+        var BRIDGE_PRINT  = 'http://localhost:9100/print';
+
+        // true = bridge alive and confirmed, false = never (we keep retrying)
+        var _bridgeReady    = false;
+        var _polling        = false;  // background poll running
+        var _pollTimer      = null;
+        var _heartbeatTimer = null;
+
         function setStatus(msg, cls) {
             statusEl.textContent = msg;
             statusEl.className   = cls || '';
         }
-
         function showBadge(name) {
-            if (!name) { badge.style.display = 'none'; return; }
+            if (!name) return;
             badgeName.textContent = name;
             badge.style.display   = 'inline-block';
         }
+        function setBusy(label) {
+            printBtn.disabled    = true;
+            printBtn.textContent = label || '\u23f3 Please wait\u2026';
+        }
+        function setReady() {
+            printBtn.disabled    = false;
+            printBtn.textContent = '\ud83d\udda8 Print Receipt';
+        }
 
-        // ── Print Bridge (localhost:9100) ─────────────────────────────────────────
-        // The Print Bridge Android app runs an HTTP server on port 9100.
-        // When the user opens this page on their phone (same device as the app),
-        // we POST directly to it — no Web Bluetooth picker, no session issues.
-        // Chrome allows HTTPS → http://localhost requests (mixed content exception).
-        var BRIDGE_URL = 'http://localhost:9100/print';
-        var _bridgeAvailable = null; // null=unknown, true/false after first attempt
+        // ── Bridge helpers ─────────────────────────────────────────────────────
+        function pingBridge(timeoutMs) {
+            return fetch(BRIDGE_STATUS, { signal: AbortSignal.timeout(timeoutMs || 3000) })
+                .then(function (r) { return r.json(); });
+        }
 
-        function tryBridgePrint(bytes64) {
-            return fetch(BRIDGE_URL, {
+        function doBridgePrint() {
+            return fetch(BRIDGE_PRINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data: bytes64 }),
-                signal: AbortSignal.timeout(6000)
+                body: JSON.stringify({ data: BLE_BYTES_B64 }),
+                signal: AbortSignal.timeout(10000)
             })
-            .then(function (r) {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
-            })
-            .then(function (data) {
-                if (!data.success) throw new Error(data.error || 'Bridge print failed');
-                _bridgeAvailable = true;
-                return data;
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (d) {
+                if (!d || !d.success) throw new Error(d && d.error ? d.error : 'Print failed');
+                return d;
             });
         }
 
-        // ── Web Bluetooth fallback ────────────────────────────────────────────────
-        function doBLEPrint() {
-            PrinterManager.print(BLE_BYTES_B64, function (msg, cls) {
-                setStatus(msg, cls === 'ok' ? '' : (cls || ''));
-            })
-            .then(function (cfg) {
-                showBadge(cfg.name);
-                changePrinterBtn.style.display = 'inline';
-                if (setupLink) setupLink.style.display = 'none';
-                bleBtn.textContent = '\ud83d\udda8 Print to ' + cfg.name + ' (again)';
-                bleBtn.disabled = false;
-                setTimeout(function () { try { window.close(); } catch (e) {} }, 2000);
-            })
-            .catch(function (err) {
-                bleBtn.disabled    = false;
-                bleBtn.textContent = '\ud83d\udda8 Print Receipt';
-                if (err && (err.name === 'NotFoundError' || err.name === 'AbortError')) {
-                    setStatus('Print cancelled.', 'warn');
-                } else {
-                    setStatus('Error: ' + (err && err.message ? err.message : String(err)), 'err');
-                }
-                if (!PrinterManager.isReady() && setupLink) setupLink.style.display = 'inline-block';
-            });
+        function afterBridgeSuccess() {
+            stopPolling();
+            setStatus('Printed successfully! \u2713', 'ok');
+            printBtn.disabled    = false;
+            printBtn.textContent = '\ud83d\udda8 Print Again';
+            printBtn.onclick     = function () { triggerBridgePrint(); };
+            retryBridgeBtn.style.display = 'none';
+            setTimeout(function () { try { window.close(); } catch (e) {} }, 1800);
         }
 
-        // ── Main print ────────────────────────────────────────────────────────────
-        // FIX: requestDevice() requires a live user-gesture context.
-        // Any async gap before calling it (fetch, timeout) kills the gesture window.
-        // Solution: check _bridgeAvailable flag BEFORE doing anything async.
-        //   Bridge=true  → async POST to bridge (no BLE, no gesture needed)
-        //   Bridge=false → call doBLEPrint() IMMEDIATELY so gesture context is alive
-        //   Bridge=null  → quick 400ms re-ping, then re-enable button for a fresh tap
-        function doPrint() {
-            bleBtn.disabled = true;
-
-            if (_bridgeAvailable === true) {
-                // Bridge confirmed running — safe to do async print (no requestDevice involved)
-                bleBtn.textContent = 'Printing\u2026';
-                setStatus('Sending to Print Bridge\u2026');
-                tryBridgePrint(BLE_BYTES_B64)
-                .then(function () {
-                    setStatus('Printed successfully!', 'ok');
-                    bleBtn.textContent = '\ud83d\udda8 Print Again';
-                    bleBtn.disabled = false;
-                    setTimeout(function () { try { window.close(); } catch (e) {} }, 1800);
-                })
-                .catch(function () {
-                    _bridgeAvailable = false;
-                    bleBtn.disabled    = false;
-                    bleBtn.textContent = '\ud83d\udda8 Retry Print';
-                    setStatus('Bridge error \u2014 tap Retry or check the Print Bridge app.', 'err');
-                });
-
-            } else if (_bridgeAvailable === false) {
-                // Bridge not running — call requestDevice() IMMEDIATELY while gesture is alive
-                bleBtn.textContent = 'Connecting\u2026';
-                setStatus('Using Bluetooth\u2026');
-                doBLEPrint();
-
+        function onBridgeFound(data) {
+            _bridgeReady = true;
+            stopPolling();
+            startHeartbeat();
+            retryBridgeBtn.style.display = 'none';
+            var name = data.printerName || data.printer_name || '';
+            if (name) {
+                showBadge(name);
+                printSub.textContent = 'Paired with ' + name + ' \u2014 tap to print.';
             } else {
-                // Bridge status still unknown (user tapped before page-load check finished)
-                // Re-ping with 400ms max; if it fails, re-enable button for a fresh gesture
-                bleBtn.textContent = 'Checking\u2026';
-                setStatus('');
-                fetch('http://localhost:9100/status', { signal: AbortSignal.timeout(400) })
+                printSub.textContent = 'Print Bridge ready \u2014 tap to print.';
+            }
+            setStatus('');
+            setReady();
+        }
+
+        // ── Heartbeat: keep APK alive (ping every 25s so Android never throttles) ──
+        function startHeartbeat() {
+            if (_heartbeatTimer) return;
+            _heartbeatTimer = setInterval(function () {
+                fetch(BRIDGE_STATUS, { signal: AbortSignal.timeout(3000) }).catch(function () {});
+            }, 25000);
+        }
+        function stopHeartbeat() {
+            if (_heartbeatTimer) { clearInterval(_heartbeatTimer); _heartbeatTimer = null; }
+        }
+
+        // ── Background poll: keep trying until bridge responds ────────────────────
+        // Strategy: 800ms → 4s → 8s → 8s → 8s … (forever until page closes)
+        // Each failed ping wakes the Android networking stack so the next one usually succeeds.
+        function startPolling() {
+            if (_polling) return;
+            _polling = true;
+            var delays = [800, 4000, 8000];   // first three intervals
+            var step   = 0;
+
+            function attempt() {
+                if (!_polling) return;
+                var timeout = delays[step] || 8000;
+                step++;
+
+                fetch(BRIDGE_STATUS, { signal: AbortSignal.timeout(timeout) })
                 .then(function (r) { return r.json(); })
-                .then(function () {
-                    _bridgeAvailable = true;
-                    bleBtn.textContent = 'Printing\u2026';
-                    setStatus('Sending to Print Bridge\u2026');
-                    return tryBridgePrint(BLE_BYTES_B64);
-                })
-                .then(function () {
-                    setStatus('Printed successfully!', 'ok');
-                    bleBtn.textContent = '\ud83d\udda8 Print Again';
-                    bleBtn.disabled = false;
-                    setTimeout(function () { try { window.close(); } catch (e) {} }, 1800);
+                .then(function (data) {
+                    if (!_polling) return;
+                    onBridgeFound(data);
                 })
                 .catch(function () {
-                    // Could not confirm bridge — re-enable so user gets a fresh gesture on next tap
-                    _bridgeAvailable = false;
-                    bleBtn.disabled    = false;
-                    bleBtn.textContent = '\ud83d\udda8 Print via Bluetooth';
-                    setStatus('Tap again to print via Bluetooth.');
+                    if (!_polling) return;
+                    // Show "waking up" hint after first failure
+                    if (step === 2) {
+                        printSub.textContent = 'Waking up printer app\u2026';
+                        setBusy('\u23f3 Connecting\u2026');
+                    }
+                    _pollTimer = setTimeout(attempt, 500);
+                });
+            }
+            attempt();
+        }
+
+        function stopPolling() {
+            _polling = false;
+            if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
+        }
+
+        // ── User taps Print button ────────────────────────────────────────────────
+        // NEVER shows BLE picker — only uses bridge.
+        function triggerBridgePrint() {
+            if (_bridgeReady) {
+                // Bridge confirmed — print immediately
+                setBusy('\u23f3 Printing\u2026');
+                setStatus('Sending to printer\u2026');
+                doBridgePrint()
+                .then(afterBridgeSuccess)
+                .catch(function (err) {
+                    // Bridge went away — restart polling
+                    _bridgeReady = false;
+                    startPolling();
+                    setStatus('Print error. Reconnecting\u2026', 'err');
+                    setBusy('\u23f3 Connecting\u2026');
+                    printSub.textContent = 'Waking up printer app\u2026';
+                    retryBridgeBtn.style.display = 'block';
+                });
+            } else {
+                // Bridge not confirmed yet — try once with a generous timeout
+                setBusy('\u23f3 Connecting\u2026');
+                setStatus('');
+                stopPolling();
+                fetch(BRIDGE_STATUS, { signal: AbortSignal.timeout(8000) })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    onBridgeFound(data);
+                    // Now print
+                    setBusy('\u23f3 Printing\u2026');
+                    setStatus('Sending to printer\u2026');
+                    return doBridgePrint();
+                })
+                .then(afterBridgeSuccess)
+                .catch(function () {
+                    // Still not responding — tell user to open the app
+                    _bridgeReady = false;
+                    startPolling();
+                    setBusy('\u23f3 Connecting\u2026');
+                    printSub.textContent = 'Open the Printer Bridge app on this device, then it will print automatically.';
+                    setStatus('');
+                    retryBridgeBtn.style.display = 'block';
                 });
             }
         }
 
-        window.startBLEPrint = function () { doPrint(); };
+        window.startPrint = function () { triggerBridgePrint(); };
 
-        window.changePrinter = function () {
-            PrinterManager.forget().then(function () {
-                badge.style.display            = 'none';
-                changePrinterBtn.style.display = 'none';
+        // ── Retry button: explicit user retry ────────────────────────────────────
+        window.retryBridge = function () {
+            retryBridgeBtn.disabled    = true;
+            retryBridgeBtn.textContent = '\u23f3 Connecting\u2026';
+            setStatus('');
+            stopPolling();
+            fetch(BRIDGE_STATUS, { signal: AbortSignal.timeout(8000) })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                onBridgeFound(data);
+                retryBridgeBtn.disabled    = false;
+                retryBridgeBtn.textContent = '\u8635 Retry Print Bridge';
+                setBusy('\u23f3 Printing\u2026');
+                setStatus('Sending to printer\u2026');
+                return doBridgePrint();
+            })
+            .then(afterBridgeSuccess)
+            .catch(function () {
+                retryBridgeBtn.disabled    = false;
+                retryBridgeBtn.textContent = '\u8635 Retry Print Bridge';
+                printSub.textContent = 'App not responding. Open the Printer Bridge app and try again.';
                 setStatus('');
-                bleBtn.textContent = '\ud83d\udda8 Print Receipt';
-                doPrint();
+                startPolling();
             });
         };
 
-        // ── On page load ──────────────────────────────────────────────────────────
-        // Disable button during bridge check so _bridgeAvailable is ALWAYS true/false
-        // (never null) by the time the user can tap.
-        //
-        // RETRY STRATEGY for Android background throttling:
-        // Android slows the app's network I/O after a few idle minutes. The first
-        // connection attempt itself wakes the networking stack. So if the 800ms ping
-        // fails, we immediately try once more with a 2500ms timeout — this second
-        // attempt usually succeeds because the first one already woke the app.
+        // ── Boot ──────────────────────────────────────────────────────────────────
         document.addEventListener('DOMContentLoaded', function () {
-            bleBtn.disabled    = true;
-            bleBtn.textContent = '\u23f3 Checking\u2026';
-
-            function applyBridgeSuccess(data) {
-                _bridgeAvailable = true;
-                var name = data.printerName || data.printer_name || '';
-                if (name) {
-                    showBadge(name);
-                    if (printSub) printSub.textContent = 'Paired with ' + name + ' \u2014 tap to print.';
-                    bleBtn.textContent = '\ud83d\udda8 Print via Print Bridge';
-                } else {
-                    if (printSub) printSub.textContent = 'Print Bridge running. Tap to print.';
-                    bleBtn.textContent = '\ud83d\udda8 Print Receipt';
-                }
-                if (setupLink) setupLink.style.display = 'none';
-                bleBtn.disabled = false;
-            }
-
-            function applyBridgeUnavailable() {
-                _bridgeAvailable = false;
-                if (!navigator.bluetooth) {
-                    bleBtn.style.display  = 'none';
-                    noBtMsg.style.display = 'block';
-                    return;
-                }
-                PrinterManager.init().then(function () {
-                    var cfg = PrinterManager.getConfig();
-                    if (cfg && cfg.name) {
-                        showBadge(cfg.name);
-                        changePrinterBtn.style.display = 'inline';
-                        if (setupLink) setupLink.style.display = 'none';
-                        bleBtn.textContent = '\ud83d\udda8 Print to ' + cfg.name;
-                        if (printSub) printSub.textContent = 'Paired with ' + cfg.name + ' \u2014 tap to print.';
-                    } else {
-                        if (setupLink) setupLink.style.display = 'inline-block';
-                        bleBtn.textContent = '\ud83d\udda8 Print via Bluetooth';
-                        if (printSub) printSub.textContent = 'No printer saved. Tap to select your printer.';
-                    }
-                    bleBtn.disabled = false;
-                });
-            }
-
-            // First attempt: 800ms (instant when app is active)
-            fetch('http://localhost:9100/status', { signal: AbortSignal.timeout(800) })
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                applyBridgeSuccess(data);
-            })
-            .catch(function () {
-                // First ping timed out — app may be throttled by Android.
-                // The first connection attempt wakes the networking stack;
-                // retry immediately with a longer timeout.
-                bleBtn.textContent = '\u23f3 Waking up\u2026';
-                fetch('http://localhost:9100/status', { signal: AbortSignal.timeout(2500) })
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
-                    applyBridgeSuccess(data);
-                })
-                .catch(function () {
-                    // Both attempts failed — bridge genuinely not running
-                    applyBridgeUnavailable();
-                });
-            });
+            setBusy('\u23f3 Connecting\u2026');
+            printSub.textContent = 'Connecting to Printer Bridge\u2026';
+            // Hide BLE-specific controls — this page uses bridge only
+            if (changePrinterBtn) changePrinterBtn.style.display = 'none';
+            if (setupLink)        setupLink.style.display        = 'none';
+            if (noBtMsg)          noBtMsg.style.display          = 'none';
+            startPolling();
         });
 
     })();

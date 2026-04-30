@@ -436,6 +436,17 @@ window.PrinterManager = (function () {
             });
     }
 
+    // ── Public: printBLE ────────────────────────────────────────────────────────
+    // Skips the Print Bridge check entirely and goes straight to Web Bluetooth.
+    // Call this when the bridge is KNOWN to be unavailable, so that requestDevice()
+    // is called with no async gap (preserving the user-gesture context on Android).
+    function printBLE(base64Bytes, statusCallback) {
+        function status(msg, cls) {
+            if (typeof statusCallback === 'function') statusCallback(msg, cls);
+        }
+        return _printViaBluetooth(base64Bytes, status);
+    }
+
     function _printViaBluetooth(base64Bytes, status) {
         var bytes;
         try {
@@ -585,16 +596,35 @@ window.PrinterManager = (function () {
     function getConfig() { return _config; }
     function isReady()   { return !!(_config && _config.name); }
 
+    // ── Heartbeat: keep Print Bridge app awake ───────────────────────────────────
+    // Android suspends network I/O for backgrounded apps after ~30s of silence.
+    // Pinging /status every 25s prevents that throttle without any user action.
+    var _heartbeatTimer = null;
+    function startHeartbeat(intervalMs) {
+        if (_heartbeatTimer) return;           // already running
+        var ms = intervalMs || 25000;
+        _heartbeatTimer = setInterval(function () {
+            fetch('http://localhost:9100/status', { signal: AbortSignal.timeout(3000) })
+                .catch(function () {});        // silently ignore — bridge may be offline
+        }, ms);
+    }
+    function stopHeartbeat() {
+        if (_heartbeatTimer) { clearInterval(_heartbeatTimer); _heartbeatTimer = null; }
+    }
+
     // ── Expose public API ───────────────────────────────────────────────────────
     return {
-        init:         init,
-        connect:      connect,
-        print:        print,
-        scan:         scan,
-        savePrinter:  savePrinter,
-        forget:       forget,
-        getConfig:    getConfig,
-        isReady:      isReady
+        init:           init,
+        connect:        connect,
+        print:          print,
+        printBLE:       printBLE,
+        scan:           scan,
+        savePrinter:    savePrinter,
+        forget:         forget,
+        getConfig:      getConfig,
+        isReady:        isReady,
+        startHeartbeat: startHeartbeat,
+        stopHeartbeat:  stopHeartbeat
     };
 
 })();
