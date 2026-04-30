@@ -319,8 +319,8 @@ ORDER  BY b.BranchName", conn);
         // ═══════════════════════════════════════════════════════════════
         public IActionResult PrinterSetup()
         {
-            // Build absolute APK download URL for the QR code
-            var apkUrl = $"{Request.Scheme}://{Request.Host}/Utility/DownloadPrinterApp";
+            // Hardcoded APK download URL
+            var apkUrl = "http://198.38.81.123:9004/apps/apk/printer-bridge.apk";
 
             // Generate QR code as base64 PNG (server-side — no CDN dependency)
             using var qrGenerator = new QRCodeGenerator();
@@ -338,13 +338,20 @@ ORDER  BY b.BranchName", conn);
         // ═══════════════════════════════════════════════════════════════
         [HttpGet]
         [AllowAnonymous]
-        public IActionResult DownloadPrinterApp()
+        public async Task<IActionResult> DownloadPrinterApp()
         {
-            var apkPath = Path.Combine(_env.WebRootPath, "download", "printer-bridge.apk");
-            if (!System.IO.File.Exists(apkPath))
-                return NotFound("Print Bridge app not available yet. Please contact your administrator.");
-
-            return PhysicalFile(apkPath, "application/vnd.android.package-archive", "PrintBridge.apk");
+            var apkUrl = "http://198.38.81.123:9004/apps/apk/printer-bridge.apk";
+            try
+            {
+                using var httpClient = new System.Net.Http.HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(30);
+                var bytes = await httpClient.GetByteArrayAsync(apkUrl);
+                return File(bytes, "application/vnd.android.package-archive", "PrintBridge.apk");
+            }
+            catch
+            {
+                return NotFound("Print Bridge app not available. Please contact your administrator.");
+            }
         }
 
         // ═══════════════════════════════════════════════════════════════

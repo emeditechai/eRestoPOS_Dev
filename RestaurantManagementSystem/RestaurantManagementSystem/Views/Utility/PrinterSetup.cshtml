@@ -223,10 +223,10 @@
                 </ol>
 
                 <div class="fw-semibold mb-1" style="font-size:12px; color:#6b7280;">Or open this URL on your phone:</div>
-                <div class="apk-url-box">@(ViewBag.ApkDownloadUrl ?? "/Utility/DownloadPrinterApp")</div>
+                <div class="apk-url-box">@(ViewBag.ApkDownloadUrl ?? "http://198.38.81.123:9004/apps/apk/printer-bridge.apk")</div>
 
                 <div class="d-flex flex-wrap gap-2">
-                    <a href="@Url.Action("DownloadPrinterApp", "Utility")" class="btn btn-sm btn-apk-download" id="bridgeDownloadBtn">
+                    <a href="/Utility/DownloadPrinterApp" class="btn btn-sm btn-apk-download" id="bridgeDownloadBtn">
                         <i class="fas fa-download me-1"></i> Download APK
                     </a>
                     <button class="btn btn-sm btn-outline-secondary" onclick="checkBridgeStatus()">
