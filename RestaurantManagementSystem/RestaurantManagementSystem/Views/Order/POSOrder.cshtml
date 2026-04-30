@@ -451,7 +451,9 @@
     }
     /* Mobile */
     @@media (max-width: 767.98px) {
-        /* 1-col grid on very narrow phones (<390px) */
+        /* 2-col grid on mobile (390px+); 1-col only for very narrow phones */
+        #posProductGrid { --bs-columns: 2; }
+        #posProductGrid .col { flex: 0 0 50%; max-width: 50%; }
         @@media (max-width: 389.98px) {
             #posProductGrid { --bs-columns: 1; }
             #posProductGrid .col { flex: 0 0 100%; max-width: 100%; }
@@ -826,6 +828,9 @@
                         <div class="col-6">
                             <input class="form-control form-control-sm" type="tel" inputmode="tel" id="qcPhone" placeholder="Phone" autocomplete="tel" style="min-height:42px;" />
                         </div>
+                    </div>
+                    <div id="qcAddressWrap" style="display:none;" class="mb-2">
+                        <input class="form-control form-control-sm" id="qcAddress" placeholder="Delivery address" autocomplete="street-address" style="min-height:42px;" />
                     </div>
                     <button type="button" class="btn btn-primary w-100" id="qcStartBtn" style="min-height:50px;font-size:1rem;font-weight:700;">
                         <i class="fas fa-play me-2"></i> Start Order
@@ -2186,7 +2191,7 @@
             }
 
             async function submitCreateForm(e){
-                e.preventDefault();
+                if (e && typeof e.preventDefault === 'function') e.preventDefault();
                 if (isLocked) return;
 
                 const form = document.getElementById('posCreateForm');
@@ -3205,6 +3210,10 @@
                 const mainDelivery = document.getElementById('posOrderTypeDelivery');
                 const mainName     = document.querySelector('#posCreateForm [name="CustomerName"]');
                 const mainPhone    = document.querySelector('#posCreateForm [name="CustomerPhone"]');
+                const mainAddress  = document.querySelector('#posCreateForm [name="CustomerAddress"]');
+
+                const qcAddressWrap = document.getElementById('qcAddressWrap');
+                const qcAddress     = document.getElementById('qcAddress');
 
                 let qcOrderType = 1;
 
@@ -3215,16 +3224,26 @@
                         qcTypeTakeout?.classList.remove('btn-outline-primary');
                         qcTypeDelivery?.classList.remove('btn-primary');
                         qcTypeDelivery?.classList.add('btn-outline-primary');
+                        if (qcAddressWrap) qcAddressWrap.style.display = 'none';
                     } else {
                         qcTypeDelivery?.classList.add('btn-primary');
                         qcTypeDelivery?.classList.remove('btn-outline-primary');
                         qcTypeTakeout?.classList.remove('btn-primary');
                         qcTypeTakeout?.classList.add('btn-outline-primary');
+                        if (qcAddressWrap) qcAddressWrap.style.display = '';
                     }
-                    // Sync to hidden main form
-                    if (mainType) mainType.value = String(t);
+                    // Sync to hidden main form and fire change so address-toggle listener runs
+                    if (mainType) {
+                        mainType.value = String(t);
+                        mainType.dispatchEvent(new Event('change'));
+                    }
                     if (mainTakeout) mainTakeout.classList.toggle('active', t === 1);
                     if (mainDelivery) mainDelivery.classList.toggle('active', t === 2);
+                }
+
+                // Sync address field to hidden form
+                if (qcAddress && mainAddress) {
+                    qcAddress.addEventListener('input', function(){ mainAddress.value = qcAddress.value; });
                 }
 
                 if (qcTypeTakeout) qcTypeTakeout.addEventListener('click', function(){ setQcType(1); });
@@ -3244,6 +3263,7 @@
                         if (mainType) mainType.value = String(qcOrderType);
                         if (mainName && qcName) mainName.value = qcName.value;
                         if (mainPhone && qcPhone) mainPhone.value = qcPhone.value;
+                        if (mainAddress && qcAddress) mainAddress.value = qcAddress.value;
 
                         qcStartBtn.disabled = true;
                         qcStartBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Starting...';
