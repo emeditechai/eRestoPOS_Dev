@@ -393,13 +393,47 @@
 
     /* ===== TABLET RESPONSIVE IMPROVEMENTS ===== */
 
-    /* Topbar: stack search below on small screens */
+    /* ── Quick-create strip (mobile only, shown above product grid when no order) ── */
+    #posQuickCreate {
+        display: none; /* hidden on desktop; shown via JS on mobile */
+    }
     @@media (max-width: 767.98px) {
-        .pos-topbar > .d-flex { flex-wrap: wrap; row-gap: .35rem; }
+        #posQuickCreate {
+            display: block;
+            background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+            border: 1px solid #ddd6fe;
+            border-radius: .9rem;
+            padding: .75rem .85rem;
+            margin-bottom: .6rem;
+        }
+        #posQuickCreate.d-none { display: none !important; }
+    }
+
+    /* ── Topbar: clean layout on mobile ── */
+    @@media (max-width: 767.98px) {
+        .pos-topbar { padding: .4rem 0; }
+        .pos-topbar > .d-flex { flex-wrap: wrap; row-gap: .3rem; }
+        /* Search occupies full second row */
         .pos-search-shell { order: 10; width: 100%; max-width: 100%; margin-left: 0 !important; }
-        .pos-search-chips { display: none; } /* save space on phone */
-        .pos-topbar .btn,
-        .pos-topbar .badge { font-size: .85rem; }
+        /* Chips scroll horizontally instead of hiding */
+        .pos-search-chips {
+            display: flex !important;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            gap: .35rem;
+            padding-bottom: 2px;
+            scrollbar-width: none;
+        }
+        .pos-search-chips::-webkit-scrollbar { display: none; }
+        /* Title: icon only, no text */
+        .pos-topbar-title-text { display: none; }
+        /* Back button: icon only */
+        .pos-back-text { display: none; }
+        /* Counter badge: compact */
+        #posCounterBadge { font-size: .72rem; padding: .2rem .5rem; }
+        /* Subtitle: hide on mobile (shown in quick-create strip) */
+        #posTopSubtitle { display: none; }
     }
     @@media (max-width: 991.98px) and (min-width: 768px) {
         .pos-search-shell { max-width: 380px; }
@@ -407,14 +441,39 @@
         .pos-topbar .btn { white-space: nowrap; }
     }
 
-    /* Product cards: bigger touch targets on tablet */
-    @@media (max-width: 991.98px) {
+    /* ── Product cards: bigger touch targets ── */
+    /* Tablet */
+    @@media (max-width: 991.98px) and (min-width: 768px) {
         .pos-product-img, .pos-product-img-fallback { height: 95px; }
-        .pos-add-btn.btn-sm { padding: .45rem .5rem; font-size: .8rem; min-height: 38px; }
+        .pos-add-btn.btn-sm { padding: .5rem .55rem; font-size: .85rem; min-height: 42px; }
         .pos-product-card .card-body { padding: .5rem .6rem .25rem; }
+        .pos-product-card .fw-semibold { font-size: .88rem; }
+    }
+    /* Mobile */
+    @@media (max-width: 767.98px) {
+        /* 1-col grid on very narrow phones (<390px) */
+        @@media (max-width: 389.98px) {
+            #posProductGrid { --bs-columns: 1; }
+            #posProductGrid .col { flex: 0 0 100%; max-width: 100%; }
+        }
+        .pos-product-img, .pos-product-img-fallback { height: 90px; min-height: 90px; }
+        /* Skeleton placeholder has explicit height to avoid layout shift */
+        .pos-img-skeleton { height: 90px; }
+        .pos-add-btn.btn-sm {
+            padding: .6rem .5rem;
+            font-size: .9rem;
+            min-height: 48px;
+            letter-spacing: .02em;
+        }
+        .pos-product-card .card-body {
+            padding: .55rem .65rem .3rem;
+        }
+        .pos-product-card .fw-semibold { font-size: .9rem; }
+        .pos-product-card .small { font-size: .82rem; }
+        .pos-product-card:hover { transform: none; } /* disable hover lift on touch */
     }
 
-    /* Cart panel scroll on tablet - constrain height relative to panel */
+    /* ── Cart panel scroll on tablet ── */
     @@media (max-width: 991.98px) and (min-width: 768px) {
         #posRightPanel .pos-panel-body { padding: .55rem .65rem; }
         #posRightPanel .pos-scroll-cart { max-height: calc(100vh - 320px); overflow-y: auto; }
@@ -429,42 +488,47 @@
 
     /* ===== MOBILE CART DRAWER (<768px) ===== */
     @@media (max-width: 767.98px) {
-        /* Hide desktop right panel from the grid */
+        /* Cart panel slides up from bottom */
         #posRightPanel {
             position: fixed !important;
             bottom: 0;
             left: 0;
             right: 0;
             top: auto !important;
-            max-height: 88vh;
+            max-height: 92vh;
             overflow-y: auto;
+            overflow-x: hidden;
             z-index: 1055;
-            border-radius: 1.25rem 1.25rem 0 0 !important;
+            border-radius: 1.4rem 1.4rem 0 0 !important;
             border: none !important;
             box-shadow: 0 -8px 32px rgba(15,23,42,.22);
             transform: translateY(100%);
-            transition: transform .32s cubic-bezier(.4,0,.2,1);
-            padding-bottom: env(safe-area-inset-bottom);
+            transition: transform .3s cubic-bezier(.4,0,.2,1);
+            padding-bottom: calc(16px + env(safe-area-inset-bottom));
+            /* Scroll padding so keyboard doesn't hide payment form fields */
+            scroll-padding-bottom: 80px;
         }
         #posRightPanel.pos-cart-open {
             transform: translateY(0);
         }
-        /* Drag handle at top of mobile cart drawer */
+        /* Drag handle at top */
         #posRightPanel::before {
             content: '';
             display: block;
-            width: 44px;
-            height: 4px;
-            border-radius: 2px;
-            background: rgba(15,23,42,.18);
-            margin: .55rem auto .15rem;
+            width: 48px;
+            height: 5px;
+            border-radius: 3px;
+            background: rgba(15,23,42,.15);
+            margin: .65rem auto .1rem;
+            flex-shrink: 0;
         }
+
         /* Backdrop overlay */
         #posCartBackdrop {
             display: block;
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,.45);
+            background: rgba(0,0,0,.5);
             z-index: 1054;
             opacity: 0;
             pointer-events: none;
@@ -472,7 +536,56 @@
         }
         #posCartBackdrop.pos-cart-open { opacity: 1; pointer-events: auto; }
 
-        /* Sticky bottom cart FAB bar */
+        /* Sticky "Complete Payment" button inside drawer */
+        .pos-mobile-pay-footer {
+            position: sticky;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #fff;
+            border-top: 1px solid #ddd6fe;
+            padding: .7rem .9rem calc(.7rem + env(safe-area-inset-bottom));
+            margin-top: .75rem;
+            box-shadow: 0 -4px 16px rgba(124,58,237,.10);
+            z-index: 2;
+        }
+        .pos-mobile-pay-footer .btn { min-height: 52px; font-size: 1.05rem; font-weight: 700; }
+        /* Hide the original pay button on mobile (sticky footer replaces it) */
+        #posCartTab > .d-grid:has(#posPayBtn) { display: none !important; }
+
+        /* Cart items: bigger rows */
+        .pos-cart-item { padding: .9rem .8rem; }
+        #posCartItems .list-group-item {
+            border-radius: .6rem;
+            margin-bottom: .35rem;
+            border: 1px solid var(--pos-border);
+        }
+        .pos-qty-minus, .pos-qty-plus {
+            min-width: 44px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+        }
+        .pos-qty-input-group { width: 128px; }
+        .pos-qty-input-group .form-control { min-height: 44px; }
+
+        /* Cart tabs: full width */
+        #posRightTabs { width: 100%; }
+        #posRightTabs .nav-item { flex: 1; }
+        #posRightTabs .nav-link { width: 100%; text-align: center; border-radius: 8px; }
+
+        /* Payment method buttons: full-width on mobile */
+        #posPaymentButtons { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+        #posPaymentButtons .pos-pay-method { min-height: 48px; font-size: .9rem; }
+
+        /* Add padding so FAB doesn't cover product cards */
+        .pos-shell { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+    }
+
+    /* ── Sticky bottom FAB bar ── */
+    @@media (max-width: 767.98px) {
         #posCartFab {
             display: flex;
             position: fixed;
@@ -480,37 +593,77 @@
             left: 0;
             right: 0;
             z-index: 1050;
-            background: var(--bs-body-bg);
-            border-top: 1px solid var(--pos-border);
-            padding: .55rem .9rem calc(.55rem + env(safe-area-inset-bottom));
-            gap: .6rem;
+            background: linear-gradient(180deg, rgba(245,243,255,.98) 0%, rgba(237,233,254,.99) 100%);
+            border-top: 2px solid #ddd6fe;
+            padding: .6rem .9rem calc(.6rem + env(safe-area-inset-bottom));
+            gap: .55rem;
             align-items: center;
-            box-shadow: 0 -4px 16px rgba(15,23,42,.10);
+            box-shadow: 0 -4px 20px rgba(124,58,237,.12);
+            min-height: 68px;
         }
-        /* Add padding to main content so FAB doesn't overlap products */
-        .pos-shell { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
-
-        /* Cart items bigger touch rows */
-        .pos-cart-item { padding: .85rem .75rem; }
-        #posCartItems .list-group-item { border-radius: .5rem; margin-bottom: .3rem; border: 1px solid var(--pos-border); }
-        .pos-qty-minus, .pos-qty-plus { padding: .4rem .65rem; min-width: 38px; min-height: 38px; }
-        .pos-qty-input-group { width: 120px; }
+        #posCartFabOpen {
+            flex-grow: 1;
+            min-height: 50px;
+            font-size: .95rem;
+            font-weight: 700;
+            border-radius: .75rem;
+        }
+        #posCartFabPay {
+            min-height: 50px;
+            min-width: 96px;
+            font-size: .95rem;
+            font-weight: 700;
+            border-radius: .75rem;
+        }
+        #posCartFabClose {
+            min-height: 50px;
+            min-width: 72px;
+            border-radius: .75rem;
+        }
+        #posCartFabBadge {
+            font-size: .85rem;
+            min-width: 22px;
+            height: 22px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+        }
+        /* Badge pulse when item added */
+        @@keyframes fabBadgePop {
+            0%   { transform: scale(1); }
+            40%  { transform: scale(1.45); }
+            70%  { transform: scale(.9); }
+            100% { transform: scale(1); }
+        }
+        .fab-badge-pop { animation: fabBadgePop .4s ease; }
     }
     @@media (min-width: 768px) {
         #posCartFab { display: none !important; }
         #posCartBackdrop { display: none !important; }
+        .pos-mobile-pay-footer { display: none !important; }
+        #posQuickCreate { display: none !important; }
     }
 
-    /* General touch-friendly improvements for all tablet/mobile */
+    /* ── General touch-friendly improvements for all tablet/mobile ── */
     @@media (max-width: 991.98px) {
-        /* Larger tap targets for all interactive controls */
-        .btn-sm { min-height: 36px; }
-        .form-control-sm, .form-select-sm { min-height: 36px; font-size: .875rem; }
-        .pos-pay-method { min-height: 42px; font-size: .9rem; }
-        /* Bigger payment and submit buttons */
-        #posPayBtn, #posCreateBtn { min-height: 50px; font-size: 1rem; }
-        /* Wider spacing in cart totals */
-        .pos-panel-body .d-flex.justify-content-between { padding: .15rem 0; }
+        .btn-sm { min-height: 38px; }
+        .form-control-sm, .form-select-sm { min-height: 38px; font-size: .875rem; }
+        .pos-pay-method { min-height: 44px; font-size: .9rem; }
+        #posPayBtn, #posCreateBtn { min-height: 52px; font-size: 1rem; font-weight: 700; }
+        .pos-panel-body .d-flex.justify-content-between { padding: .18rem 0; }
+    }
+
+    /* ── Category button: more prominent on mobile ── */
+    @@media (max-width: 991.98px) {
+        #posShowCategories {
+            background: #7c3aed !important;
+            color: #fff !important;
+            border-color: #7c3aed !important;
+            font-weight: 600;
+            min-height: 38px;
+        }
+        #posShowCategories:active { background: #6d28d9 !important; }
     }
 </style>
 
@@ -519,7 +672,9 @@
 
     <div class="pos-topbar">
         <div class="d-flex align-items-center gap-2">
-            <div class="fw-bold" style="color:#4c1d95"><i class="fas fa-cash-register me-1" style="color:#7c3aed"></i>@ViewData["Title"]</div>
+            <div class="fw-bold" style="color:#4c1d95">
+                <i class="fas fa-cash-register me-1" style="color:#7c3aed"></i><span class="pos-topbar-title-text">@ViewData["Title"]</span>
+            </div>
             @if (posIsCounterRequired)
             {
                 <span class="badge" style="background:#ede9fe;color:#5b21b6;border:1px solid #ddd6fe" id="posCounterBadge" title="Selected counter">
@@ -556,7 +711,7 @@
                     <i class="fas fa-plus-circle me-1"></i> Next Order
                 </button>
             <a asp-action="Dashboard" class="btn btn-outline-secondary ms-2">
-                <i class="fas fa-arrow-left me-1"></i> Back
+                <i class="fas fa-arrow-left me-1"></i><span class="pos-back-text"> Back</span>
             </a>
         </div>
     </div>
@@ -649,6 +804,34 @@
                 </div>
             </div>
             <div class="pos-panel-body pos-scroll">
+                <!-- ── Quick-create strip (mobile only, visible when no order exists) ── -->
+                <div id="posQuickCreate" style="display:@(hasOrder ? "none" : "")">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <i class="fas fa-receipt" style="color:#7c3aed;font-size:1.1rem;"></i>
+                        <span class="fw-bold" style="color:#4c1d95;font-size:.95rem;">New Order</span>
+                        <span class="text-muted small" style="font-size:.75rem;">Fill details &amp; tap Start</span>
+                    </div>
+                    <div class="d-flex gap-2 mb-2">
+                        <button type="button" class="btn btn-primary flex-grow-1 btn-sm" id="qcTypeTakeout" style="min-height:40px;">
+                            <i class="fas fa-bag-shopping me-1"></i> Takeout
+                        </button>
+                        <button type="button" class="btn btn-outline-primary flex-grow-1 btn-sm" id="qcTypeDelivery" style="min-height:40px;">
+                            <i class="fas fa-truck me-1"></i> Delivery
+                        </button>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <input class="form-control form-control-sm" id="qcName" placeholder="Customer name" autocomplete="name" style="min-height:42px;" />
+                        </div>
+                        <div class="col-6">
+                            <input class="form-control form-control-sm" type="tel" inputmode="tel" id="qcPhone" placeholder="Phone" autocomplete="tel" style="min-height:42px;" />
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-primary w-100" id="qcStartBtn" style="min-height:50px;font-size:1rem;font-weight:700;">
+                        <i class="fas fa-play me-2"></i> Start Order
+                    </button>
+                    <div class="alert d-none mt-2 py-2" id="qcMsg" role="alert"></div>
+                </div>
                 @{
                     // Intelligent "Value picks" threshold — items that sell at or above average
                     // are considered top sellers. If no sales data yet, no badges shown.
@@ -1012,6 +1195,12 @@
                                     Complete Payment
                                 </button>
                             </div>
+                            <!-- Mobile-only sticky pay footer (duplicates posPayBtn via JS) -->
+                            <div class="pos-mobile-pay-footer">
+                                <button class="btn btn-success w-100" type="button" id="posPayBtnMobile">
+                                    <i class="fas fa-check-circle me-2"></i> Complete Payment
+                                </button>
+                            </div>
                             <a class="btn btn-outline-dark w-100 mt-2" id="posPrintBtn" target="_blank" style="display:@((hasOrder && Model.Order?.IsFullyPaid == true) ? "block" : "none")" href="@(hasOrder ? Url.Action("PrintPOS", "Payment", new { orderId = orderId }) : "#")">
                                 <i class="fas fa-print me-1"></i> Print POS Bill
                             </a>
@@ -1053,14 +1242,14 @@
 <div id="posCartBackdrop"></div>
 <div id="posCartFab">
     <button type="button" class="btn btn-outline-secondary btn-sm px-3" id="posCartFabClose" style="display:none;">
-        <i class="fas fa-times me-1"></i> Close
+        <i class="fas fa-times"></i>
     </button>
     <button type="button" class="btn btn-primary flex-grow-1" id="posCartFabOpen">
         <i class="fas fa-shopping-cart me-1"></i>
         <span id="posCartFabLabel">View Cart</span>
-        <span class="badge bg-white text-primary ms-2" id="posCartFabBadge">0</span>
+        <span class="badge bg-white text-primary ms-1" id="posCartFabBadge" style="color:#7c3aed !important;">0</span>
     </button>
-    <button type="button" class="btn btn-success px-3" id="posCartFabPay">
+    <button type="button" class="btn btn-success" id="posCartFabPay">
         <i class="fas fa-credit-card me-1"></i> Pay
     </button>
 </div>
@@ -1694,6 +1883,8 @@
                 const cart = document.getElementById('posCartItems');
                 if (cart) cart.innerHTML = '<div class="list-group-item text-muted">No items added yet.</div>';
                 updateItemCount(0);
+                // Show quick-create strip after order is reset
+                if (window.__posUpdateQuickCreate) window.__posUpdateQuickCreate(false);
             }
 
             async function refresh(){
@@ -2077,6 +2268,8 @@
                     setLockedState(false);
                     updatePrintButton(false);
                     showCreateMsg('Order #' + orderNumber + ' created.', false);
+                    // Hide quick-create strip now that an order exists
+                    if (window.__posUpdateQuickCreate) window.__posUpdateQuickCreate(true);
 
                     await refresh();
                     document.getElementById('posSearch')?.focus();
@@ -2352,6 +2545,8 @@
                         const last = batch[batch.length - 1];
                         lastAddedMenuItemId = last?.menuItemId || 0;
                         lastAddedAt = Date.now();
+                        // FAB badge pop animation
+                        if (window.__posFabBadgePop) window.__posFabBadgePop();
                         // Show low-stock alerts from inventory service
                         if (data.lowStockAlerts && data.lowStockAlerts.length > 0) {
                             if (typeof Swal !== 'undefined') {
@@ -2450,8 +2645,14 @@
                 btn.classList.add('active');
                 selectedCategory = btn.getAttribute('data-category') || 'all';
                 applyFilters();
+                // Scroll product grid to top when category selected on mobile
                 if (isCompactPosViewport()) {
                     setCategoriesCollapsed(true, false);
+                    const centerPanel = document.getElementById('posCenterPanel');
+                    if (centerPanel) centerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else {
+                    const grid = document.getElementById('posProductGrid');
+                    if (grid) grid.closest('.pos-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
                 }
             });
 
@@ -2923,8 +3124,157 @@
 
                     // Expose for refresh/update hooks
                     window.__posSyncFabState = syncFabState;
+
+                    // ── FAB badge pop animation when item added ──────────────
+                    window.__posFabBadgePop = function() {
+                        if (!cartFabBadge) return;
+                        cartFabBadge.classList.remove('fab-badge-pop');
+                        void cartFabBadge.offsetWidth; // reflow to restart
+                        cartFabBadge.classList.add('fab-badge-pop');
+                        cartFabBadge.addEventListener('animationend', function(){
+                            cartFabBadge.classList.remove('fab-badge-pop');
+                        }, { once: true });
+                    };
+
                     syncFabState();
                 })();
+
+            // ── Mobile: sticky pay button mirrors posPayBtn ──────────────────
+            (function(){
+                const mobilePayBtn = document.getElementById('posPayBtnMobile');
+                if (!mobilePayBtn) return;
+                mobilePayBtn.addEventListener('click', function(){
+                    payNow();
+                });
+                // Keep disabled state in sync
+                const observer = new MutationObserver(function(){
+                    const payBtn = document.getElementById('posPayBtn');
+                    if (payBtn) mobilePayBtn.disabled = payBtn.disabled;
+                });
+                const payBtn = document.getElementById('posPayBtn');
+                if (payBtn) {
+                    observer.observe(payBtn, { attributes: true, attributeFilter: ['disabled'] });
+                    mobilePayBtn.disabled = payBtn.disabled;
+                }
+            })();
+
+            // ── Swipe-down to close cart drawer ─────────────────────────────
+            (function(){
+                const rightPanel = document.getElementById('posRightPanel');
+                if (!rightPanel) return;
+                let startY = 0, startScrollTop = 0, swiping = false;
+                rightPanel.addEventListener('touchstart', function(e){
+                    if (e.touches.length !== 1) return;
+                    startY = e.touches[0].clientY;
+                    startScrollTop = rightPanel.scrollTop;
+                    swiping = true;
+                }, { passive: true });
+                rightPanel.addEventListener('touchmove', function(e){
+                    if (!swiping || e.touches.length !== 1) return;
+                    const dy = e.touches[0].clientY - startY;
+                    // Only swipe-close if panel is at top (not scrolled) and dragging down
+                    if (startScrollTop <= 0 && dy > 60) {
+                        swiping = false;
+                        // Trigger close via existing closeMobileCart logic
+                        rightPanel.classList.remove('pos-cart-open');
+                        const cartBackdrop = document.getElementById('posCartBackdrop');
+                        if (cartBackdrop) cartBackdrop.classList.remove('pos-cart-open');
+                        const fabClose = document.getElementById('posCartFabClose');
+                        if (fabClose) fabClose.style.display = 'none';
+                        document.body.style.overflow = '';
+                    }
+                }, { passive: true });
+                rightPanel.addEventListener('touchend', function(){ swiping = false; }, { passive: true });
+            })();
+
+            // ── Quick-create strip (mobile only) ────────────────────────────
+            (function(){
+                const strip = document.getElementById('posQuickCreate');
+                if (!strip) return;
+
+                const qcTypeTakeout  = document.getElementById('qcTypeTakeout');
+                const qcTypeDelivery = document.getElementById('qcTypeDelivery');
+                const qcName         = document.getElementById('qcName');
+                const qcPhone        = document.getElementById('qcPhone');
+                const qcStartBtn     = document.getElementById('qcStartBtn');
+                const qcMsg          = document.getElementById('qcMsg');
+
+                // Mirror to the hidden main form fields
+                const mainType     = document.getElementById('posOrderType');
+                const mainTakeout  = document.getElementById('posOrderTypeTakeout');
+                const mainDelivery = document.getElementById('posOrderTypeDelivery');
+                const mainName     = document.querySelector('#posCreateForm [name="CustomerName"]');
+                const mainPhone    = document.querySelector('#posCreateForm [name="CustomerPhone"]');
+
+                let qcOrderType = 1;
+
+                function setQcType(t) {
+                    qcOrderType = t;
+                    if (t === 1) {
+                        qcTypeTakeout?.classList.add('btn-primary');
+                        qcTypeTakeout?.classList.remove('btn-outline-primary');
+                        qcTypeDelivery?.classList.remove('btn-primary');
+                        qcTypeDelivery?.classList.add('btn-outline-primary');
+                    } else {
+                        qcTypeDelivery?.classList.add('btn-primary');
+                        qcTypeDelivery?.classList.remove('btn-outline-primary');
+                        qcTypeTakeout?.classList.remove('btn-primary');
+                        qcTypeTakeout?.classList.add('btn-outline-primary');
+                    }
+                    // Sync to hidden main form
+                    if (mainType) mainType.value = String(t);
+                    if (mainTakeout) mainTakeout.classList.toggle('active', t === 1);
+                    if (mainDelivery) mainDelivery.classList.toggle('active', t === 2);
+                }
+
+                if (qcTypeTakeout) qcTypeTakeout.addEventListener('click', function(){ setQcType(1); });
+                if (qcTypeDelivery) qcTypeDelivery.addEventListener('click', function(){ setQcType(2); });
+
+                // Sync name/phone to hidden form in real-time
+                if (qcName && mainName) {
+                    qcName.addEventListener('input', function(){ mainName.value = qcName.value; });
+                }
+                if (qcPhone && mainPhone) {
+                    qcPhone.addEventListener('input', function(){ mainPhone.value = qcPhone.value; });
+                }
+
+                if (qcStartBtn) {
+                    qcStartBtn.addEventListener('click', async function(){
+                        // Sync latest values to hidden form
+                        if (mainType) mainType.value = String(qcOrderType);
+                        if (mainName && qcName) mainName.value = qcName.value;
+                        if (mainPhone && qcPhone) mainPhone.value = qcPhone.value;
+
+                        qcStartBtn.disabled = true;
+                        qcStartBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Starting...';
+                        if (qcMsg) { qcMsg.classList.add('d-none'); qcMsg.textContent = ''; }
+
+                        try {
+                            await submitCreateForm();
+                        } catch(e) {
+                            if (qcMsg) {
+                                qcMsg.classList.remove('d-none');
+                                qcMsg.className = 'alert alert-danger mt-2 py-2';
+                                qcMsg.textContent = e && e.message ? e.message : 'Could not create order.';
+                            }
+                        } finally {
+                            qcStartBtn.disabled = false;
+                            qcStartBtn.innerHTML = '<i class="fas fa-play me-2"></i> Start Order';
+                        }
+                    });
+                }
+
+                // Show/hide strip based on order state
+                window.__posUpdateQuickCreate = function(hasOrderNow) {
+                    const isMobile = window.matchMedia('(max-width: 767.98px)').matches;
+                    if (!strip) return;
+                    strip.style.display = (isMobile && !hasOrderNow) ? '' : 'none';
+                };
+                window.__posUpdateQuickCreate(!!orderId);
+                window.addEventListener('resize', function(){
+                    window.__posUpdateQuickCreate(!!orderId);
+                });
+            })();
 
             setPriceFilter(activePriceFilterKey);
             toggleOrderSections(!!orderId);
