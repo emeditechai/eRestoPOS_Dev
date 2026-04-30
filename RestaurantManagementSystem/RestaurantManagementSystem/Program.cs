@@ -57,6 +57,10 @@ namespace RestaurantManagementSystem
             builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
                 .AddCookie(options =>
                 {
+                    // Unique cookie name prevents conflict with other apps on the same host/IP
+                    // (browsers scope cookies by domain only, not port — so all apps on
+                    // 198.38.81.123 share the same cookie jar regardless of port).
+                    options.Cookie.Name = ".eRestoPOS.Auth";
                     options.ExpireTimeSpan = TimeSpan.FromHours(2); // 2-hour auth cookie, sliding so activity resets the clock
                     options.SlidingExpiration = true;
                     options.AccessDeniedPath = "/Account/AccessDenied";
