@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
-using QRCoder;
 using RestaurantManagementSystem.Utilities;
 using System;
 using System.Collections.Generic;
@@ -17,12 +16,14 @@ namespace RestaurantManagementSystem.Controllers
         private readonly IConfiguration _configuration;
         private readonly string _connectionString;
         private readonly IWebHostEnvironment _env;
+        private readonly System.Net.Http.IHttpClientFactory _httpClientFactory;
 
-        public UtilityController(IConfiguration configuration, IWebHostEnvironment env)
+        public UtilityController(IConfiguration configuration, IWebHostEnvironment env, System.Net.Http.IHttpClientFactory httpClientFactory)
         {
             _configuration = configuration;
             _connectionString = _configuration.GetConnectionString("DefaultConnection")!;
             _env = env;
+            _httpClientFactory = httpClientFactory;
         }
 
         private int? GetActiveBranchId() => User.GetActiveBranchId();
@@ -319,17 +320,6 @@ ORDER  BY b.BranchName", conn);
         // ═══════════════════════════════════════════════════════════════
         public IActionResult PrinterSetup()
         {
-            // Hardcoded APK download URL
-            var apkUrl = "http://198.38.81.123:9004/apps/apk/printer-bridge.apk";
-
-            // Generate QR code as base64 PNG (server-side — no CDN dependency)
-            using var qrGenerator = new QRCodeGenerator();
-            using var qrData = qrGenerator.CreateQrCode(apkUrl, QRCodeGenerator.ECCLevel.H);
-            using var qrCode = new PngByteQRCode(qrData);
-            var pngBytes = qrCode.GetGraphic(6, new byte[] { 91, 33, 182 }, new byte[] { 255, 255, 255 }); // purple on white
-            ViewBag.ApkQrCodeBase64 = Convert.ToBase64String(pngBytes);
-            ViewBag.ApkDownloadUrl  = apkUrl;
-
             return View();
         }
 
@@ -343,10 +333,19 @@ ORDER  BY b.BranchName", conn);
             var apkUrl = "http://198.38.81.123:9004/apps/apk/printer-bridge.apk";
             try
             {
-                using var httpClient = new System.Net.Http.HttpClient();
-                httpClient.Timeout = TimeSpan.FromSeconds(30);
-                var bytes = await httpClient.GetByteArrayAsync(apkUrl);
-                return File(bytes, "application/vnd.android.package-archive", "PrintBridge.apk");
+                var httpClient = _httpClientFactory.CreateClient();
+                httpClient.Timeout = TimeSpan.FromMinutes(10);
+                var response = await httpClient.GetAsync(apkUrl, HttpCompletionOption.ResponseHeadersRead);
+                response.EnsureSuccessStatusCode();
+
+                var contentLength = response.Content.Headers.ContentLength;
+                var stream = await response.Content.ReadAsStreamAsync();
+
+                Response.Headers["Content-Disposition"] = "attachment; filename=\"PrintBridge.apk\"";
+                if (contentLength.HasValue)
+                    Response.Headers["Content-Length"] = contentLength.Value.ToString();
+
+                return File(stream, "application/vnd.android.package-archive", enableRangeProcessing: false);
             }
             catch
             {
