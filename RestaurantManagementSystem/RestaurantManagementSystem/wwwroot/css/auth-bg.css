@@ -1,15 +1,38 @@
-/* Login background styles: restaurant/bar themed */
+/* Login background slideshow: right-to-left */
 .auth-bg-hero {
     position: fixed;
     inset: 0;
     z-index: 0;
-    /* Primary: local image if present. Fallback: Unsplash restaurant interior to ensure visible background in dev. */
-    background-image: url('/images/login-bg-restaurant.jpg'), url('https://images.unsplash.com/photo-1541542684-42d6b6f5b1b6?q=80&w=1600&auto=format&fit=crop&ixlib=rb-4.0.3&s=8f5e9a5b6c0b1f1e8a2c3e4d5f6a7b8c');
-    background-size: cover, cover;
-    background-position: center center, center center;
-    background-repeat: no-repeat, no-repeat;
-    background-attachment: fixed;
+    overflow: hidden;
     filter: saturate(0.9) contrast(0.92);
+}
+
+.auth-bg-slide {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    transition: transform 1s ease-in-out;
+    will-change: transform;
+}
+
+.auth-bg-slide:nth-child(1) {
+    background-image: url('/images/login-bg-restaurant.png');
+    transform: translateX(0);
+    z-index: 2;
+}
+
+.auth-bg-slide:nth-child(2) {
+    background-image: url('/images/login-bg-restaurant_2.png');
+    transform: translateX(100%);
+    z-index: 1;
+}
+
+.auth-bg-slide:nth-child(3) {
+    background-image: url('/images/login-bg-restaurant_1.jpg');
+    transform: translateX(100%);
+    z-index: 1;
 }
 
 /* Override the default auth-body background so the hero image shows through */
@@ -20,8 +43,8 @@
 .auth-bg-overlay {
     position: fixed;
     inset: 0;
-    /* stronger gradient overlay to ensure form readability */
-    background: linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.55) 100%);
+    /* lighter overlay so background image remains clearly visible through the transparent card */
+    background: linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.35) 100%);
     z-index: 1;
 }
 
@@ -41,16 +64,140 @@
 }
 
 .login-card {
-    background: rgba(255,255,255,0.96);
+    background: rgba(20, 10, 50, 0.22);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border-radius: 12px;
     padding: 26px;
-    box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.30);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
 }
 
-.login-header { text-align: center; margin-bottom: 12px; }
-.login-logo { width: 84px; height: auto; display: inline-block; margin-bottom: 8px; }
-.login-form .input-group-text { width: 42px; justify-content: center; }
+/* Transparent purple header that inherits card's glass feel */
+.login-card .login-header {
+    text-align: center;
+    margin: -26px -26px 20px -26px;
+    padding: 28px 24px 20px;
+    background: linear-gradient(135deg, rgba(42, 16, 109, 0.38), rgba(74, 31, 168, 0.32));
+    border-radius: 12px 12px 0 0;
+    color: #fff;
+}
+
+/* Golden/amber branding text */
+.login-card .login-header .login-logo-text {
+    color: #f5c842;
+    text-shadow: 0 2px 8px rgba(180, 120, 0, 0.55);
+}
+
+.login-card .login-header h2 {
+    color: #f5c842;
+    text-shadow: 0 1px 6px rgba(180, 120, 0, 0.45);
+}
+
+.login-card .login-header p {
+    color: rgba(255, 240, 180, 0.88);
+}
+
+/* Labels & general text */
+.login-card label,
+.login-card .control-label,
+.login-card .form-check-label {
+    color: rgba(255, 255, 255, 0.90);
+}
+
+/* Input group icon */
+.login-card .input-group-text {
+    background-color: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.22);
+    color: rgba(255, 255, 255, 0.80);
+    width: 42px;
+    justify-content: center;
+}
+
+/* Input fields */
+.login-card .form-control {
+    background-color: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.22);
+    border-left: none;
+    color: #fff;
+}
+
+.login-card .form-control::placeholder {
+    color: rgba(255, 255, 255, 0.50);
+}
+
+.login-card .form-control:focus {
+    background-color: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.45);
+    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.10);
+    color: #fff;
+}
+
+/* Password toggle button */
+.login-card .toggle-password {
+    background-color: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.22);
+    border-left: none;
+    color: rgba(255, 255, 255, 0.80);
+}
+
+.login-card .toggle-password:hover {
+    background-color: rgba(255, 255, 255, 0.18);
+    color: #fff;
+}
+
+/* Checkbox */
+.login-card .form-check-input {
+    background-color: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Links */
+.login-card a {
+    color: rgba(190, 160, 255, 0.95);
+}
+
+.login-card a:hover {
+    color: #fff;
+}
+
+/* Footer strip (Register / MFA pages) */
+.login-card .login-footer {
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.80);
+}
+
+.login-card .login-footer a {
+    color: rgba(190, 160, 255, 0.95);
+}
+
+/* Alert messages */
+.login-card .alert-success {
+    background-color: rgba(25, 135, 84, 0.35);
+    border-color: rgba(25, 135, 84, 0.50);
+    color: #d1e7dd;
+}
+
+.login-card .alert-danger {
+    background-color: rgba(220, 53, 69, 0.35);
+    border-color: rgba(220, 53, 69, 0.50);
+    color: #f8d7da;
+}
+
+.login-card .text-danger {
+    color: #ff8a8a !important;
+}
+
+/* Muted helper text */
+.login-card .text-muted {
+    color: rgba(255, 255, 255, 0.55) !important;
+}
 
 @media (max-width: 576px) {
     .login-card { padding: 18px; margin: 12px; }
+    .login-card .login-header { margin: -18px -18px 16px -18px; }
 }
+
+.login-logo { width: 84px; height: auto; display: inline-block; margin-bottom: 8px; }
