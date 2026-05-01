@@ -1,0 +1,274 @@
+@model RestaurantManagementSystem.Models.UomMaster
+@{
+    bool isNew  = Model.UOMId == 0;
+    bool isView = ViewBag.IsView == true;
+    ViewData["Title"] = isNew ? "Add New UOM" : (isView ? "View UOM" : "Edit UOM");
+    var uomTypes = (string[])ViewBag.UOMTypes;
+    var baseUoms = (List<(int Id, string Code, string Name, string Type)>)ViewBag.BaseUoms;
+    string disabledAttr = isView ? "disabled" : "";
+}
+
+<div class="container-fluid px-0" style="max-width:900px">
+
+    <!-- Breadcrumb + Header -->
+    <div class="d-flex align-items-center gap-2 mb-1">
+        <a asp-action="Index" asp-controller="Uom" class="text-muted text-decoration-none small">
+            <i class="fas fa-ruler-combined me-1"></i>UOM Master
+        </a>
+        <i class="fas fa-chevron-right text-muted" style="font-size:.65rem"></i>
+        <span class="small text-dark fw-semibold">@ViewData["Title"]</span>
+    </div>
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h4 class="mb-0 fw-bold">
+            <i class="fas @(isNew ? "fa-plus-circle text-success" : (isView ? "fa-eye text-info" : "fa-edit text-primary")) me-2"></i>@ViewData["Title"]
+        </h4>
+        <a asp-action="Index" asp-controller="Uom" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Back to List
+        </a>
+    </div>
+
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show py-2">
+            <i class="fas fa-exclamation-circle me-2"></i>@TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <form id="uomForm" method="post" asp-action="Save" asp-controller="Uom" novalidate autocomplete="off">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="UOMId" value="@Model.UOMId" />
+
+        <div class="alert alert-danger small py-2 mb-3 d-none" id="clientValidation" role="alert">
+            <i class="fas fa-exclamation-triangle me-1"></i>
+            <span id="clientValidationMsg"></span>
+        </div>
+
+        <div class="row g-3">
+
+            <!-- ── Left Column ──────────────────────────────────────────────── -->
+            <div class="col-md-7">
+
+                <!-- Basic Info -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-light py-2 fw-semibold">
+                        <i class="fas fa-info-circle me-2 text-primary"></i>Basic Information
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-sm-5">
+                                <label class="form-label fw-semibold">
+                                    UOM Code <span class="text-danger">*</span>
+                                </label>
+                                <input type="text" name="UOMCode" id="fldUOMCode"
+                                       class="form-control text-uppercase" maxlength="15"
+                                       placeholder="e.g. KGS, GMS, LTR" value="@Model.UOMCode"
+                                       required @disabledAttr />
+                            </div>
+                            <div class="col-sm-7">
+                                <label class="form-label fw-semibold">
+                                    UOM Name <span class="text-danger">*</span>
+                                </label>
+                                <input type="text" name="UOMName" id="fldUOMName"
+                                       class="form-control" maxlength="100"
+                                       placeholder="e.g. Kilogram, Gram, Litre" value="@Model.UOMName"
+                                       required @disabledAttr />
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label fw-semibold">
+                                    UOM Type <span class="text-danger">*</span>
+                                </label>
+                                <select name="UOMType" id="fldUOMType" class="form-select" required @disabledAttr>
+                                    <option value="">-- Select Type --</option>
+                                    @foreach (var t in uomTypes)
+                                    {
+                                        if (Model.UOMType == t)
+                                        {
+                                            <option value="@t" selected>@t</option>
+                                        }
+                                        else
+                                        {
+                                            <option value="@t">@t</option>
+                                        }
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label fw-semibold">
+                                    Base UOM
+                                </label>
+                                <select name="BaseUOMId" id="fldBaseUOMId" class="form-select" @disabledAttr>
+                                    <option value="">-- None (this is the base unit) --</option>
+                                    @foreach (var b in baseUoms)
+                                    {
+                                        if (Model.BaseUOMId == b.Id)
+                                        {
+                                            <option value="@b.Id" data-type="@b.Type" selected>[@b.Type] @b.Code – @b.Name</option>
+                                        }
+                                        else
+                                        {
+                                            <option value="@b.Id" data-type="@b.Type">[@b.Type] @b.Code – @b.Name</option>
+                                        }
+                                    }
+                                </select>
+                                <div class="form-text">Leave blank if this is the base unit.</div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-semibold">Description</label>
+                                <textarea name="Description" class="form-control" rows="2" maxlength="300"
+                                          placeholder="Optional notes" @disabledAttr>@Model.Description</textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Right Column ─────────────────────────────────────────────── -->
+            <div class="col-md-5">
+
+                <!-- Conversion -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-light py-2 fw-semibold">
+                        <i class="fas fa-exchange-alt me-2 text-info"></i>Conversion &amp; Precision
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">
+                                Conversion Factor <span class="text-danger">*</span>
+                            </label>
+                            <input type="number" name="ConversionFactor" id="fldConvFactor"
+                                   class="form-control" step="0.000001" min="0.000001"
+                                   value="@Model.ConversionFactor" required @disabledAttr />
+                            <div class="form-text" id="cfHelp">1 [this UOM] = ? [Base UOM]</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Purchase Pack Size</label>
+                            <input type="number" name="PackSize" class="form-control"
+                                   step="0.001" min="0" placeholder="e.g. 50"
+                                   value="@(Model.PackSize?.ToString() ?? "")" @disabledAttr />
+                            <div class="form-text">Optional. E.g. 50 for a 50-KG sack.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Decimal Places</label>
+                            <select name="DecimalPlaces" class="form-select" @disabledAttr>
+                                @foreach (var dp in new[] { 0, 1, 2, 3, 4, 6 })
+                                {
+                                    if (Model.DecimalPlaces == dp)
+                                    {
+                                        <option value="@dp" selected>@dp</option>
+                                    }
+                                    else
+                                    {
+                                        <option value="@dp">@dp</option>
+                                    }
+                                }
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-light py-2 fw-semibold">
+                        <i class="fas fa-toggle-on me-2 text-success"></i>Status
+                    </div>
+                    <div class="card-body">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="fldIsActive"
+                                   name="IsActive" value="true"
+                                   @(Model.IsActive ? "checked" : "") role="switch" @disabledAttr />
+                            <input type="hidden" name="IsActive" value="false" />
+                            <label for="fldIsActive" class="form-check-label fw-semibold">Active</label>
+                            <div class="form-text">Inactive UOMs are hidden from selection dropdowns.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="d-flex gap-2 mt-2">
+            @if (!isView)
+            {
+                <button type="submit" class="btn btn-primary px-4">
+                    <i class="fas fa-save me-1"></i>@(isNew ? "Create" : "Update")
+                </button>
+            }
+            <a asp-action="Index" asp-controller="Uom" class="btn btn-outline-secondary">
+                <i class="fas fa-times me-1"></i>@(isView ? "Close" : "Cancel")
+            </a>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+<script>
+    (function () {
+        'use strict';
+        var fldCode    = document.getElementById('fldUOMCode');
+        var fldBase    = document.getElementById('fldBaseUOMId');
+        var fldCF      = document.getElementById('fldConvFactor');
+        var cfHelp     = document.getElementById('cfHelp');
+        var form       = document.getElementById('uomForm');
+        var errBox     = document.getElementById('clientValidation');
+        var errMsg     = document.getElementById('clientValidationMsg');
+
+        function showError(msg) {
+            errMsg.textContent = msg;
+            errBox.classList.remove('d-none');
+        }
+        function hideError() { errBox.classList.add('d-none'); }
+
+        function updateCfHelp() {
+            if (!fldBase || !fldCF || !cfHelp) return;
+            var baseOpt = fldBase.options[fldBase.selectedIndex];
+            var baseCode = '';
+            if (baseOpt && baseOpt.value) {
+                var m = baseOpt.text.match(/\[.*?\]\s*(\S+)/);
+                if (m) baseCode = m[1];
+            }
+            var thisCode = (fldCode && fldCode.value.trim().toUpperCase()) || 'this UOM';
+            var cf = parseFloat(fldCF.value);
+            if (fldBase.value && baseCode && !isNaN(cf)) {
+                cfHelp.textContent = '1 ' + thisCode + ' = ' + cf + ' ' + baseCode;
+            } else if (!fldBase.value) {
+                cfHelp.textContent = 'This is a base unit (CF = 1)';
+            } else {
+                cfHelp.textContent = '';
+            }
+        }
+
+        if (fldCode) fldCode.addEventListener('input', function () {
+            fldCode.value = fldCode.value.toUpperCase();
+            updateCfHelp();
+        });
+        if (fldBase) fldBase.addEventListener('change', function () {
+            if (!fldBase.value && fldCF) fldCF.value = '1';
+            updateCfHelp();
+        });
+        if (fldCF) fldCF.addEventListener('input', updateCfHelp);
+
+        if (form) form.addEventListener('submit', function (e) {
+            hideError();
+            if (!fldCode || !fldCode.value.trim()) {
+                e.preventDefault(); showError('UOM Code is required.'); return;
+            }
+            var name = document.getElementById('fldUOMName');
+            if (!name || !name.value.trim()) {
+                e.preventDefault(); showError('UOM Name is required.'); return;
+            }
+            var type = document.getElementById('fldUOMType');
+            if (!type || !type.value) {
+                e.preventDefault(); showError('Please select a UOM Type.'); return;
+            }
+            var cf = parseFloat(fldCF.value);
+            if (isNaN(cf) || cf <= 0) {
+                e.preventDefault(); showError('Conversion Factor must be greater than 0.'); return;
+            }
+        });
+
+        updateCfHelp();
+    })();
+</script>
+}

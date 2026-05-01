@@ -23,6 +23,21 @@ namespace RestaurantManagementSystem.Controllers
         }
 
         // ──────────────────────────────────────────────────────────────────────
+        // Authorization helper
+        // Only the user with username 'Admin' may create / edit / delete /
+        // toggle UOM records. All other users have read-only access.
+        // ──────────────────────────────────────────────────────────────────────
+        private bool IsAdminUser() =>
+            User?.Identity?.IsAuthenticated == true &&
+            string.Equals(User.Identity!.Name, "Admin", StringComparison.OrdinalIgnoreCase);
+
+        private IActionResult AdminOnlyDenied()
+        {
+            TempData["ErrorMessage"] = "You do not have permission to modify UOM records. Please contact the Admin user.";
+            return RedirectToAction(nameof(Index));
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
         // Table bootstrapping
         // ──────────────────────────────────────────────────────────────────────
 
@@ -186,6 +201,40 @@ namespace RestaurantManagementSystem.Controllers
         }
 
         // ──────────────────────────────────────────────────────────────────────
+        // GET: Uom/Form  (Create / Edit / View)
+        // ──────────────────────────────────────────────────────────────────────
+
+        public IActionResult Form(int? id, bool isView = false)
+        {
+            EnsureUomMasterTableExists();
+
+            // Non-admin users can only View. Any attempt to load the form in
+            // create/edit mode is forced into read-only View mode.
+            if (!IsAdminUser())
+            {
+                if (!id.HasValue || id.Value <= 0)
+                {
+                    return AdminOnlyDenied();
+                }
+                isView = true;
+            }
+
+            UomMaster model;
+            if (id.HasValue && id.Value > 0)
+            {
+                model = LoadUomById(id.Value) ?? new UomMaster { IsActive = true, ConversionFactor = 1m, DecimalPlaces = 3 };
+            }
+            else
+            {
+                model = new UomMaster { IsActive = true, ConversionFactor = 1m, DecimalPlaces = 3 };
+            }
+
+            ViewBag.IsView = isView;
+            PopulateViewBag(excludeId: id);
+            return View("Form", model);
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
         // POST: Uom/Save  (Create + Update)
         // ──────────────────────────────────────────────────────────────────────
 
@@ -199,6 +248,11 @@ namespace RestaurantManagementSystem.Controllers
             string? Description, bool IsActive)
         {
             EnsureUomMasterTableExists();
+
+            if (!IsAdminUser())
+            {
+                return AdminOnlyDenied();
+            }
 
             // ── Validation ──────────────────────────────────────────────────
             if (string.IsNullOrWhiteSpace(UOMCode))
@@ -306,6 +360,10 @@ namespace RestaurantManagementSystem.Controllers
         [ValidateAntiForgeryToken]
         public IActionResult ToggleActive(int id)
         {
+            if (!IsAdminUser())
+            {
+                return AdminOnlyDenied();
+            }
             try
             {
                 using var connection = new SqlConnection(_connectionString);
@@ -336,6 +394,10 @@ namespace RestaurantManagementSystem.Controllers
         [ValidateAntiForgeryToken]
         public IActionResult Delete(int id)
         {
+            if (!IsAdminUser())
+            {
+                return AdminOnlyDenied();
+            }
             try
             {
                 using var connection = new SqlConnection(_connectionString);
