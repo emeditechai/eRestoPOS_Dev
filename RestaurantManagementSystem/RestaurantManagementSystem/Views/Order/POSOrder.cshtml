@@ -451,12 +451,19 @@
     }
     /* Mobile */
     @@media (max-width: 767.98px) {
-        /* 2-col grid on mobile (390px+); 1-col only for very narrow phones */
-        #posProductGrid { --bs-columns: 2; }
-        #posProductGrid .col { flex: 0 0 50%; max-width: 50%; }
-        @@media (max-width: 389.98px) {
-            #posProductGrid { --bs-columns: 1; }
-            #posProductGrid .col { flex: 0 0 100%; max-width: 100%; }
+        /* Force 2-col CSS Grid on mobile — overrides Bootstrap flexbox row entirely */
+        #posProductGrid {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr !important;
+            gap: 0.65rem !important;
+        }
+        /* Children: reset flex/width so grid takes full control */
+        #posProductGrid > * {
+            flex: none !important;
+            width: auto !important;
+            max-width: none !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
         }
         .pos-product-img, .pos-product-img-fallback { height: 90px; min-height: 90px; }
         /* Skeleton placeholder has explicit height to avoid layout shift */
@@ -473,6 +480,12 @@
         .pos-product-card .fw-semibold { font-size: .9rem; }
         .pos-product-card .small { font-size: .82rem; }
         .pos-product-card:hover { transform: none; } /* disable hover lift on touch */
+    }
+    /* Very narrow phones: 1-col fallback */
+    @@media (max-width: 389.98px) {
+        #posProductGrid {
+            grid-template-columns: 1fr !important;
+        }
     }
 
     /* ── Cart panel scroll on tablet ── */
