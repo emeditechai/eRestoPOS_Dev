@@ -23,6 +23,8 @@ const _kPrefMac    = 'printer_mac';
 const _kPrefName   = 'printer_name';
 const _kPrefSvcUUID = 'printer_svc_uuid';
 const _kPrefChrUUID = 'printer_chr_uuid';
+const _kPrefTodaySuccess = 'today_success_';
+const _kPrefTodayFailed  = 'today_failed_';
 
 class PrinterStatus {
   final bool ready;
@@ -31,6 +33,8 @@ class PrinterStatus {
   final int printSuccess;
   final int printFailed;
   final DateTime? lastPrintAt;
+  final int todaySuccess;
+  final int todayFailed;
   const PrinterStatus({
     required this.ready,
     this.printerName,
@@ -38,6 +42,8 @@ class PrinterStatus {
     this.printSuccess = 0,
     this.printFailed  = 0,
     this.lastPrintAt,
+    this.todaySuccess = 0,
+    this.todayFailed  = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -67,11 +73,22 @@ class PrinterService {
   int _printFailed  = 0;
   DateTime? _lastPrintAt;
 
+  // Today's persisted stats (keyed by date, reset daily)
+  int _todaySuccess = 0;
+  int _todayFailed  = 0;
+
   String?   get savedName    => _savedName;
   String?   get savedMac     => _savedMac;
   int       get printSuccess => _printSuccess;
   int       get printFailed  => _printFailed;
   DateTime? get lastPrintAt  => _lastPrintAt;
+  int       get todaySuccess => _todaySuccess;
+  int       get todayFailed  => _todayFailed;
+
+  static String _todayKey() {
+    final now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
 
   // ── Persistence ──────────────────────────────────────────────────────────────
 
@@ -81,6 +98,9 @@ class PrinterService {
     _savedName   = prefs.getString(_kPrefName);
     _savedSvcUUID = prefs.getString(_kPrefSvcUUID);
     _savedChrUUID = prefs.getString(_kPrefChrUUID);
+    final key = _todayKey();
+    _todaySuccess = prefs.getInt(_kPrefTodaySuccess + key) ?? 0;
+    _todayFailed  = prefs.getInt(_kPrefTodayFailed  + key) ?? 0;
   }
 
   Future<void> _persistPrinter({
@@ -125,6 +145,8 @@ class PrinterService {
       printSuccess: _printSuccess,
       printFailed: _printFailed,
       lastPrintAt: _lastPrintAt,
+      todaySuccess: _todaySuccess,
+      todayFailed: _todayFailed,
     );
   }
 
@@ -216,12 +238,24 @@ class PrinterService {
       await _writeChunked(_characteristic!, bytes);
       _printSuccess++;
       _lastPrintAt = DateTime.now();
+      _todaySuccess++;
+      _persistTodayStats();
     } catch (e) {
       _printFailed++;
+      _todayFailed++;
+      _persistTodayStats();
       rethrow;
     } finally {
       _isPrinting = false;
     }
+  }
+
+  void _persistTodayStats() {
+    SharedPreferences.getInstance().then((prefs) {
+      final key = _todayKey();
+      prefs.setInt(_kPrefTodaySuccess + key, _todaySuccess);
+      prefs.setInt(_kPrefTodayFailed  + key, _todayFailed);
+    });
   }
 
   /// Sends a minimal test page to verify the printer is working.

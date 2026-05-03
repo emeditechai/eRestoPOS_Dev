@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -19,6 +20,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _serviceRunning = false;
   bool _scanning = false;
   bool _testPrinting = false;
+  int  _batteryLevel   = 100;
+  bool _batteryCharging = false;
+  Timer? _batteryTimer;
 
   // Keep-alive timer: fires every 30s to keep the Dart event loop active.
   // This prevents Android from throttling the HTTP server's network I/O
@@ -33,11 +37,14 @@ class _HomeScreenState extends State<HomeScreen> {
       const Duration(seconds: 30),
       (_) => _refresh(),
     );
+    _loadBattery();
+    _batteryTimer = Timer.periodic(const Duration(minutes: 1), (_) => _loadBattery());
   }
 
   @override
   void dispose() {
     _keepAliveTimer?.cancel();
+    _batteryTimer?.cancel();
     WakelockPlus.disable();
     super.dispose();
   }
@@ -53,6 +60,16 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) setState(() => _serviceRunning = false);
     }
     await _refresh();
+  }
+
+  Future<void> _loadBattery() async {
+    try {
+      final battery = Battery();
+      _batteryLevel = await battery.batteryLevel;
+      final state = await battery.batteryState;
+      _batteryCharging = state == BatteryState.charging || state == BatteryState.full;
+      if (mounted) setState(() {});
+    } catch (_) {}
   }
 
   Future<void> _refresh() async {
@@ -254,6 +271,8 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // ── Battery warning ───────────────────────────────────────────
+              _BatteryWarningBar(level: _batteryLevel, charging: _batteryCharging),
               // ── Server badge ─────────────────────────────────────────────
               _StatusBadge(
                 active: _serviceRunning,
@@ -264,20 +283,12 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 40),
 
-              // ── Printer icon ─────────────────────────────────────────────
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 400),
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  color: _status.ready ? scheme.primaryContainer : Colors.grey.shade100,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.print_rounded,
-                  size: 52,
-                  color: _status.ready ? scheme.primary : Colors.grey,
-                ),
+              // ── Printer icon (animated connection ring) ───────────────────────────
+              _PulsingRing(
+                connected: _status.connected,
+                paired: _status.ready,
+                scanning: _scanning,
+                icon: Icons.print_rounded,
               ),
               const SizedBox(height: 16),
 
@@ -388,7 +399,12 @@ class _HomeScreenState extends State<HomeScreen> {
               // ── Last print timestamp ──────────────────────────────────────
               const SizedBox(height: 10),
               _LastPrintLabel(lastPrintAt: _status.lastPrintAt),
-
+              const SizedBox(height: 16),
+              // ── Today's print stats ────────────────────────────────────────────
+              _TodayStatsBar(
+                success: _status.todaySuccess,
+                failed: _status.todayFailed,
+              ),
               const SizedBox(height: 24),
 
               // ── Test print button ─────────────────────────────────────────
@@ -614,6 +630,248 @@ class _Step extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Animated Pulsing Connection Ring ─────────────────────────────────────────
+
+class _PulsingRing extends StatefulWidget {
+  final bool connected;
+  final bool paired;
+  final bool scanning;
+  final IconData icon;
+
+  const _PulsingRing({
+    required this.connected,
+    required this.paired,
+    required this.scanning,
+    required this.icon,
+  });
+
+  @override
+  State<_PulsingRing> createState() => _PulsingRingState();
+}
+
+class _PulsingRingState extends State<_PulsingRing>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _scale;
+  late Animation<double> _opacity;
+
+  bool get _shouldPulse => widget.connected || widget.scanning;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
+    _scale   = Tween<double>(begin: 1.0, end: 1.55).animate(
+        CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+    _opacity = Tween<double>(begin: 0.65, end: 0.0).animate(
+        CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+    if (_shouldPulse) _ctrl.repeat();
+  }
+
+  @override
+  void didUpdateWidget(_PulsingRing old) {
+    super.didUpdateWidget(old);
+    if (_shouldPulse && !_ctrl.isAnimating) {
+      _ctrl.repeat();
+    } else if (!_shouldPulse && _ctrl.isAnimating) {
+      _ctrl.stop();
+      _ctrl.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Color _ringColor(ColorScheme scheme) {
+    if (widget.scanning)  return Colors.amber.shade500;
+    if (widget.connected) return Colors.green.shade500;
+    if (widget.paired)    return scheme.primary;
+    return Colors.grey.shade300;
+  }
+
+  Color _centerColor(ColorScheme scheme) {
+    if (widget.scanning)  return Colors.amber.shade50;
+    if (widget.connected) return Colors.green.shade50;
+    if (widget.paired)    return scheme.primaryContainer;
+    return Colors.grey.shade100;
+  }
+
+  Color _iconColor(ColorScheme scheme) {
+    if (widget.scanning)  return Colors.amber.shade700;
+    if (widget.connected) return Colors.green.shade700;
+    if (widget.paired)    return scheme.primary;
+    return Colors.grey;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 120,
+      height: 120,
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, __) => Stack(
+          alignment: Alignment.center,
+          children: [
+            if (_shouldPulse)
+              Transform.scale(
+                scale: _scale.value,
+                child: Opacity(
+                  opacity: _opacity.value,
+                  child: Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: _ringColor(scheme), width: 3),
+                    ),
+                  ),
+                ),
+              ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 400),
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: _centerColor(scheme),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(widget.icon, size: 52, color: _iconColor(scheme)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Battery Warning Bar ───────────────────────────────────────────────────────
+
+class _BatteryWarningBar extends StatelessWidget {
+  final int  level;
+  final bool charging;
+
+  const _BatteryWarningBar({required this.level, required this.charging});
+
+  @override
+  Widget build(BuildContext context) {
+    if (charging || level > 20) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.red.shade700,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.battery_alert, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Battery at $level% — Plug in the charger. Bridge may stop printing.',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Today's Print Stats Bar ───────────────────────────────────────────────────
+
+class _TodayStatsBar extends StatelessWidget {
+  final int success;
+  final int failed;
+
+  const _TodayStatsBar({required this.success, required this.failed});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = success + failed;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "Today's Prints",
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              Row(
+                children: [
+                  Icon(Icons.check_circle, size: 14, color: Colors.green.shade600),
+                  const SizedBox(width: 3),
+                  Text(
+                    '$success',
+                    style: TextStyle(
+                      color: Colors.green.shade700,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Icon(Icons.cancel, size: 14, color: Colors.red.shade600),
+                  const SizedBox(width: 3),
+                  Text(
+                    '$failed',
+                    style: TextStyle(
+                      color: Colors.red.shade700,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: total == 0
+                ? Container(height: 6, color: Colors.grey.shade200)
+                : Row(
+                    children: [
+                      if (success > 0)
+                        Expanded(
+                          flex: success,
+                          child: Container(height: 6, color: Colors.green.shade400),
+                        ),
+                      if (failed > 0)
+                        Expanded(
+                          flex: failed,
+                          child: Container(height: 6, color: Colors.red.shade400),
+                        ),
+                    ],
+                  ),
+          ),
         ],
       ),
     );

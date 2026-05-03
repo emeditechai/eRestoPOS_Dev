@@ -30,6 +30,9 @@ dependencies:
   # Keep screen/CPU awake while HTTP server is active (prevents network throttle)
   wakelock_plus: ^1.2.8
 
+  # Battery level — show warning when phone battery is low so the bridge doesn't die
+  battery_plus: ^4.0.2
+
   # Icons
   cupertino_icons: ^1.0.8
 

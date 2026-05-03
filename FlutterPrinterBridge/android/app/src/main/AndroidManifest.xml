@@ -19,7 +19,8 @@
 
     <!-- ── Foreground service (not used \u2014 HTTP server runs in main isolate) ──── -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-
+    <!-- ── Boot auto-start ────────────────────────────────────────────── -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- ── BLE feature declaration ────────────────────────────────────────── -->
     <!-- required=false so tablets without BLE can still install the APK.
          The app handles missing Bluetooth gracefully at runtime. -->
@@ -60,5 +61,17 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Auto-start the bridge on device boot / power-on -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
