@@ -34,6 +34,14 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    // Always output the APK as "printer-bridge.apk"
+    applicationVariants.all {
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            output.outputFileName = "printer-bridge.apk"
+        }
+    }
 }
 
 flutter {
