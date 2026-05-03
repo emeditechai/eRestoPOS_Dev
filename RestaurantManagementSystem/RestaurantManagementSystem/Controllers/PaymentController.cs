@@ -5817,6 +5817,10 @@ END", connection))
                             // Web Bluetooth API reads this client-side and writes directly to the paired printer.
                             ViewBag.EscPosBytesB64 = Convert.ToBase64String(bytes);
                             ViewBag.BleOrderId     = orderId;
+                            // autoprint=1 → page auto-prints once the bridge responds (no manual tap needed).
+                            // This is set by the post-payment flow in POSOrder.cshtml so the receipt
+                            // is sent automatically. Dashboard / manual reprints don't set this flag.
+                            ViewBag.AutoPrint = Request.Query.ContainsKey("autoprint") && !htmlOnly;
                             return View("PrintEscPosBLE");
                         }
                     }

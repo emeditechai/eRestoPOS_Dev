@@ -4,6 +4,7 @@
     var bytesB64   = ViewBag.EscPosBytesB64 as string ?? "";
     var bleOrderId = ViewBag.BleOrderId ?? 0;
     var afToken    = AntiforgeryPrint.GetAndStoreTokens(Context).RequestToken;
+    var autoPrint  = ViewBag.AutoPrint is bool bp && bp;
 }
 <!DOCTYPE html>
 <html>
@@ -12,6 +13,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
     <meta name="request-verification-token" content="@afToken" />
     <title>Print Receipt</title>
+    <script src="/js/wake-lock.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -156,6 +158,9 @@
 
         var BLE_BYTES_B64    = '@Html.Raw(bytesB64)';
         var ORDER_ID         = @bleOrderId;
+        // When true the page was opened by the post-payment auto-print flow.
+        // Bridge connection will trigger printing automatically (no manual tap needed).
+        var AUTO_PRINT       = @(autoPrint ? "true" : "false");
 
         var printBtn         = document.getElementById('printBtn');
         var retryBridgeBtn   = document.getElementById('retryBridgeBtn');
@@ -172,6 +177,8 @@
 
         // true = bridge alive and confirmed, false = never (we keep retrying)
         var _bridgeReady    = false;
+        // true = a print job is already in-flight (prevents double-print in auto mode)
+        var _printing       = false;
         var _polling        = false;  // background poll running
         var _pollTimer      = null;
         var _heartbeatTimer = null;
@@ -215,6 +222,7 @@
         }
 
         function afterBridgeSuccess() {
+            _printing = false;
             stopPolling();
             setStatus('Printed successfully! \u2713', 'ok');
             printBtn.disabled    = false;
@@ -230,6 +238,29 @@
             startHeartbeat();
             retryBridgeBtn.style.display = 'none';
             var name = data.printerName || data.printer_name || '';
+
+            // ── Auto-print mode (post-payment flow): print immediately without user tap ──
+            if (AUTO_PRINT && !_printing) {
+                _printing = true;
+                if (name) showBadge(name);
+                printSub.textContent = '\u23f3 Printing\u2026';
+                setBusy('\u23f3 Printing\u2026');
+                setStatus('Sending to printer\u2026');
+                doBridgePrint()
+                    .then(afterBridgeSuccess)
+                    .catch(function (err) {
+                        _printing    = false;
+                        _bridgeReady = false;
+                        startPolling();
+                        setStatus('Print error. Reconnecting\u2026', 'err');
+                        setBusy('\u23f3 Connecting\u2026');
+                        printSub.textContent = 'Waking up printer app\u2026';
+                        retryBridgeBtn.style.display = 'block';
+                    });
+                return;
+            }
+
+            // ── Manual mode (dashboard / reprint): enable button, wait for tap ──
             if (name) {
                 showBadge(name);
                 printSub.textContent = 'Paired with ' + name + ' \u2014 tap to print.';
@@ -292,14 +323,17 @@
         // ── User taps Print button ────────────────────────────────────────────────
         // NEVER shows BLE picker — only uses bridge.
         function triggerBridgePrint() {
+            if (_printing) return;   // already in-flight (auto-print or previous tap)
             if (_bridgeReady) {
                 // Bridge confirmed — print immediately
+                _printing = true;
                 setBusy('\u23f3 Printing\u2026');
                 setStatus('Sending to printer\u2026');
                 doBridgePrint()
                 .then(afterBridgeSuccess)
                 .catch(function (err) {
                     // Bridge went away — restart polling
+                    _printing    = false;
                     _bridgeReady = false;
                     startPolling();
                     setStatus('Print error. Reconnecting\u2026', 'err');
@@ -316,14 +350,24 @@
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     onBridgeFound(data);
-                    // Now print
-                    setBusy('\u23f3 Printing\u2026');
-                    setStatus('Sending to printer\u2026');
-                    return doBridgePrint();
+                    // In AUTO_PRINT mode onBridgeFound already started the print job.
+                    // In manual mode we need to trigger it ourselves here.
+                    if (!AUTO_PRINT) {
+                        _printing = true;
+                        setBusy('\u23f3 Printing\u2026');
+                        setStatus('Sending to printer\u2026');
+                        return doBridgePrint();
+                    }
+                    return Promise.resolve();
                 })
-                .then(afterBridgeSuccess)
+                .then(function (result) {
+                    // Only call afterBridgeSuccess from here in manual (non-AUTO_PRINT) mode;
+                    // in AUTO_PRINT mode afterBridgeSuccess is chained from onBridgeFound.
+                    if (!AUTO_PRINT && result !== undefined) afterBridgeSuccess();
+                })
                 .catch(function () {
                     // Still not responding — tell user to open the app
+                    _printing    = false;
                     _bridgeReady = false;
                     startPolling();
                     setBusy('\u23f3 Connecting\u2026');
@@ -338,6 +382,7 @@
 
         // ── Retry button: explicit user retry ────────────────────────────────────
         window.retryBridge = function () {
+            if (_printing) return;
             retryBridgeBtn.disabled    = true;
             retryBridgeBtn.textContent = '\u23f3 Connecting\u2026';
             setStatus('');
@@ -345,15 +390,24 @@
             fetch(BRIDGE_STATUS, { signal: AbortSignal.timeout(8000) })
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                onBridgeFound(data);
                 retryBridgeBtn.disabled    = false;
                 retryBridgeBtn.textContent = '\u8635 Retry Print Bridge';
-                setBusy('\u23f3 Printing\u2026');
-                setStatus('Sending to printer\u2026');
-                return doBridgePrint();
+                // onBridgeFound handles printing in AUTO_PRINT mode;
+                // in manual mode we chain doBridgePrint explicitly below.
+                onBridgeFound(data);
+                if (!AUTO_PRINT) {
+                    _printing = true;
+                    setBusy('\u23f3 Printing\u2026');
+                    setStatus('Sending to printer\u2026');
+                    return doBridgePrint();
+                }
+                return Promise.resolve();
             })
-            .then(afterBridgeSuccess)
+            .then(function (result) {
+                if (!AUTO_PRINT && result !== undefined) afterBridgeSuccess();
+            })
             .catch(function () {
+                _printing              = false;
                 retryBridgeBtn.disabled    = false;
                 retryBridgeBtn.textContent = '\u8635 Retry Print Bridge';
                 printSub.textContent = 'App not responding. Open the Printer Bridge app and try again.';

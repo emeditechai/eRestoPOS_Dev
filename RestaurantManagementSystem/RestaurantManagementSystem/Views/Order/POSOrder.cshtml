@@ -2039,7 +2039,9 @@
 
             function openPrintPOS(win){
                 if (!orderId) return;
-                const url = '/Payment/PrintPOS?orderId=' + orderId;
+                // autoprint=1 tells PrintEscPosBLE to print automatically once the
+                // bridge responds — no manual "Print Receipt" tap needed.
+                const url = '/Payment/PrintPOS?orderId=' + orderId + '&autoprint=1';
                 try {
                     if (win && !win.closed) {
                         win.location = url;
@@ -3406,4 +3408,5 @@
         PrinterManager.startHeartbeat(25000);
     })();
     </script>
+    <script src="~/js/wake-lock.js"></script>
 }
