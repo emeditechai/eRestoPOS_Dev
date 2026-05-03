@@ -341,7 +341,7 @@ ORDER  BY b.BranchName", conn);
                 var contentLength = response.Content.Headers.ContentLength;
                 var stream = await response.Content.ReadAsStreamAsync();
 
-                Response.Headers["Content-Disposition"] = "attachment; filename=\"PrintBridge.apk\"";
+                Response.Headers["Content-Disposition"] = "attachment; filename=\"printer-bridge.apk\"";
                 if (contentLength.HasValue)
                     Response.Headers["Content-Length"] = contentLength.Value.ToString();
 
