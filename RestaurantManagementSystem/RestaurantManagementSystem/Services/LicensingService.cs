@@ -16,7 +16,7 @@ namespace RestaurantManagementSystem.Services
         private const string RemoteValidationHistoryTableName = "dbo.LicenseValidationHistory";
         private const string RemoteOtpValidationHistoryTableName = "dbo.ClientOTPValidationHistory";
         private const string CentralMailConfigurationTableName = "dbo.tbl_centralmailconfiguration";
-        private const string DefaultCentralLicenseRemoteServer = "198.38.81.123,1433";
+        private const string DefaultCentralLicenseRemoteServer = "103.178.113.61,1232";
         private const string DefaultCentralLicenseRemoteUsername = "sa";
         private const string DefaultCentralLicenseRemotePassword = "Ehospit@lity@#1926";
         private const string DefaultCentralLicenseRemoteDatabase = "Central_Lic_DB";
