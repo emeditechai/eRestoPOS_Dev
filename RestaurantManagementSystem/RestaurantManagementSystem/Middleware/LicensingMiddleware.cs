@@ -79,7 +79,9 @@ namespace RestaurantManagementSystem.Middleware
                 || path.StartsWith("/favicon", StringComparison.OrdinalIgnoreCase)
                 || path.StartsWith("/License", StringComparison.OrdinalIgnoreCase)
                 || path.StartsWith("/Home/Error", StringComparison.OrdinalIgnoreCase)
-                || path.StartsWith("/Home/Maintenance", StringComparison.OrdinalIgnoreCase);
+                || path.StartsWith("/Home/Maintenance", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/Account", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/SignUp", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string? ResolveRequestIp(HttpContext context)

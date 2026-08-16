@@ -196,6 +196,35 @@ END";
             }
         }
 
+        /// <summary>
+        /// Returns true if the specified user was created via the public Sign Up page (from_Signup = 1).
+        /// Such users are limited to viewing only their own created branch.
+        /// </summary>
+        private bool IsSignupUser(SqlConnection con, int userId)
+        {
+            try
+            {
+                // Guard: check the column exists first
+                using (var chk = new Microsoft.Data.SqlClient.SqlCommand(
+                    "SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Users' AND COLUMN_NAME='from_Signup'", con))
+                {
+                    if (Convert.ToInt32(chk.ExecuteScalar()) == 0) return false;
+                }
+
+                using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(
+                    "SELECT ISNULL(from_Signup, 0) FROM dbo.Users WHERE Id = @Id", con))
+                {
+                    cmd.Parameters.AddWithValue("@Id", userId);
+                    var result = cmd.ExecuteScalar();
+                    return result != null && result != DBNull.Value && Convert.ToBoolean(result);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private HashSet<int> GetVisibleUserIdsForBranch(SqlConnection con, int activeBranchId)
         {
             var ids = new HashSet<int>();
@@ -439,6 +468,18 @@ WHERE UserId = @UserId
                     {
                         canViewAllUsers = IsMainBranch(con, activeBranchId.Value);
                         if (!canViewAllUsers)
+                        {
+                            visibleUserIds = GetVisibleUserIdsForBranch(con, activeBranchId.Value);
+                        }
+                    }
+
+                    // from_Signup enforcement: if the logged-in user was created via Sign Up,
+                    // restrict their view to their own branch only (even if it happens to be a main branch).
+                    var loggedInUserId = User.GetUserId();
+                    if (loggedInUserId.HasValue && IsSignupUser(con, loggedInUserId.Value))
+                    {
+                        canViewAllUsers = false;
+                        if (activeBranchId.HasValue)
                         {
                             visibleUserIds = GetVisibleUserIdsForBranch(con, activeBranchId.Value);
                         }

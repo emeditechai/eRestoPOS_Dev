@@ -1,0 +1,1003 @@
+@model RestaurantManagementSystem.ViewModels.SignUpViewModel
+@{
+    ViewData["Title"] = "Sign Up – eRestoPOS";
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"]</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+    body {
+        background-color: #ffffff;
+        font-family: 'Inter', sans-serif;
+        min-height: 100vh;
+        margin: 0;
+        overflow-x: hidden;
+    }
+
+    .split-layout {
+        display: flex;
+        min-height: 100vh;
+    }
+
+    .split-left {
+        flex: 0 0 45%;
+        background: linear-gradient(145deg, #1e0a4a 0%, #2a106d 40%, #7c3aed 100%);
+        padding: 3rem 4rem;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        color: #fff;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .split-left::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at top right, rgba(167,139,250,0.15), transparent 50%),
+                    radial-gradient(circle at bottom left, rgba(167,139,250,0.1), transparent 50%);
+    }
+
+    .split-left-content {
+        position: relative;
+        z-index: 1;
+    }
+
+    .split-right {
+        flex: 1;
+        background: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem 1rem;
+    }
+
+    .signup-wrapper {
+        width: 100%;
+        max-width: 540px;
+        margin: 0 auto;
+    }
+
+    .signup-header {
+        margin-bottom: 2.5rem;
+    }
+
+    .signup-header::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at top right, rgba(167,139,250,0.3), transparent 50%),
+                    radial-gradient(circle at bottom left, rgba(167,139,250,0.2), transparent 50%);
+    }
+
+    .brand-logo {
+        font-size: 2rem;
+        font-weight: 800;
+        color: #fff;
+        letter-spacing: -0.5px;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 3rem;
+    }
+
+    .brand-logo i {
+        color: #f8b133;
+    }
+
+    .value-prop h1 {
+        font-size: 2.5rem;
+        font-weight: 800;
+        line-height: 1.2;
+        margin-bottom: 1.5rem;
+        background: linear-gradient(to right, #fff, #d8b4fe);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .value-prop p {
+        font-size: 1.1rem;
+        color: rgba(255,255,255,0.85);
+        line-height: 1.6;
+        margin-bottom: 2rem;
+    }
+
+    .feature-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .feature-list li {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .feature-list i {
+        background: rgba(255,255,255,0.1);
+        padding: 0.6rem;
+        border-radius: 10px;
+        color: #a78bfa;
+        font-size: 1.2rem;
+    }
+
+    .feature-text h4 {
+        font-size: 1rem;
+        font-weight: 700;
+        margin: 0 0 0.25rem 0;
+        color: #fff;
+    }
+
+    .feature-text p {
+        font-size: 0.85rem;
+        color: rgba(255,255,255,0.65);
+        margin: 0;
+    }
+
+    .signup-header-logo {
+        font-size: 1.8rem;
+        font-weight: 800;
+        color: #1e0a4a;
+        letter-spacing: -0.5px;
+        margin-bottom: 0.5rem;
+        display: none; /* Only show on mobile */
+    }
+
+    .signup-header-logo i {
+        color: #7c3aed;
+        margin-right: 0.4rem;
+    }
+
+    .signup-header-subtitle {
+        color: #6b7a90;
+        font-size: 1.1rem;
+        font-weight: 500;
+        margin: 0 0 2rem 0;
+    }
+
+    .signup-steps-indicator {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        margin: 0 0 2rem 0;
+    }
+
+    .step-pill {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: #9ca3af;
+        padding: 0.5rem 1rem;
+        border-radius: 999px;
+        background: #f3f4f6;
+        transition: all 0.3s ease;
+        cursor: default;
+    }
+
+    .step-pill.active {
+        background: #ede9fe;
+        color: #7c3aed;
+        box-shadow: 0 0 0 1px #c4b5fd;
+    }
+
+    .step-pill.done {
+        background: #dcfce7;
+        color: #166534;
+        box-shadow: 0 0 0 1px #86efac;
+    }
+
+    .step-divider {
+        width: 40px;
+        height: 2px;
+        background: #e5e7eb;
+        margin: 0 0.5rem;
+    }
+
+    .signup-body {
+        background: #fff;
+    }
+
+    .step-pane {
+        display: none;
+    }
+
+    .step-pane.active {
+        display: block;
+        animation: fadeSlideIn 0.3s ease forwards;
+    }
+
+    @@keyframes fadeSlideIn {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .step-title {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: #111827;
+        margin-bottom: 0.25rem;
+    }
+
+    .step-desc {
+        font-size: 0.95rem;
+        color: #6b7280;
+        margin-bottom: 2rem;
+    }
+
+    .form-label-custom {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 0.3rem;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .form-label-custom .required-star {
+        color: #e05252;
+        font-size: 0.85rem;
+        line-height: 1;
+    }
+
+    .input-icon-wrap {
+        position: relative;
+    }
+
+    .input-icon-wrap .icon-left {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #7c3aed;
+        font-size: 0.85rem;
+        pointer-events: none;
+        z-index: 2;
+    }
+
+    .input-icon-wrap input {
+        padding-left: 40px !important;
+        padding-top: 0.65rem !important;
+        padding-bottom: 0.65rem !important;
+        border-radius: 12px !important;
+        border: 1.5px solid #e5e7eb;
+        font-size: 0.95rem;
+        transition: all 0.2s;
+        background: #fff;
+    }
+
+    .input-icon-wrap input:focus {
+        border-color: #7c3aed;
+        box-shadow: 0 0 0 3px rgba(124,58,237,0.12);
+        background: #fff;
+        outline: none;
+    }
+
+    .input-icon-wrap input.is-invalid {
+        border-color: #ef4444;
+    }
+
+    .username-preview-box {
+        background: linear-gradient(135deg, #f0ebff, #ede9fe);
+        border: 1.5px solid #d4c9ff;
+        border-radius: 10px;
+        padding: 0.85rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 1rem;
+    }
+
+    .username-preview-box .up-icon {
+        width: 38px;
+        height: 38px;
+        background: #7c3aed;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 1rem;
+        flex-shrink: 0;
+    }
+
+    .username-preview-box .up-body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .username-preview-box .up-label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: #5b3ea6;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.1rem;
+    }
+
+    .username-preview-box .up-value {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #2a106d;
+        font-family: 'Courier New', monospace;
+    }
+
+    .password-preview-box {
+        background: linear-gradient(135deg, #fff7ed, #fef3c7);
+        border: 1.5px solid #fcd34d;
+        border-radius: 10px;
+        padding: 0.65rem 1rem;
+        font-size: 0.82rem;
+        color: #92400e;
+        margin-top: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+    }
+
+    .nav-btn-row {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 1.75rem;
+    }
+
+    .btn-signup-primary {
+        flex: 1;
+        background: linear-gradient(135deg, #7c3aed 0%, #2a106d 100%);
+        color: #fff;
+        border: none;
+        border-radius: 12px;
+        padding: 0.82rem 1.5rem;
+        font-weight: 700;
+        font-size: 0.92rem;
+        letter-spacing: 0.02em;
+        transition: opacity 0.2s, transform 0.15s;
+        cursor: pointer;
+    }
+
+    .btn-signup-primary:hover:not(:disabled) {
+        opacity: 0.92;
+        transform: translateY(-1px);
+    }
+
+    .btn-signup-primary:disabled {
+        opacity: 0.65;
+        cursor: not-allowed;
+    }
+
+    .btn-signup-secondary {
+        background: transparent;
+        color: #5b3ea6;
+        border: 1.5px solid #c4b5fd;
+        border-radius: 12px;
+        padding: 0.82rem 1.25rem;
+        font-weight: 600;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: background 0.2s, border-color 0.2s;
+    }
+
+    .btn-signup-secondary:hover {
+        background: #f5f3ff;
+        border-color: #7c3aed;
+    }
+
+    .login-link-row {
+        text-align: center;
+        margin-top: 1.25rem;
+        font-size: 0.82rem;
+        color: #6b7a90;
+    }
+
+    .login-link-row a {
+        color: #7c3aed;
+        font-weight: 600;
+        text-decoration: none;
+    }
+
+    .login-link-row a:hover {
+        text-decoration: underline;
+    }
+
+    .field-error {
+        font-size: 0.75rem;
+        color: #ef4444;
+        margin-top: 0.3rem;
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .spinner-border-sm {
+        width: 1rem;
+        height: 1rem;
+        border-width: 0.15em;
+    }
+
+    @@media (max-width: 991px) {
+        .split-left { display: none; }
+        .signup-header-logo { display: flex; align-items: center; }
+        .signup-header-subtitle { margin-bottom: 1.5rem; }
+        .step-pill { font-size: 0.7rem; padding: 0.4rem 0.8rem; }
+    }
+
+    /* Success popup custom styling handled by SweetAlert2 */
+</style>
+</head>
+<body>
+
+<div class="split-layout">
+    <!-- Left Promotional Area -->
+    <div class="split-left">
+        <div class="split-left-content">
+            <div class="brand-logo">
+                <i class="fas fa-utensils"></i> eRestoPOS
+            </div>
+            
+            <div class="value-prop">
+                <h1>Power Your Restaurant.<br/>Delight Every Guest.</h1>
+                <p>Join thousands of restaurants managing their operations, reservations, and sales in one unified, intelligent platform.</p>
+                
+                <ul class="feature-list">
+                    <li>
+                        <i class="fas fa-store"></i>
+                        <div class="feature-text">
+                            <h4>Seamless Point of Sale</h4>
+                            <p>Fast, reliable, and easy to use for your entire staff.</p>
+                        </div>
+                    </li>
+                    <li>
+                        <i class="fas fa-chart-line"></i>
+                        <div class="feature-text">
+                            <h4>Real-time Analytics</h4>
+                            <p>Track sales, inventory, and staff performance live.</p>
+                        </div>
+                    </li>
+                    <li>
+                        <i class="fas fa-users"></i>
+                        <div class="feature-text">
+                            <h4>Staff & Role Management</h4>
+                            <p>Secure access controls and performance tracking.</p>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+        </div>
+        <div class="split-left-content text-white-50" style="font-size: 0.85rem;">
+            &copy; 2026 Emeditech Plus LLP. All rights reserved.
+        </div>
+    </div>
+
+    <!-- Right Wizard Area -->
+    <div class="split-right">
+        <div class="signup-wrapper">
+            <div class="signup-header">
+                <div class="signup-header-logo">
+                    <i class="fas fa-utensils"></i>eRestoPOS
+                </div>
+                <h2 class="step-title" style="font-size:1.8rem;margin-bottom:0.5rem;">Create Account</h2>
+                <p class="signup-header-subtitle">Start managing your restaurant for free.</p>
+                
+                <div class="signup-steps-indicator">
+                    <div class="step-pill active" id="stepPill1">
+                        1. Personal
+                    </div>
+                    <div class="step-divider"></div>
+                    <div class="step-pill" id="stepPill2">
+                        2. Restaurant
+                    </div>
+                </div>
+            </div>
+
+            <div class="signup-body">
+                    <form id="signupForm" method="post" action="/SignUp/Submit" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+
+                <!-- ── STEP 1: Personal Info ── -->
+                <div class="step-pane active" id="step1">
+                    <div class="step-title">Personal Information</div>
+                    <div class="step-desc">Tell us a bit about yourself</div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label-custom" for="FirstName">
+                                <i class="fas fa-user" style="color:#7c3aed;font-size:0.75rem;"></i>
+                                First Name <span class="required-star">*</span>
+                            </label>
+                            <div class="input-icon-wrap">
+                                <i class="fas fa-signature icon-left"></i>
+                                <input type="text" id="FirstName" name="FirstName" class="form-control"
+                                       placeholder="e.g. John" autocomplete="given-name" />
+                            </div>
+                            <div class="field-error d-none" id="err-FirstName"><i class="fas fa-exclamation-circle"></i><span></span></div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label-custom" for="LastName">
+                                <i class="fas fa-user" style="color:#7c3aed;font-size:0.75rem;"></i>
+                                Last Name
+                            </label>
+                            <div class="input-icon-wrap">
+                                <i class="fas fa-signature icon-left"></i>
+                                <input type="text" id="LastName" name="LastName" class="form-control"
+                                       placeholder="e.g. Doe" autocomplete="family-name" />
+                            </div>
+                            <div class="field-error d-none" id="err-LastName"><i class="fas fa-exclamation-circle"></i><span></span></div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label-custom" for="PhoneNumber">
+                                <i class="fas fa-phone" style="color:#7c3aed;font-size:0.75rem;"></i>
+                                Phone Number <span class="required-star">*</span>
+                            </label>
+                            <div class="input-icon-wrap">
+                                <i class="fas fa-mobile-alt icon-left"></i>
+                                <input type="tel" id="PhoneNumber" name="PhoneNumber" class="form-control"
+                                       placeholder="10-digit mobile number" maxlength="10" inputmode="numeric"
+                                       autocomplete="tel" />
+                            </div>
+                            <div class="field-error d-none" id="err-PhoneNumber"><i class="fas fa-exclamation-circle"></i><span></span></div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label-custom" for="Email">
+                                <i class="fas fa-envelope" style="color:#7c3aed;font-size:0.75rem;"></i>
+                                Email Address
+                            </label>
+                            <div class="input-icon-wrap">
+                                <i class="fas fa-at icon-left"></i>
+                                <input type="email" id="Email" name="Email" class="form-control"
+                                       placeholder="you@example.com" autocomplete="email" />
+                            </div>
+                            <div class="field-error d-none" id="err-Email"><i class="fas fa-exclamation-circle"></i><span></span></div>
+                        </div>
+                    </div>
+
+                    <!-- Username preview -->
+                    <div class="username-preview-box mt-3" id="usernamePreviewBox" style="display:none!important;">
+                        <div class="up-icon"><i class="fas fa-id-badge"></i></div>
+                        <div class="up-body">
+                            <div class="up-label">Auto-generated Username</div>
+                            <div class="up-value" id="usernamePreviewVal">—</div>
+                        </div>
+                    </div>
+
+                    <div class="password-preview-box" id="passwordHint" style="display:none;">
+                        <i class="fas fa-info-circle"></i>
+                        <span>Your default password will be the same as your username. You can change it after login.</span>
+                    </div>
+
+                    <div class="nav-btn-row">
+                        <button type="button" class="btn-signup-primary" id="btnStep1Next">
+                            Continue <i class="fas fa-arrow-right ms-1"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ── STEP 2: Restaurant Info ── -->
+                <div class="step-pane" id="step2">
+                    <div class="step-title">Restaurant Information</div>
+                    <div class="step-desc">Setup your restaurant branch details</div>
+
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label-custom" for="RestaurantName">
+                                <i class="fas fa-store" style="color:#7c3aed;font-size:0.75rem;"></i>
+                                Restaurant Name <span class="required-star">*</span>
+                            </label>
+                            <div class="input-icon-wrap">
+                                <i class="fas fa-utensils icon-left"></i>
+                                <input type="text" id="RestaurantName" name="RestaurantName" class="form-control"
+                                       placeholder="e.g. Spice Garden Restaurant" />
+                            </div>
+                            <div class="field-error d-none" id="err-RestaurantName"><i class="fas fa-exclamation-circle"></i><span></span></div>
+
+                            <div class="row mt-3">
+                                <div class="col-md-6 mb-3">
+                                    <div class="input-icon-wrap">
+                                        <i class="fas fa-city icon-left"></i>
+                                        <input type="text" id="City" name="City" class="form-control" placeholder="City *" />
+                                    </div>
+                                    <div class="field-error d-none" id="err-City"><i class="fas fa-exclamation-circle"></i><span></span></div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <div class="input-icon-wrap">
+                                        <i class="fas fa-map icon-left"></i>
+                                        <input type="text" id="State" name="State" class="form-control" placeholder="State *" />
+                                    </div>
+                                    <div class="field-error d-none" id="err-State"><i class="fas fa-exclamation-circle"></i><span></span></div>
+                                </div>
+                            </div>
+                            
+                            <div class="row mb-3">
+                                <div class="col-md-6 mb-3">
+                                    <div class="input-icon-wrap">
+                                        <i class="fas fa-map-marker-alt icon-left"></i>
+                                        <input type="text" id="Pincode" name="Pincode" class="form-control" placeholder="Pincode *" />
+                                    </div>
+                                    <div class="field-error d-none" id="err-Pincode"><i class="fas fa-exclamation-circle"></i><span></span></div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <div class="input-icon-wrap">
+                                        <i class="fas fa-globe-americas icon-left"></i>
+                                        <input type="text" id="Country" name="Country" class="form-control" placeholder="Country *" />
+                                    </div>
+                                    <div class="field-error d-none" id="err-Country"><i class="fas fa-exclamation-circle"></i><span></span></div>
+                                </div>
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-md-6 mb-3">
+                                    <div class="input-icon-wrap">
+                                        <i class="fas fa-file-invoice-dollar icon-left"></i>
+                                        <input type="text" id="GSTCode" name="GSTCode" class="form-control" placeholder="GST Code *" />
+                                    </div>
+                                    <div class="field-error d-none" id="err-GSTCode"><i class="fas fa-exclamation-circle"></i><span></span></div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <div class="input-icon-wrap">
+                                        <i class="fas fa-globe icon-left"></i>
+                                        <input type="text" id="Website" name="Website" class="form-control" placeholder="Website (Optional)" />
+                                    </div>
+                                    <div class="field-error d-none" id="err-Website"><i class="fas fa-exclamation-circle"></i><span></span></div>
+                                </div>
+                            </div>
+
+                            <!-- Logo Upload (Optional) -->
+                            <div class="input-icon-wrap" style="margin-top: 1rem;">
+                                <i class="fas fa-image icon-left"></i>
+                                <input type="file" id="Logo" name="Logo" class="form-control" accept="image/png, image/jpeg, image/jpg" style="padding-left: 2.8rem; padding-top: 0.5rem;" />
+                            </div>
+                            <div style="font-size:0.73rem;color:#888;margin-top:0.3rem;">
+                                Upload a logo for your restaurant (Optional)
+                            </div>
+
+                            <div style="font-size:0.73rem;color:#888;margin-top:0.3rem;">
+                                <i class="fas fa-info-circle" style="color:#7c3aed;"></i>
+                                This will be used as your <strong>Branch Name</strong> in the system.
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label-custom" for="Location">
+                                <i class="fas fa-map-marker-alt" style="color:#7c3aed;font-size:0.75rem;"></i>
+                                Location <span class="required-star">*</span>
+                            </label>
+                            <div class="input-icon-wrap">
+                                <i class="fas fa-map-pin icon-left"></i>
+                                <input type="text" id="Location" name="Location" class="form-control"
+                                       placeholder="e.g. Kolkata, Mumbai, Delhi" list="locationList" autocomplete="off" />
+                                <datalist id="locationList"></datalist>
+                            </div>
+                            <div class="field-error d-none" id="err-Location"><i class="fas fa-exclamation-circle"></i><span></span></div>
+                            <div style="font-size:0.73rem;color:#888;margin-top:0.3rem;">
+                                <i class="fas fa-info-circle" style="color:#7c3aed;"></i>
+                                This is saved as the <strong>Branch Location</strong> in the master.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Summary review before submit -->
+                    <div id="summaryBox" class="mt-3 p-3" style="background:#f9f8ff;border:1px solid #e0d9ff;border-radius:10px;display:none;">
+                        <div style="font-size:0.72rem;font-weight:700;color:#5b3ea6;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.75rem;">
+                            <i class="fas fa-clipboard-check me-1"></i> Summary
+                        </div>
+                        <div class="row g-1" style="font-size:0.82rem;">
+                            <div class="col-5 text-muted">Name:</div><div class="col-7 fw-semibold" id="sumName">—</div>
+                            <div class="col-5 text-muted">Phone:</div><div class="col-7 fw-semibold" id="sumPhone">—</div>
+                            <div class="col-5 text-muted">Email:</div><div class="col-7 fw-semibold" id="sumEmail">—</div>
+                            <div class="col-5 text-muted">Restaurant:</div><div class="col-7 fw-semibold" id="sumRestaurant">—</div>
+                            <div class="col-5 text-muted">Location:</div><div class="col-7 fw-semibold" id="sumLocation">—</div>
+                            <div class="col-5 text-muted">Username:</div><div class="col-7 fw-semibold text-purple" id="sumUsername" style="color:#7c3aed;">—</div>
+                        </div>
+                    </div>
+
+                    <div class="nav-btn-row">
+                        <button type="button" class="btn-signup-secondary" id="btnStep2Back">
+                            <i class="fas fa-arrow-left me-1"></i> Back
+                        </button>
+                        <button type="submit" class="btn-signup-primary" id="btnSubmit">
+                            <span id="submitBtnText"><i class="fas fa-check-circle me-1"></i> Create Account</span>
+                            <span id="submitBtnSpinner" class="d-none">
+                                <span class="spinner-border spinner-border-sm me-1" role="status"></span> Creating...
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
+            </form>
+
+            </div>
+            <div class="login-link-row mt-4">
+                Already have an account? <a asp-controller="Account" asp-action="Login">Sign In</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="~/lib/jquery/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+(function () {
+    'use strict';
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    let currentStep = 1;
+    const totalSteps = 2;
+
+    // Fetch existing locations for autocomplete
+    async function fetchLocations() {
+        try {
+            const resp = await fetch('/SignUp/GetLocations');
+            if (resp.ok) {
+                const locations = await resp.json();
+                const datalist = document.getElementById('locationList');
+                locations.forEach(loc => {
+                    const opt = document.createElement('option');
+                    opt.value = loc;
+                    datalist.appendChild(opt);
+                });
+            }
+        } catch(e) { console.error('Failed to fetch locations', e); }
+    }
+    fetchLocations();
+
+    // ── DOM refs ──────────────────────────────────────────────────────────────
+    const fns = {
+        FirstName:      document.getElementById('FirstName'),
+        LastName:       document.getElementById('LastName'),
+        PhoneNumber:    document.getElementById('PhoneNumber'),
+        Email:          document.getElementById('Email'),
+        RestaurantName: document.getElementById('RestaurantName'),
+        Location:       document.getElementById('Location'),
+        City:           document.getElementById('City'),
+        State:          document.getElementById('State'),
+        Pincode:        document.getElementById('Pincode'),
+        Country:        document.getElementById('Country'),
+        GSTCode:        document.getElementById('GSTCode'),
+        Website:        document.getElementById('Website')
+    };
+
+    // ── Username auto-generation ──────────────────────────────────────────────
+    function generateUsername() {
+        const fn = (fns.FirstName.value || '').replace(/[^a-zA-Z]/g, '');
+        const ph = (fns.PhoneNumber.value || '').replace(/\D/g, '');
+        if (!fn || ph.length < 4) return '';
+        const last4 = ph.slice(-4);
+        return fn + last4;
+    }
+
+    function updateUsernamePreview() {
+        const uname = generateUsername();
+        const box   = document.getElementById('usernamePreviewBox');
+        const val   = document.getElementById('usernamePreviewVal');
+        const hint  = document.getElementById('passwordHint');
+        if (uname) {
+            box.style.removeProperty('display');
+            val.textContent = uname;
+            hint.style.display = '';
+        } else {
+            box.style.setProperty('display', 'none', 'important');
+            hint.style.display = 'none';
+        }
+    }
+
+    fns.FirstName.addEventListener('input', function() { updateUsernamePreview(); updateSummary(); });
+    fns.LastName.addEventListener('input', updateSummary);
+    fns.PhoneNumber.addEventListener('input', function () {
+        this.value = this.value.replace(/\D/g, '').slice(0, 10);
+        updateUsernamePreview();
+        updateSummary();
+    });
+    fns.Email.addEventListener('input', updateSummary);
+    fns.RestaurantName.addEventListener('input', updateSummary);
+    fns.Location.addEventListener('input', updateSummary);
+
+    // ── Validation helpers ────────────────────────────────────────────────────
+    function showErr(fieldId, msg) {
+        const errEl = document.getElementById('err-' + fieldId);
+        const inp   = document.getElementById(fieldId);
+        if (errEl) {
+            errEl.classList.remove('d-none');
+            errEl.querySelector('span').textContent = msg;
+        }
+        if (inp) inp.classList.add('is-invalid');
+    }
+
+    function clearErr(fieldId) {
+        const errEl = document.getElementById('err-' + fieldId);
+        const inp   = document.getElementById(fieldId);
+        if (errEl) errEl.classList.add('d-none');
+        if (inp) inp.classList.remove('is-invalid');
+    }
+
+    function clearAllErrors() {
+        ['FirstName','LastName','PhoneNumber','Email','RestaurantName','Location','City','State','Pincode','Country','GSTCode','Website'].forEach(clearErr);
+    }
+
+    function validateStep1() {
+        let ok = true;
+        clearAllErrors();
+
+        const fn = fns.FirstName.value.trim();
+        if (!fn) { showErr('FirstName', 'First Name is required.'); ok = false; }
+        else if (!/^[a-zA-Z\s]+$/.test(fn)) { showErr('FirstName', 'First Name must contain alphabetic characters only.'); ok = false; }
+
+        const ln = fns.LastName.value.trim();
+        if (ln && !/^[a-zA-Z\s]+$/.test(ln)) { showErr('LastName', 'Last Name must contain alphabetic characters only.'); ok = false; }
+
+        const ph = fns.PhoneNumber.value.trim();
+        if (!ph) { showErr('PhoneNumber', 'Phone Number is required.'); ok = false; }
+        else if (!/^\d{10}$/.test(ph)) { showErr('PhoneNumber', 'Phone Number must be exactly 10 digits.'); ok = false; }
+
+        const em = fns.Email.value.trim();
+        if (em && !/^[^\s\x40]+\x40[^\s\x40]+\.[^\s\x40]+$/.test(em)) { showErr('Email', 'Please enter a valid email address.'); ok = false; }
+
+        return ok;
+    }
+
+    function validateStep2() {
+        let ok = true;
+        ['RestaurantName', 'Location', 'City', 'State', 'Pincode', 'Country', 'GSTCode'].forEach(clearErr);
+
+        const rn = fns.RestaurantName.value.trim();
+        if (!rn) { showErr('RestaurantName', 'Restaurant Name is required.'); ok = false; }
+
+        const loc = fns.Location.value.trim();
+        if (!loc) { showErr('Location', 'Location is required.'); ok = false; }
+
+        if (!fns.City.value.trim()) { showErr('City', 'City is required.'); ok = false; }
+        if (!fns.State.value.trim()) { showErr('State', 'State is required.'); ok = false; }
+        if (!fns.Pincode.value.trim()) { showErr('Pincode', 'Pincode is required.'); ok = false; }
+        if (!fns.Country.value.trim()) { showErr('Country', 'Country is required.'); ok = false; }
+        if (!fns.GSTCode.value.trim()) { showErr('GSTCode', 'GST Code is required.'); ok = false; }
+
+        return ok;
+    }
+
+    // ── Step navigation ───────────────────────────────────────────────────────
+    function goToStep(step) {
+        document.getElementById('step' + currentStep).classList.remove('active');
+        document.getElementById('stepPill' + currentStep).classList.remove('active');
+        if (step > currentStep) document.getElementById('stepPill' + currentStep).classList.add('done');
+
+        currentStep = step;
+        document.getElementById('step' + step).classList.add('active');
+        document.getElementById('stepPill' + step).classList.add('active');
+
+        if (step === 2) updateSummary();
+    }
+
+    function updateSummary() {
+        const uname = generateUsername();
+        document.getElementById('sumName').textContent =
+            [fns.FirstName.value.trim(), fns.LastName.value.trim()].filter(Boolean).join(' ');
+        document.getElementById('sumPhone').textContent  = fns.PhoneNumber.value.trim() || '—';
+        document.getElementById('sumEmail').textContent  = fns.Email.value.trim() || '—';
+        document.getElementById('sumRestaurant').textContent = fns.RestaurantName.value.trim() || '—';
+        document.getElementById('sumLocation').textContent   = fns.Location.value.trim() || '—';
+        document.getElementById('sumUsername').textContent   = uname || '—';
+        document.getElementById('summaryBox').style.display = '';
+    }
+
+    document.getElementById('btnStep1Next').addEventListener('click', function () {
+        if (validateStep1()) goToStep(2);
+    });
+
+    document.getElementById('btnStep2Back').addEventListener('click', function () {
+        goToStep(1);
+    });
+
+    // ── Form submission ───────────────────────────────────────────────────────
+    document.getElementById('signupForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        if (!validateStep2()) return;
+
+        const btn  = document.getElementById('btnSubmit');
+        const txt  = document.getElementById('submitBtnText');
+        const spin = document.getElementById('submitBtnSpinner');
+
+        btn.disabled = true;
+        txt.classList.add('d-none');
+        spin.classList.remove('d-none');
+
+        try {
+            const formData = new FormData(this);
+            const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+
+            const resp = await fetch('/SignUp/Submit', {
+                method: 'POST',
+                body: formData,
+                headers: { 'RequestVerificationToken': token }
+            });
+
+            const data = await resp.json();
+
+            if (data.success) {
+                // Show success popup with credentials
+                await Swal.fire({
+                    icon: 'success',
+                    title: '🎉 Account Created!',
+                    html: `
+                        <div style="text-align:left;">
+                            <p style="margin-bottom:16px;color:#374151;font-size:0.95rem;">
+                                Your eRestoPOS account has been created successfully.<br>
+                                <strong>Please save your credentials below:</strong>
+                            </p>
+                            <div style="background:#f5f3ff;border:1px solid #d4c9ff;border-radius:10px;padding:16px 18px;margin-bottom:12px;">
+                                <div style="display:flex;align-items:center;margin-bottom:10px;gap:12px;">
+                                    <span style="min-width:90px;font-size:0.8rem;font-weight:600;color:#5b3ea6;text-transform:uppercase;letter-spacing:0.05em;">Url</span>
+                                    <a href="${window.location.origin}/Account/Login" style="background:#ede9fe;padding:4px 12px;border-radius:6px;font-size:0.9rem;color:#6b21a8;font-weight:600;text-decoration:none;word-break:break-all;">${window.location.origin}/Account/Login</a>
+                                </div>
+                                <div style="display:flex;align-items:center;margin-bottom:10px;gap:12px;">
+                                    <span style="min-width:90px;font-size:0.8rem;font-weight:600;color:#5b3ea6;text-transform:uppercase;letter-spacing:0.05em;">Username</span>
+                                    <code style="background:#ede9fe;padding:4px 12px;border-radius:6px;font-size:1rem;color:#2a106d;font-weight:700;">${escHtml(data.username)}</code>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:12px;">
+                                    <span style="min-width:90px;font-size:0.8rem;font-weight:600;color:#5b3ea6;text-transform:uppercase;letter-spacing:0.05em;">Password</span>
+                                    <code style="background:#ede9fe;padding:4px 12px;border-radius:6px;font-size:1rem;color:#2a106d;font-weight:700;">${escHtml(data.password)}</code>
+                                </div>
+                            </div>
+                            <p style="font-size:0.78rem;color:#e05252;margin:0;">
+                                <i class="fas fa-exclamation-circle"></i>
+                                Please change your password after the first login.
+                            </p>
+                        </div>`,
+                    confirmButtonText: 'Go to Login',
+                    confirmButtonColor: '#7c3aed',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                    width: 500
+                });
+                window.location.href = '/Account/Login';
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Sign Up Failed',
+                    html: '<p style="white-space:pre-line;">' + escHtml(data.message || 'An error occurred. Please try again.') + '</p>',
+                    confirmButtonColor: '#7c3aed'
+                });
+                btn.disabled = false;
+                txt.classList.remove('d-none');
+                spin.classList.add('d-none');
+            }
+        } catch (err) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Network Error',
+                text: 'Could not reach the server. Please try again.',
+                confirmButtonColor: '#7c3aed'
+            });
+            btn.disabled = false;
+            txt.classList.remove('d-none');
+            spin.classList.add('d-none');
+        }
+    });
+
+    function escHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // Live clear errors on input
+    Object.values(fns).forEach(function (el) {
+        if (el) el.addEventListener('input', function () { clearErr(el.id); });
+    });
+})();
+</script>
+</body>
+</html>

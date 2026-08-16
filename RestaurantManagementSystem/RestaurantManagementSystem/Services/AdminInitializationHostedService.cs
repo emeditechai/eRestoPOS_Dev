@@ -123,6 +123,19 @@ namespace RestaurantManagementSystem.Services
                 {
                     envLogger.LogWarning(ex, "Waitlist Guest navigation seed failed or timed out");
                 }
+
+                // Seed Sign Up page nav entry under Settings – safe to re-run
+                try
+                {
+                    var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+                    var connStr = config.GetConnectionString("DefaultConnection");
+                    if (!string.IsNullOrEmpty(connStr))
+                        await SeedSignUpNavigationAsync(connStr, envLogger, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    envLogger.LogWarning(ex, "Sign Up navigation seed failed or timed out");
+                }
             }
             catch (Exception ex)
             {
@@ -409,6 +422,70 @@ END
             cmd.CommandTimeout = 10;
             await cmd.ExecuteNonQueryAsync(cancellationToken);
             logger.LogInformation("Waitlist Guest navigation seed completed.");
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // Sign Up navigation seed – places 'Sign Up' under Settings NAV bar
+        // This is a PUBLIC page link visible to all authenticated users.
+        // ──────────────────────────────────────────────────────────────────────
+        private static async Task SeedSignUpNavigationAsync(
+            string connectionString,
+            ILogger logger,
+            CancellationToken cancellationToken)
+        {
+            const string sql = @"
+IF OBJECT_ID(N'dbo.NavigationMenus', N'U') IS NULL RETURN;
+
+-- Ensure NAV_SETTINGS parent exists (it should already, but guard anyway)
+IF NOT EXISTS (SELECT 1 FROM dbo.NavigationMenus WHERE Code = 'NAV_SETTINGS')
+    RETURN;
+
+-- Insert Sign Up page under Settings
+IF NOT EXISTS (SELECT 1 FROM dbo.NavigationMenus WHERE Code = 'NAV_SETTINGS_SIGNUP')
+BEGIN
+    INSERT INTO dbo.NavigationMenus
+           (Code, ParentCode, DisplayName, Description, Area,
+            ControllerName, ActionName, RouteValues, CustomUrl, IconCss,
+            DisplayOrder, IsActive, IsVisible, ThemeColor, ShortcutHint, OpenInNewTab)
+    VALUES ('NAV_SETTINGS_SIGNUP', 'NAV_SETTINGS', 'Sign Up',
+            'Public sign-up page – create a new restaurant branch and account', NULL,
+            'SignUp', 'Index', NULL, NULL,
+            'fas fa-rocket compact-icon text-warning',
+            99, 1, 1, NULL, NULL, 1);
+END
+ELSE
+BEGIN
+    -- Ensure it is visible if it was previously hidden
+    UPDATE dbo.NavigationMenus
+    SET IsActive = 1, IsVisible = 1,
+        ControllerName = 'SignUp', ActionName = 'Index',
+        IconCss = 'fas fa-rocket compact-icon text-warning',
+        OpenInNewTab = 1
+    WHERE Code = 'NAV_SETTINGS_SIGNUP';
+END
+
+-- Grant Administrator role full permissions on the Sign Up menu entry
+DECLARE @AdminRoleId2 INT = (SELECT TOP 1 Id FROM dbo.Roles WHERE Name = 'Administrator');
+IF @AdminRoleId2 IS NOT NULL
+BEGIN
+    INSERT INTO dbo.RoleMenuPermissions
+           (RoleId, MenuId, CanView, CanAdd, CanEdit, CanDelete,
+            CanApprove, CanPrint, CanExport, CreatedAt, CreatedBy, UpdatedAt, UpdatedBy)
+    SELECT @AdminRoleId2, nm.Id, 1, 1, 1, 1, 1, 1, 1,
+           SYSUTCDATETIME(), 0, SYSUTCDATETIME(), 0
+    FROM dbo.NavigationMenus nm
+    WHERE nm.Code = 'NAV_SETTINGS_SIGNUP'
+      AND NOT EXISTS (
+          SELECT 1 FROM dbo.RoleMenuPermissions rmp
+           WHERE rmp.RoleId = @AdminRoleId2 AND rmp.MenuId = nm.Id);
+END
+";
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using var cmd = new SqlCommand(sql, connection);
+            cmd.CommandTimeout = 10;
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+            logger.LogInformation("Sign Up navigation seed completed.");
         }
     }
 }
