@@ -641,7 +641,7 @@
                                 <div class="col-md-6 mb-3">
                                     <div class="input-icon-wrap">
                                         <i class="fas fa-file-invoice-dollar icon-left"></i>
-                                        <input type="text" id="GSTCode" name="GSTCode" class="form-control" placeholder="GST Code *" />
+                                        <input type="text" id="GSTCode" name="GSTCode" class="form-control" placeholder="GST Code (Optional)" />
                                     </div>
                                     <div class="field-error d-none" id="err-GSTCode"><i class="fas fa-exclamation-circle"></i><span></span></div>
                                 </div>
@@ -848,7 +848,7 @@
 
     function validateStep2() {
         let ok = true;
-        ['RestaurantName', 'Location', 'City', 'State', 'Pincode', 'Country', 'GSTCode'].forEach(clearErr);
+        ['RestaurantName', 'Location', 'City', 'State', 'Pincode', 'Country'].forEach(clearErr);
 
         const rn = fns.RestaurantName.value.trim();
         if (!rn) { showErr('RestaurantName', 'Restaurant Name is required.'); ok = false; }
@@ -860,7 +860,6 @@
         if (!fns.State.value.trim()) { showErr('State', 'State is required.'); ok = false; }
         if (!fns.Pincode.value.trim()) { showErr('Pincode', 'Pincode is required.'); ok = false; }
         if (!fns.Country.value.trim()) { showErr('Country', 'Country is required.'); ok = false; }
-        if (!fns.GSTCode.value.trim()) { showErr('GSTCode', 'GST Code is required.'); ok = false; }
 
         return ok;
     }

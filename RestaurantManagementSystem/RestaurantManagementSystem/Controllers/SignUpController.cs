@@ -172,7 +172,7 @@ namespace RestaurantManagementSystem.Controllers
                             emailBody,
                             emailType: "SignUpWelcome",
                             sentFrom: "SignUp",
-                            branchId: branchId);
+                            branchId: 1); // Always use main branch (Branch ID 1) for SMTP settings
                     }
                     catch (Exception emailEx)
                     {

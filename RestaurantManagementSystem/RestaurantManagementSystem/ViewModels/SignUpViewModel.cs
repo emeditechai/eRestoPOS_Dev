@@ -51,7 +51,6 @@ namespace RestaurantManagementSystem.ViewModels
         [Display(Name = "Country")]
         public string Country { get; set; }
 
-        [Required(ErrorMessage = "GST Code is required.")]
         [Display(Name = "GST Code")]
         public string GSTCode { get; set; }
 
