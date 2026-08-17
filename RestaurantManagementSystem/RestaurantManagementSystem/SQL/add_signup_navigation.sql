@@ -21,6 +21,18 @@ BEGIN
         PRINT '  Column from_Signup already exists in dbo.Users.';
 END
 
+PRINT '-- Step 1b: Add from_Signup column to dbo.Branches (if missing) --';
+IF OBJECT_ID(N'dbo.Branches', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.Branches', 'from_Signup') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Branches ADD from_Signup BIT NOT NULL DEFAULT 0;
+        PRINT '  Column from_Signup added to dbo.Branches.';
+    END
+    ELSE
+        PRINT '  Column from_Signup already exists in dbo.Branches.';
+END
+
 -- =============================================================================
 -- Step 2: Insert the Sign Up entry into NavigationMenus
 -- =============================================================================
@@ -60,7 +72,7 @@ BEGIN
                ActionName     = 'Index',
                IconCss        = 'fas fa-rocket compact-icon text-warning',
                OpenInNewTab   = 1,
-               UpdatedAt      = SYSUTCDATETIME()
+               UpdatedAt      = GETDATE()
         WHERE  Code = 'NAV_SETTINGS_SIGNUP';
 
         PRINT '  NAV_SETTINGS_SIGNUP already exists – updated to active.';
@@ -80,7 +92,7 @@ BEGIN
                    (RoleId, MenuId, CanView, CanAdd, CanEdit, CanDelete,
                     CanApprove, CanPrint, CanExport, CreatedAt, CreatedBy, UpdatedAt, UpdatedBy)
             SELECT @AdminRoleId, nm.Id, 1, 1, 1, 1, 1, 1, 1,
-                   SYSUTCDATETIME(), 0, SYSUTCDATETIME(), 0
+                   GETDATE(), 0, GETDATE(), 0
             FROM   dbo.NavigationMenus nm
             WHERE  nm.Code = 'NAV_SETTINGS_SIGNUP'
               AND  NOT EXISTS (

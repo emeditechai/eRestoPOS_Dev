@@ -348,8 +348,8 @@ END
         private int InsertBranch(SqlConnection con, string branchCode, string branchName, int locationId)
         {
             using var cmd = new SqlCommand(@"
-INSERT INTO dbo.Branches (BranchCode, BranchName, BranchLocationId, Is_MainBranch, IsActive, CreatedAt, UpdatedAt)
-VALUES (@Code, @Name, @LocationId, 0, 1, GETDATE(), NULL);
+INSERT INTO dbo.Branches (BranchCode, BranchName, BranchLocationId, Is_MainBranch, IsActive, CreatedAt, UpdatedAt, from_Signup)
+VALUES (@Code, @Name, @LocationId, 0, 1, GETDATE(), NULL, 1);
 SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
             cmd.Parameters.AddWithValue("@Code", branchCode);
             cmd.Parameters.AddWithValue("@Name", branchName);
