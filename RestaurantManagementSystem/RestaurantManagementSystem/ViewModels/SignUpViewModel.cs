@@ -60,6 +60,8 @@ namespace RestaurantManagementSystem.ViewModels
         [Display(Name = "Restaurant Logo")]
         public Microsoft.AspNetCore.Http.IFormFile Logo { get; set; }
 
+        public bool TermsAccepted { get; set; }
+
         // Auto-generated, displayed read-only on form
         [Display(Name = "Username")]
         public string Username { get; set; }

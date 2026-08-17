@@ -17,8 +17,13 @@ BEGIN
         ALTER TABLE dbo.Users ADD from_Signup BIT NOT NULL DEFAULT 0;
         PRINT '  Column from_Signup added to dbo.Users.';
     END
+    IF COL_LENGTH('dbo.Users', 'TermsAcceptedAt') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Users ADD TermsAcceptedAt DATETIME NULL;
+        PRINT '  Column TermsAcceptedAt added to dbo.Users.';
+    END
     ELSE
-        PRINT '  Column from_Signup already exists in dbo.Users.';
+        PRINT '  Column TermsAcceptedAt already exists in dbo.Users.';
 END
 
 PRINT '-- Step 1b: Add from_Signup column to dbo.Branches (if missing) --';

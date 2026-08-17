@@ -902,6 +902,40 @@
         e.preventDefault();
         if (!validateStep2()) return;
 
+        // Show SweetAlert Modal for Terms and Conditions
+        const { value: accept } = await Swal.fire({
+            title: 'Disclaimer & Terms',
+            html: `
+                <div style="text-align:left; font-size: 0.85rem; max-height: 350px; overflow-y: auto; padding-right: 10px; color: #4a5568;">
+                    <p style="margin-bottom: 8px;">By accessing or using the demo/trial instance of eRestoPOS, the user acknowledges and agrees to the following terms and conditions.</p>
+                    <h6 style="font-weight:bold; margin-top:10px; margin-bottom:5px; font-size:0.9rem;">1. Purpose of the Demo / Trial</h6>
+                    <p style="margin-bottom: 8px;">The demo/trial instance is provided solely for the purpose of evaluation, demonstration, testing, and familiarisation with the software features and functionality. The demo instance is not intended to be used as a live production environment or for maintaining critical business operations.</p>
+                    <h6 style="font-weight:bold; margin-top:10px; margin-bottom:5px; font-size:0.9rem;">2. Trial Period</h6>
+                    <p style="margin-bottom: 8px;">The demo/trial period is limited to 30 calendar days from the date on which the demo account is activated or made available to the user. The trial period may expire automatically at the end of the specified period without further notice.</p>
+                    <h6 style="font-weight:bold; margin-top:10px; margin-bottom:5px; font-size:0.9rem;">3. Demo Data Will Not Be Migrated to Production</h6>
+                    <p style="margin-bottom: 8px;">Data entered, uploaded, created, modified, or stored during the demo/trial period shall not be considered production data. If the customer subsequently purchases or subscribes to the product, the demo/trial database and its contents will not automatically be converted, migrated, or transferred to the production environment.</p>
+                    <h6 style="font-weight:bold; margin-top:10px; margin-bottom:5px; font-size:0.9rem;">4. No Guarantee of Data Retention & Backup</h6>
+                    <p style="margin-bottom: 8px;">Although reasonable technical and security measures may be implemented to protect data stored in the demo environment, the company does not guarantee the retention, preservation, or recovery of demo/trial data. Demo data may be deleted, reset, overwritten, archived, or become inaccessible upon expiry of the trial period, termination, system maintenance, infrastructure changes, security incidents, or technical failures. Regular backups of demo data are not guaranteed.</p>
+                    <h6 style="font-weight:bold; margin-top:10px; margin-bottom:5px; font-size:0.9rem;">21. Acceptance of Terms</h6>
+                    <p style="margin-bottom: 8px;">By logging into, accessing, or using the eRestoPOS demo/trial environment, the user confirms that they have read, understood, and accepted this Demo / Trial Instance Disclaimer & Usage Policy. If the user does not agree with these terms, they should not use the demo/trial environment.</p>
+                    <hr style="margin: 15px 0;">
+                    <p style="font-weight: bold; font-size: 0.8rem; color: #e53e3e; margin-bottom: 0;">Important Notice: Demo/Trial Environment – 30 Days Only.<br>This demo environment is provided solely for evaluation and testing. Users should not rely on the demo environment for live or business-critical operations.</p>
+                </div>
+            `,
+            icon: 'info',
+            showCancelButton: true,
+            confirmButtonText: 'I Accept & Create Account',
+            cancelButtonText: 'Decline',
+            confirmButtonColor: '#6b21a8',
+            cancelButtonColor: '#6b7280',
+            reverseButtons: true,
+            width: '700px'
+        });
+
+        if (!accept) {
+            return; // Abort submission
+        }
+
         const btn  = document.getElementById('btnSubmit');
         const txt  = document.getElementById('submitBtnText');
         const spin = document.getElementById('submitBtnSpinner');
@@ -912,6 +946,7 @@
 
         try {
             const formData = new FormData(this);
+            formData.append('TermsAccepted', 'true');
             const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
 
             const resp = await fetch('/SignUp/Submit', {

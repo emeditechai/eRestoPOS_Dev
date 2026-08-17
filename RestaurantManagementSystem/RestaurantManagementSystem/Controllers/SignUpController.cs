@@ -75,12 +75,12 @@ namespace RestaurantManagementSystem.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Submit(SignUpViewModel model)
         {
-            if (!ModelState.IsValid)
+            if (!ModelState.IsValid || !model.TermsAccepted)
             {
                 return Json(new SignUpResultViewModel
                 {
                     Success = false,
-                    Message = BuildValidationErrorMessage()
+                    Message = !model.TermsAccepted ? "You must accept the terms and conditions." : BuildValidationErrorMessage()
                 });
             }
 
@@ -215,10 +215,17 @@ BEGIN
         ALTER TABLE dbo.Users ADD from_Signup BIT NOT NULL DEFAULT 0;
 END", con);
                 cmd.ExecuteNonQuery();
+                
+                using var ensureTermsCmd = new SqlCommand(@"
+IF COL_LENGTH('dbo.Users', 'TermsAcceptedAt') IS NULL
+BEGIN
+    ALTER TABLE dbo.Users ADD TermsAcceptedAt DATETIME NULL;
+END", con);
+                ensureTermsCmd.ExecuteNonQuery();
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not ensure from_Signup column.");
+                _logger.LogWarning(ex, "Could not ensure from_Signup/TermsAcceptedAt column.");
             }
         }
 
@@ -482,12 +489,20 @@ SET RestaurantName = @Name,
             {
                 hasCreatedBranchId = Convert.ToInt32(chk2.ExecuteScalar()) > 0;
             }
+            
+            bool hasTermsAcceptedAt = false;
+            using (var chk3 = new SqlCommand(
+                "SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Users' AND COLUMN_NAME='TermsAcceptedAt'", con))
+            {
+                hasTermsAcceptedAt = Convert.ToInt32(chk3.ExecuteScalar()) > 0;
+            }
 
             var insertCols = new StringBuilder("Username, PasswordHash, Salt, FirstName, LastName, Email, Phone, IsActive");
             var insertVals = new StringBuilder("@Username, @PasswordHash, @Salt, @FirstName, @LastName, @Email, @Phone, 1");
 
             if (hasFromSignup) { insertCols.Append(", from_Signup"); insertVals.Append(", 1"); }
             if (hasCreatedBranchId) { insertCols.Append(", CreatedBranchId"); insertVals.Append(", @CreatedBranchId"); }
+            if (hasTermsAcceptedAt) { insertCols.Append(", TermsAcceptedAt"); insertVals.Append(", GETDATE()"); }
 
             using var cmd = new SqlCommand($@"
 INSERT INTO dbo.Users ({insertCols})
