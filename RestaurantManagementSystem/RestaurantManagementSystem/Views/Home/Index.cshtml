@@ -1,4 +1,4 @@
-﻿@model RestaurantManagementSystem.Models.DashboardViewModel
+@model RestaurantManagementSystem.Models.DashboardViewModel
 @using RestaurantManagementSystem.Utilities
 @{
     ViewData["Title"] = "Restaurant Dashboard";
@@ -717,6 +717,21 @@
                         }
                         <span class="brand-name">@Model.RestaurantName</span>
                     </div>
+
+                    @if (ViewBag.SetupWizard != null)
+                    {
+                        var wizard = ViewBag.SetupWizard as RestaurantManagementSystem.ViewModels.SetupWizardViewModel;
+                        if (wizard != null)
+                        {
+                            var isReady100 = wizard.ReadinessPercentage >= 100;
+                            <button type="button" class="wizard-launcher-btn" id="btnLaunchSetupWizard" title="Open Master Setup Guide">
+                                <i class="fas @(isReady100 ? "fa-circle-check text-success" : "fa-rocket text-warning")"></i>
+                                <span>Setup Guide</span>
+                                <span class="wizard-launcher-pill @(isReady100 ? "bg-success text-white" : "")" id="headerWizardProgressPill" style="@(isReady100 ? "background: #10b981 !important; color: #ffffff !important;" : "")">@wizard.ReadinessPercentage% Ready</span>
+                            </button>
+                        }
+                    }
+
                     <div class="live-clock" id="liveClock">
                         <span class="date" id="liveDate">—</span>
                         <span class="time" id="liveTime">00:00:00</span>
@@ -1386,3 +1401,8 @@
 </div>
 
 @await Html.PartialAsync("_HelpInfo")
+
+@if (ViewBag.SetupWizard != null)
+{
+    @await Html.PartialAsync("_SetupWizardModal", (RestaurantManagementSystem.ViewModels.SetupWizardViewModel)ViewBag.SetupWizard)
+}

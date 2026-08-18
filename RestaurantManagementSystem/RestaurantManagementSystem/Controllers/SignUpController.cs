@@ -4,6 +4,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RestaurantManagementSystem.Services;
+using RestaurantManagementSystem.Utilities;
 using RestaurantManagementSystem.ViewModels;
 using System;
 using System.Text;
@@ -88,6 +89,9 @@ namespace RestaurantManagementSystem.Controllers
             {
                 EnsureFromSignupColumn();
 
+                // Capture client IP and browser details server-side
+                var clientInfo = ClientInfoHelper.GetBrowserInfo(HttpContext);
+
                 using var con = new SqlConnection(_connectionString);
                 con.Open();
 
@@ -97,9 +101,9 @@ namespace RestaurantManagementSystem.Controllers
                 // --- STEP 2: Insert BranchLocation ---
                 int locationId = InsertOrGetLocation(con, model.Location.Trim());
 
-                // --- STEP 3: Insert Branch (Is_MainBranch = 0) ---
+                // --- STEP 3: Insert Branch (Is_MainBranch = 0) with Client Tracking Info ---
                 string branchCode = GenerateUniqueBranchCode(con, model.RestaurantName.Trim());
-                int branchId = InsertBranch(con, branchCode, model.RestaurantName.Trim(), locationId);
+                int branchId = InsertBranch(con, branchCode, model.RestaurantName.Trim(), locationId, clientInfo);
                 if (branchId <= 0)
                     return Json(new SignUpResultViewModel { Success = false, Message = "Failed to create branch. Please try again." });
 
@@ -131,13 +135,14 @@ namespace RestaurantManagementSystem.Controllers
                 string salt = BCrypt.Net.BCrypt.GenerateSalt(12);
                 string passwordHash = BCrypt.Net.BCrypt.HashPassword(password, salt);
 
-                // --- STEP 5: Insert User ---
+                // --- STEP 5: Insert User with Client Tracking Info ---
                 int userId = InsertUser(con, username, passwordHash, salt,
                     model.FirstName.Trim(),
                     model.LastName?.Trim() ?? string.Empty,
                     model.Email?.Trim(),
                     model.PhoneNumber.Trim(),
-                    branchId);
+                    branchId,
+                    clientInfo);
 
                 if (userId <= 0)
                     return Json(new SignUpResultViewModel { Success = false, Message = "Failed to create user account. Please try again." });
@@ -153,7 +158,10 @@ namespace RestaurantManagementSystem.Controllers
                     InsertUserRole(con, userId, adminRoleId);
                 }
 
-                // --- STEP 8: Send welcome email (if email provided) ---
+                // --- STEP 8: Create Audit Log for SignUp ---
+                CreateAuditLog(con, userId, "SIGNUP", $"New restaurant signup: {model.RestaurantName}, User: {username}, Browser: {clientInfo.FormattedSummary}", clientInfo.IpAddress, clientInfo.UserAgent, "Users", userId.ToString());
+
+                // --- STEP 9: Send welcome email (if email provided) ---
                 string appUrl = $"{Request.Scheme}://{Request.Host}";
                 if (!string.IsNullOrWhiteSpace(model.Email))
                 {
@@ -180,7 +188,8 @@ namespace RestaurantManagementSystem.Controllers
                     }
                 }
 
-                _logger.LogInformation("New signup: User={Username}, Branch={BranchName}, BranchId={BranchId}", username, model.RestaurantName, branchId);
+                _logger.LogInformation("New signup: User={Username}, Branch={BranchName}, BranchId={BranchId}, IP={ClientIp}, Browser={BrowserSummary}",
+                    username, model.RestaurantName, branchId, clientInfo.IpAddress, clientInfo.FormattedSummary);
 
                 return Json(new SignUpResultViewModel
                 {
@@ -201,7 +210,7 @@ namespace RestaurantManagementSystem.Controllers
             }
         }
 
-        // ─── Helper: Ensure from_Signup column exists ──────────────────────────
+        // ─── Helper: Ensure from_Signup and tracking columns exist ────────────────
         private void EnsureFromSignupColumn()
         {
             try
@@ -213,19 +222,54 @@ IF OBJECT_ID(N'dbo.Users', N'U') IS NOT NULL
 BEGIN
     IF COL_LENGTH('dbo.Users', 'from_Signup') IS NULL
         ALTER TABLE dbo.Users ADD from_Signup BIT NOT NULL DEFAULT 0;
+
+    IF COL_LENGTH('dbo.Users', 'TermsAcceptedAt') IS NULL
+        ALTER TABLE dbo.Users ADD TermsAcceptedAt DATETIME NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SignupIpAddress') IS NULL
+        ALTER TABLE dbo.Users ADD SignupIpAddress NVARCHAR(100) NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SignupUserAgent') IS NULL
+        ALTER TABLE dbo.Users ADD SignupUserAgent NVARCHAR(500) NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SignupBrowser') IS NULL
+        ALTER TABLE dbo.Users ADD SignupBrowser NVARCHAR(100) NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SignupOS') IS NULL
+        ALTER TABLE dbo.Users ADD SignupOS NVARCHAR(100) NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SignupDevice') IS NULL
+        ALTER TABLE dbo.Users ADD SignupDevice NVARCHAR(50) NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SignupDate') IS NULL
+        ALTER TABLE dbo.Users ADD SignupDate DATETIME NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SetupWizardCompleted') IS NULL
+        ALTER TABLE dbo.Users ADD SetupWizardCompleted BIT NOT NULL DEFAULT 0;
+END
+
+IF OBJECT_ID(N'dbo.Branches', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.Branches', 'from_Signup') IS NULL
+        ALTER TABLE dbo.Branches ADD from_Signup BIT NOT NULL DEFAULT 0;
+
+    IF COL_LENGTH('dbo.Branches', 'CreatedIpAddress') IS NULL
+        ALTER TABLE dbo.Branches ADD CreatedIpAddress NVARCHAR(100) NULL;
+
+    IF COL_LENGTH('dbo.Branches', 'CreatedUserAgent') IS NULL
+        ALTER TABLE dbo.Branches ADD CreatedUserAgent NVARCHAR(500) NULL;
+
+    IF COL_LENGTH('dbo.Branches', 'CreatedBrowser') IS NULL
+        ALTER TABLE dbo.Branches ADD CreatedBrowser NVARCHAR(100) NULL;
+
+    IF COL_LENGTH('dbo.Branches', 'CreatedDevice') IS NULL
+        ALTER TABLE dbo.Branches ADD CreatedDevice NVARCHAR(50) NULL;
 END", con);
                 cmd.ExecuteNonQuery();
-                
-                using var ensureTermsCmd = new SqlCommand(@"
-IF COL_LENGTH('dbo.Users', 'TermsAcceptedAt') IS NULL
-BEGIN
-    ALTER TABLE dbo.Users ADD TermsAcceptedAt DATETIME NULL;
-END", con);
-                ensureTermsCmd.ExecuteNonQuery();
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not ensure from_Signup/TermsAcceptedAt column.");
+                _logger.LogWarning(ex, "Could not ensure from_Signup/client tracking columns.");
             }
         }
 
@@ -352,15 +396,41 @@ END
         }
 
         // ─── Helper: Insert Branch ─────────────────────────────────────────────
-        private int InsertBranch(SqlConnection con, string branchCode, string branchName, int locationId)
+        private int InsertBranch(SqlConnection con, string branchCode, string branchName, int locationId, ClientBrowserInfo clientInfo)
         {
-            using var cmd = new SqlCommand(@"
-INSERT INTO dbo.Branches (BranchCode, BranchName, BranchLocationId, Is_MainBranch, IsActive, CreatedAt, UpdatedAt, from_Signup)
-VALUES (@Code, @Name, @LocationId, 0, 1, GETDATE(), NULL, 1);
+            bool hasIpCol = false;
+            using (var chk = new SqlCommand(
+                "SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Branches' AND COLUMN_NAME='CreatedIpAddress'", con))
+            {
+                hasIpCol = Convert.ToInt32(chk.ExecuteScalar()) > 0;
+            }
+
+            var cols = new StringBuilder("BranchCode, BranchName, BranchLocationId, Is_MainBranch, IsActive, CreatedAt, UpdatedAt, from_Signup");
+            var vals = new StringBuilder("@Code, @Name, @LocationId, 0, 1, GETDATE(), NULL, 1");
+
+            if (hasIpCol && clientInfo != null)
+            {
+                cols.Append(", CreatedIpAddress, CreatedUserAgent, CreatedBrowser, CreatedDevice");
+                vals.Append(", @IpAddress, @UserAgent, @Browser, @Device");
+            }
+
+            using var cmd = new SqlCommand($@"
+INSERT INTO dbo.Branches ({cols})
+VALUES ({vals});
 SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
+
             cmd.Parameters.AddWithValue("@Code", branchCode);
             cmd.Parameters.AddWithValue("@Name", branchName);
             cmd.Parameters.AddWithValue("@LocationId", locationId);
+
+            if (hasIpCol && clientInfo != null)
+            {
+                cmd.Parameters.AddWithValue("@IpAddress", string.IsNullOrWhiteSpace(clientInfo.IpAddress) ? (object)DBNull.Value : clientInfo.IpAddress);
+                cmd.Parameters.AddWithValue("@UserAgent", string.IsNullOrWhiteSpace(clientInfo.UserAgent) ? (object)DBNull.Value : (clientInfo.UserAgent.Length > 500 ? clientInfo.UserAgent.Substring(0, 500) : clientInfo.UserAgent));
+                cmd.Parameters.AddWithValue("@Browser", string.IsNullOrWhiteSpace(clientInfo.Browser) ? (object)DBNull.Value : clientInfo.Browser);
+                cmd.Parameters.AddWithValue("@Device", string.IsNullOrWhiteSpace(clientInfo.DeviceType) ? (object)DBNull.Value : clientInfo.DeviceType);
+            }
+
             var result = cmd.ExecuteScalar();
             return (result != null && result != DBNull.Value) ? Convert.ToInt32(result) : 0;
         }
@@ -471,9 +541,9 @@ SET RestaurantName = @Name,
             return baseUsername + "_" + DateTime.Now.Ticks.ToString().Substring(0, 4);
         }
 
-        // ─── Helper: Insert User with from_Signup = 1 ─────────────────────────
+        // ─── Helper: Insert User with from_Signup = 1 & Client Tracking ────────
         private int InsertUser(SqlConnection con, string username, string passwordHash, string salt,
-            string firstName, string lastName, string email, string phone, int createdBranchId)
+            string firstName, string lastName, string email, string phone, int createdBranchId, ClientBrowserInfo clientInfo)
         {
             // Check if from_Signup column exists (should, after EnsureFromSignupColumn)
             bool hasFromSignup = false;
@@ -497,12 +567,38 @@ SET RestaurantName = @Name,
                 hasTermsAcceptedAt = Convert.ToInt32(chk3.ExecuteScalar()) > 0;
             }
 
+            bool hasSignupIpCol = false;
+            using (var chk4 = new SqlCommand(
+                "SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Users' AND COLUMN_NAME='SignupIpAddress'", con))
+            {
+                hasSignupIpCol = Convert.ToInt32(chk4.ExecuteScalar()) > 0;
+            }
+
+            bool hasSetupWizardCol = false;
+            using (var chk5 = new SqlCommand(
+                "SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Users' AND COLUMN_NAME='SetupWizardCompleted'", con))
+            {
+                hasSetupWizardCol = Convert.ToInt32(chk5.ExecuteScalar()) > 0;
+            }
+
             var insertCols = new StringBuilder("Username, PasswordHash, Salt, FirstName, LastName, Email, Phone, IsActive");
             var insertVals = new StringBuilder("@Username, @PasswordHash, @Salt, @FirstName, @LastName, @Email, @Phone, 1");
 
             if (hasFromSignup) { insertCols.Append(", from_Signup"); insertVals.Append(", 1"); }
             if (hasCreatedBranchId) { insertCols.Append(", CreatedBranchId"); insertVals.Append(", @CreatedBranchId"); }
             if (hasTermsAcceptedAt) { insertCols.Append(", TermsAcceptedAt"); insertVals.Append(", GETDATE()"); }
+
+            if (hasSignupIpCol && clientInfo != null)
+            {
+                insertCols.Append(", SignupIpAddress, SignupUserAgent, SignupBrowser, SignupOS, SignupDevice, SignupDate");
+                insertVals.Append(", @SignupIp, @SignupUserAgent, @SignupBrowser, @SignupOS, @SignupDevice, GETDATE()");
+            }
+
+            if (hasSetupWizardCol)
+            {
+                insertCols.Append(", SetupWizardCompleted");
+                insertVals.Append(", 0");
+            }
 
             using var cmd = new SqlCommand($@"
 INSERT INTO dbo.Users ({insertCols})
@@ -519,8 +615,68 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
             if (hasCreatedBranchId)
                 cmd.Parameters.AddWithValue("@CreatedBranchId", createdBranchId);
 
+            if (hasSignupIpCol && clientInfo != null)
+            {
+                cmd.Parameters.AddWithValue("@SignupIp", string.IsNullOrWhiteSpace(clientInfo.IpAddress) ? (object)DBNull.Value : clientInfo.IpAddress);
+                cmd.Parameters.AddWithValue("@SignupUserAgent", string.IsNullOrWhiteSpace(clientInfo.UserAgent) ? (object)DBNull.Value : (clientInfo.UserAgent.Length > 500 ? clientInfo.UserAgent.Substring(0, 500) : clientInfo.UserAgent));
+                cmd.Parameters.AddWithValue("@SignupBrowser", string.IsNullOrWhiteSpace(clientInfo.Browser) ? (object)DBNull.Value : clientInfo.Browser);
+                cmd.Parameters.AddWithValue("@SignupOS", string.IsNullOrWhiteSpace(clientInfo.OperatingSystem) ? (object)DBNull.Value : clientInfo.OperatingSystem);
+                cmd.Parameters.AddWithValue("@SignupDevice", string.IsNullOrWhiteSpace(clientInfo.DeviceType) ? (object)DBNull.Value : clientInfo.DeviceType);
+            }
+
             var result = cmd.ExecuteScalar();
             return (result != null && result != DBNull.Value) ? Convert.ToInt32(result) : 0;
+        }
+
+        // ─── Helper: Create Audit Log Entry ───────────────────────────────────
+        private void CreateAuditLog(SqlConnection con, int userId, string action, string details, string ipAddress, string userAgent, string entityName, string entityId)
+        {
+            try
+            {
+                // Check if sp_CreateAuditLog stored procedure exists
+                bool hasSp = false;
+                using (var checkSp = new SqlCommand("SELECT COUNT(1) FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[sp_CreateAuditLog]') AND type in (N'P', N'PC')", con))
+                {
+                    hasSp = Convert.ToInt32(checkSp.ExecuteScalar()) > 0;
+                }
+
+                if (hasSp)
+                {
+                    using var cmd = new SqlCommand("dbo.sp_CreateAuditLog", con);
+                    cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                    cmd.Parameters.AddWithValue("@UserId", userId);
+                    cmd.Parameters.AddWithValue("@Action", action);
+                    cmd.Parameters.AddWithValue("@Details", (object)details ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@IpAddress", (object)ipAddress ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@UserAgent", (object)userAgent ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@EntityName", (object)entityName ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@EntityId", (object)entityId ?? DBNull.Value);
+                    cmd.ExecuteNonQuery();
+                }
+                else
+                {
+                    // Fallback to direct insert if AuditLog table exists
+                    using var checkTable = new SqlCommand("SELECT COUNT(1) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='AuditLog'", con);
+                    if (Convert.ToInt32(checkTable.ExecuteScalar()) > 0)
+                    {
+                        using var cmd = new SqlCommand(@"
+INSERT INTO dbo.AuditLog (UserId, Action, Details, IpAddress, UserAgent, EntityName, EntityId, CreatedAt)
+VALUES (@UserId, @Action, @Details, @IpAddress, @UserAgent, @EntityName, @EntityId, GETDATE())", con);
+                        cmd.Parameters.AddWithValue("@UserId", userId);
+                        cmd.Parameters.AddWithValue("@Action", action);
+                        cmd.Parameters.AddWithValue("@Details", (object)details ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@IpAddress", (object)ipAddress ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@UserAgent", (object)userAgent ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@EntityName", (object)entityName ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@EntityId", (object)entityId ?? DBNull.Value);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not write audit log for Signup user {UserId}", userId);
+            }
         }
 
         // ─── Helper: Insert UserBranches ───────────────────────────────────────

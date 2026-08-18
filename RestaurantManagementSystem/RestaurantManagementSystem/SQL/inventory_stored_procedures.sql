@@ -475,7 +475,8 @@ GO
 CREATE PROCEDURE dbo.usp_GetTransferRegister
     @BranchId INT,
     @FromDate DATE,
-    @ToDate   DATE
+    @ToDate   DATE,
+    @GodownId INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -496,7 +497,7 @@ BEGIN
     WHERE st.BranchId      = @BranchId
       AND st.TransferDate >= @FromDate
       AND st.TransferDate <= @ToDate
-      AND st.Status        = 'Posted'
+      AND (@GodownId IS NULL OR st.FromGodownId = @GodownId OR st.ToGodownId = @GodownId)
     ORDER BY st.TransferDate DESC, st.TransferNumber;
 END
 GO

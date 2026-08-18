@@ -1650,15 +1650,49 @@ namespace RestaurantManagementSystem.Controllers
                     ViewBag.SelGodown = godownId.Value;
                 }
 
-                using var cmd = new SqlCommand("usp_GetTransferRegister", con)
-                    { CommandType = CommandType.StoredProcedure };
-                cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
-                cmd.Parameters.AddWithValue("@FromDate", fromDate.Value.Date);
-                cmd.Parameters.AddWithValue("@ToDate",   toDate.Value.Date);
-                cmd.Parameters.AddWithValue("@GodownId", godownId.Value == 0 ? DBNull.Value : (object)godownId.Value);
-                using var rdr = cmd.ExecuteReader();
-                while (rdr.Read())
-                    list.Add(MapTransferRegister(rdr));
+                try
+                {
+                    using var cmd = new SqlCommand("usp_GetTransferRegister", con)
+                        { CommandType = CommandType.StoredProcedure };
+                    cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    cmd.Parameters.AddWithValue("@FromDate", fromDate.Value.Date);
+                    cmd.Parameters.AddWithValue("@ToDate",   toDate.Value.Date);
+                    cmd.Parameters.AddWithValue("@GodownId", godownId.Value == 0 ? DBNull.Value : (object)godownId.Value);
+                    using var rdr = cmd.ExecuteReader();
+                    while (rdr.Read())
+                        list.Add(MapTransferRegister(rdr));
+                }
+                catch (SqlException ex) when (ex.Message.Contains("too many arguments", StringComparison.OrdinalIgnoreCase) || ex.Number == 8144)
+                {
+                    // Fallback if stored procedure in DB only has 3 parameters
+                    using var cmd = new SqlCommand(@"
+                        SELECT
+                            st.TransferId,
+                            st.TransferNumber,
+                            st.TransferDate,
+                            st.TransferType,
+                            fg.GodownName   AS FromGodownName,
+                            tg.GodownName   AS ToGodownName,
+                            st.TotalQty,
+                            st.TotalValue,
+                            st.Status,
+                            ISNULL(st.Remarks,'') AS Remarks
+                        FROM dbo.StockTransfer st
+                        INNER JOIN dbo.Godowns fg ON fg.Id = st.FromGodownId
+                        INNER JOIN dbo.Godowns tg ON tg.Id = st.ToGodownId
+                        WHERE st.BranchId      = @BranchId
+                          AND st.TransferDate >= @FromDate
+                          AND st.TransferDate <= @ToDate
+                          AND (@GodownId IS NULL OR st.FromGodownId = @GodownId OR st.ToGodownId = @GodownId)
+                        ORDER BY st.TransferDate DESC, st.TransferNumber;", con);
+                    cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    cmd.Parameters.AddWithValue("@FromDate", fromDate.Value.Date);
+                    cmd.Parameters.AddWithValue("@ToDate",   toDate.Value.Date);
+                    cmd.Parameters.AddWithValue("@GodownId", godownId.Value == 0 ? DBNull.Value : (object)godownId.Value);
+                    using var rdr = cmd.ExecuteReader();
+                    while (rdr.Read())
+                        list.Add(MapTransferRegister(rdr));
+                }
             }
             catch (Exception ex)
             {

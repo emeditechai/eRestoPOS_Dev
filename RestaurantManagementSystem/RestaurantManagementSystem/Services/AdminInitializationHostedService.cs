@@ -136,6 +136,19 @@ namespace RestaurantManagementSystem.Services
                 {
                     envLogger.LogWarning(ex, "Sign Up navigation seed failed or timed out");
                 }
+
+                // Ensure usp_GetTransferRegister procedure is updated with @GodownId support
+                try
+                {
+                    var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+                    var connStr = config.GetConnectionString("DefaultConnection");
+                    if (!string.IsNullOrEmpty(connStr))
+                        await EnsureInventoryProceduresAsync(connStr, envLogger, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    envLogger.LogWarning(ex, "Inventory stored procedure update failed or timed out");
+                }
             }
             catch (Exception ex)
             {
@@ -434,6 +447,51 @@ END
             CancellationToken cancellationToken)
         {
             const string sql = @"
+IF OBJECT_ID(N'dbo.Users', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.Users', 'from_Signup') IS NULL
+        ALTER TABLE dbo.Users ADD from_Signup BIT NOT NULL DEFAULT 0;
+
+    IF COL_LENGTH('dbo.Users', 'SignupIpAddress') IS NULL
+        ALTER TABLE dbo.Users ADD SignupIpAddress NVARCHAR(100) NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SignupUserAgent') IS NULL
+        ALTER TABLE dbo.Users ADD SignupUserAgent NVARCHAR(500) NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SignupBrowser') IS NULL
+        ALTER TABLE dbo.Users ADD SignupBrowser NVARCHAR(100) NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SignupOS') IS NULL
+        ALTER TABLE dbo.Users ADD SignupOS NVARCHAR(100) NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SignupDevice') IS NULL
+        ALTER TABLE dbo.Users ADD SignupDevice NVARCHAR(50) NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SignupDate') IS NULL
+        ALTER TABLE dbo.Users ADD SignupDate DATETIME NULL;
+
+    IF COL_LENGTH('dbo.Users', 'SetupWizardCompleted') IS NULL
+        ALTER TABLE dbo.Users ADD SetupWizardCompleted BIT NOT NULL DEFAULT 0;
+END
+
+IF OBJECT_ID(N'dbo.Branches', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.Branches', 'from_Signup') IS NULL
+        ALTER TABLE dbo.Branches ADD from_Signup BIT NOT NULL DEFAULT 0;
+
+    IF COL_LENGTH('dbo.Branches', 'CreatedIpAddress') IS NULL
+        ALTER TABLE dbo.Branches ADD CreatedIpAddress NVARCHAR(100) NULL;
+
+    IF COL_LENGTH('dbo.Branches', 'CreatedUserAgent') IS NULL
+        ALTER TABLE dbo.Branches ADD CreatedUserAgent NVARCHAR(500) NULL;
+
+    IF COL_LENGTH('dbo.Branches', 'CreatedBrowser') IS NULL
+        ALTER TABLE dbo.Branches ADD CreatedBrowser NVARCHAR(100) NULL;
+
+    IF COL_LENGTH('dbo.Branches', 'CreatedDevice') IS NULL
+        ALTER TABLE dbo.Branches ADD CreatedDevice NVARCHAR(50) NULL;
+END
+
 IF OBJECT_ID(N'dbo.NavigationMenus', N'U') IS NULL RETURN;
 
 -- Ensure NAV_SETTINGS parent exists (it should already, but guard anyway)
@@ -486,6 +544,54 @@ END
             cmd.CommandTimeout = 10;
             await cmd.ExecuteNonQueryAsync(cancellationToken);
             logger.LogInformation("Sign Up navigation seed completed.");
+        }
+
+        private static async Task EnsureInventoryProceduresAsync(
+            string connectionString,
+            ILogger logger,
+            CancellationToken cancellationToken)
+        {
+            const string sql = @"
+IF OBJECT_ID(N'dbo.StockTransfer', N'U') IS NOT NULL
+BEGIN
+    DECLARE @createOrAlter NVARCHAR(MAX) = N'
+    CREATE OR ALTER PROCEDURE dbo.usp_GetTransferRegister
+        @BranchId INT,
+        @FromDate DATE,
+        @ToDate   DATE,
+        @GodownId INT = NULL
+    AS
+    BEGIN
+        SET NOCOUNT ON;
+        SELECT
+            st.TransferId,
+            st.TransferNumber,
+            st.TransferDate,
+            st.TransferType,
+            fg.GodownName   AS FromGodownName,
+            tg.GodownName   AS ToGodownName,
+            st.TotalQty,
+            st.TotalValue,
+            st.Status,
+            ISNULL(st.Remarks,'''') AS Remarks
+        FROM dbo.StockTransfer st
+        INNER JOIN dbo.Godowns fg ON fg.Id = st.FromGodownId
+        INNER JOIN dbo.Godowns tg ON tg.Id = st.ToGodownId
+        WHERE st.BranchId      = @BranchId
+          AND st.TransferDate >= @FromDate
+          AND st.TransferDate <= @ToDate
+          AND (@GodownId IS NULL OR st.FromGodownId = @GodownId OR st.ToGodownId = @GodownId)
+        ORDER BY st.TransferDate DESC, st.TransferNumber;
+    END';
+    EXEC sp_executesql @createOrAlter;
+END
+";
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using var cmd = new SqlCommand(sql, connection);
+            cmd.CommandTimeout = 10;
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+            logger.LogInformation("Inventory stored procedure check and update completed.");
         }
     }
 }

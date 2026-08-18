@@ -1,5 +1,8 @@
 # Runtime-uploaded menu images (should not be committed)
 RestaurantManagementSystem/RestaurantManagementSystem/wwwroot/images/menu/
+RestaurantManagementSystem/RestaurantManagementSystem/wwwroot/images/restaurant/
+.dpkeys/
+**/.dpkeys/
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/

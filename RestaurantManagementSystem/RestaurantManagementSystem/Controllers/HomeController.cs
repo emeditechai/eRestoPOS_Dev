@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using RestaurantManagementSystem.Models;
+using RestaurantManagementSystem.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 using Microsoft.Data.SqlClient;
@@ -240,6 +241,18 @@ namespace RestaurantManagementSystem.Controllers
             catch (Exception ex)
             {
                 _logger?.LogWarning(ex, "Unable to fetch alert message");
+            }
+
+            // Fetch Master Dependency Setup Wizard data
+            try
+            {
+                var wizardData = await GetSetupWizardDataAsync(userIdNumeric, activeBranchId, restaurantName);
+                ViewBag.SetupWizard = wizardData;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Unable to evaluate Setup Wizard status");
+                ViewBag.SetupWizard = new SetupWizardViewModel { ShowWizard = false, IsSignupUser = false };
             }
             
             return View(model);
@@ -493,6 +506,414 @@ namespace RestaurantManagementSystem.Controllers
             }
             
             return null;
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> DismissSetupWizard()
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (int.TryParse(userId, out int uid))
+            {
+                try
+                {
+                    using var con = new SqlConnection(_connectionString);
+                    await con.OpenAsync();
+                    using var cmd = new SqlCommand(@"
+                        IF COL_LENGTH('dbo.Users', 'SetupWizardCompleted') IS NOT NULL
+                            UPDATE dbo.Users SET SetupWizardCompleted = 1 WHERE Id = @UserId", con);
+                    cmd.Parameters.AddWithValue("@UserId", uid);
+                    await cmd.ExecuteNonQueryAsync();
+                    return Json(new { success = true, message = "Setup wizard dismissed." });
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Error dismissing setup wizard for user {UserId}", uid);
+                }
+            }
+            return Json(new { success = false });
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> ResetSetupWizard()
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (int.TryParse(userId, out int uid))
+            {
+                try
+                {
+                    using var con = new SqlConnection(_connectionString);
+                    await con.OpenAsync();
+                    using var cmd = new SqlCommand(@"
+                        IF COL_LENGTH('dbo.Users', 'SetupWizardCompleted') IS NOT NULL
+                            UPDATE dbo.Users SET SetupWizardCompleted = 0 WHERE Id = @UserId", con);
+                    cmd.Parameters.AddWithValue("@UserId", uid);
+                    await cmd.ExecuteNonQueryAsync();
+                    return Json(new { success = true, message = "Setup wizard reset." });
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Error resetting setup wizard for user {UserId}", uid);
+                }
+            }
+            return Json(new { success = false });
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetSetupWizardStatus()
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int? uid = int.TryParse(userId, out int parsedId) ? parsedId : null;
+            var activeBranchId = User.GetActiveBranchId();
+            var wizard = await GetSetupWizardDataAsync(uid, activeBranchId, null);
+            return Json(wizard);
+        }
+
+        private async Task<int> SafeExecuteScalarTableCountAsync(SqlConnection con, string tableName, int? branchId, string additionalWhere = "")
+        {
+            try
+            {
+                // 1. Check if table exists in INFORMATION_SCHEMA
+                using (var chkTable = new SqlCommand("SELECT COUNT(1) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = @TName", con))
+                {
+                    chkTable.Parameters.AddWithValue("@TName", tableName);
+                    var tableExists = Convert.ToInt32(await chkTable.ExecuteScalarAsync()) > 0;
+                    if (!tableExists) return 0;
+                }
+
+                // 2. Check if BranchId column exists
+                bool hasBranchCol = false;
+                using (var chkCol = new SqlCommand("SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = @TName AND COLUMN_NAME = 'BranchId'", con))
+                {
+                    chkCol.Parameters.AddWithValue("@TName", tableName);
+                    hasBranchCol = Convert.ToInt32(await chkCol.ExecuteScalarAsync()) > 0;
+                }
+
+                string sql;
+                if (hasBranchCol && branchId.HasValue)
+                {
+                    // Branch-specific query
+                    sql = $"SELECT COUNT(1) FROM dbo.[{tableName}] WHERE BranchId = @BranchId";
+                    if (!string.IsNullOrWhiteSpace(additionalWhere))
+                    {
+                        sql += $" AND ({additionalWhere})";
+                    }
+
+                    using var cmd = new SqlCommand(sql, con);
+                    cmd.Parameters.AddWithValue("@BranchId", branchId.Value);
+                    var res = await cmd.ExecuteScalarAsync();
+                    return (res != null && res != DBNull.Value) ? Convert.ToInt32(res) : 0;
+                }
+                else
+                {
+                    // Global query
+                    sql = $"SELECT COUNT(1) FROM dbo.[{tableName}]";
+                    if (!string.IsNullOrWhiteSpace(additionalWhere))
+                    {
+                        sql += $" WHERE {additionalWhere}";
+                    }
+
+                    using var cmd = new SqlCommand(sql, con);
+                    var res = await cmd.ExecuteScalarAsync();
+                    return (res != null && res != DBNull.Value) ? Convert.ToInt32(res) : 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "SafeExecuteScalarTableCountAsync error for table {TableName}, Branch {BranchId}", tableName, branchId);
+                return 0;
+            }
+        }
+
+        private async Task<SetupWizardViewModel> GetSetupWizardDataAsync(int? userId, int? activeBranchId, string? branchName)
+        {
+            var vm = new SetupWizardViewModel
+            {
+                UserId = userId ?? 0,
+                CurrentBranchId = activeBranchId,
+                CurrentBranchName = branchName ?? "Current Branch"
+            };
+
+            if (!userId.HasValue)
+            {
+                vm.ShowWizard = false;
+                vm.IsSignupUser = false;
+                return vm;
+            }
+
+            try
+            {
+                using var con = new SqlConnection(_connectionString);
+                await con.OpenAsync();
+
+                // 1. Check if user is from signup and whether setup wizard is completed (Safe conversion)
+                bool isSignupUser = false;
+                bool setupWizardCompleted = false;
+
+                try
+                {
+                    using var cmd = new SqlCommand(@"
+                        SELECT 
+                            CAST(CASE WHEN COL_LENGTH('dbo.Users', 'from_Signup') IS NOT NULL THEN ISNULL(from_Signup, 0) ELSE 0 END AS INT),
+                            CAST(CASE WHEN COL_LENGTH('dbo.Users', 'SetupWizardCompleted') IS NOT NULL THEN ISNULL(SetupWizardCompleted, 0) ELSE 0 END AS INT)
+                        FROM dbo.Users WHERE Id = @UserId", con);
+                    cmd.Parameters.AddWithValue("@UserId", userId.Value);
+                    using var rdr = await cmd.ExecuteReaderAsync();
+                    if (await rdr.ReadAsync())
+                    {
+                        isSignupUser = (Convert.ToInt32(rdr[0]) == 1);
+                        setupWizardCompleted = (Convert.ToInt32(rdr[1]) == 1);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Error reading from_Signup/SetupWizardCompleted for user {UserId}", userId.Value);
+                }
+
+                vm.IsSignupUser = isSignupUser;
+                // Auto show wizard for signup users who have not completed or dismissed it
+                vm.ShowWizard = isSignupUser && !setupWizardCompleted;
+
+                // 2. Query Master Data counts strictly respecting active branch
+                // 2.1 Restaurant Settings (Branch specific, or fallback to global settings)
+                int restaurantSettingsCount = await SafeExecuteScalarTableCountAsync(con, "RestaurantSettings", activeBranchId, "ISNULL(RestaurantName, '') <> ''");
+                if (restaurantSettingsCount == 0 && !activeBranchId.HasValue)
+                {
+                    restaurantSettingsCount = await SafeExecuteScalarTableCountAsync(con, "RestaurantSettings", null, "ISNULL(RestaurantName, '') <> ''");
+                }
+
+                // 2.2 Kitchen Stations (Branch specific if column exists, or global)
+                int kitchenStationsCount = await SafeExecuteScalarTableCountAsync(con, "KitchenStations", activeBranchId);
+
+                // 2.3 Table Sections (Strictly per active branch)
+                int tableSectionsCount = await SafeExecuteScalarTableCountAsync(con, "TableSections", activeBranchId);
+
+                // 2.4 Dining Tables (Strictly per active branch)
+                int tableCount = await SafeExecuteScalarTableCountAsync(con, "Tables", activeBranchId);
+
+                // 2.5 Categories (Global catalog or branch specific)
+                int categoryCount = await SafeExecuteScalarTableCountAsync(con, "Categories", activeBranchId);
+                if (categoryCount == 0)
+                {
+                    categoryCount = await SafeExecuteScalarTableCountAsync(con, "menuitemgroup", activeBranchId);
+                }
+
+                // 2.6 Sub-Categories (Global catalog or branch specific)
+                int subCategoryCount = await SafeExecuteScalarTableCountAsync(con, "SubCategories", activeBranchId);
+
+                // 2.7 Units of Measurement (UOM)
+                int uomCount = await SafeExecuteScalarTableCountAsync(con, "tbl_mst_uom", activeBranchId);
+                if (uomCount == 0)
+                {
+                    uomCount = await SafeExecuteScalarTableCountAsync(con, "Uom", activeBranchId);
+                }
+
+                // 2.8 Menu Items (Strictly per active branch)
+                int menuItemCount = await SafeExecuteScalarTableCountAsync(con, "MenuItems", activeBranchId);
+
+                // 2.9 Payment / UPI Settings
+                int upiCount = await SafeExecuteScalarTableCountAsync(con, "UPISettings", activeBranchId, "ISNULL(UPIId, '') <> ''");
+
+                // 3. Build Ordered Dependency Steps
+                var steps = new List<SetupWizardStep>
+                {
+                    // Step 1: Restaurant Profile & Settings (Foundation)
+                    new SetupWizardStep
+                    {
+                        StepNumber = 1,
+                        StepKey = "settings",
+                        Phase = "Foundation",
+                        Title = "Restaurant Profile & Settings",
+                        Subtitle = "Setup basic restaurant details, GST code, address & logo",
+                        Description = "Configure your restaurant's legal name, currency symbol, tax GST identification, contact numbers, and brand logo used across all receipts, bills, and KOTs.",
+                        IconCss = "fas fa-store",
+                        ThemeColor = "#7c3aed",
+                        TargetUrl = "/Settings",
+                        ActionButtonText = restaurantSettingsCount > 0 ? "Edit Profile" : "Setup Profile",
+                        IsConfigured = restaurantSettingsCount > 0,
+                        CurrentCount = restaurantSettingsCount,
+                        CountBadgeText = restaurantSettingsCount > 0 ? "Profile Configured" : "Needs Setup",
+                        IsUnlocked = true,
+                        DependencyNote = "Independent foundation master."
+                    },
+
+                    // Step 2: Kitchen Stations (Foundation)
+                    new SetupWizardStep
+                    {
+                        StepNumber = 2,
+                        StepKey = "kitchen_stations",
+                        Phase = "Foundation",
+                        Title = "Kitchen Stations (KOT / BOT Routing)",
+                        Subtitle = "Setup cooking & bar areas (Main Kitchen, Bar, Grill, Bakery)",
+                        Description = "Create preparation stations so that food orders automatically dispatch KOT tickets to the kitchen, and drink orders dispatch BOT tickets to the bar.",
+                        IconCss = "fas fa-fire-burner",
+                        ThemeColor = "#ea580c",
+                        TargetUrl = "/Kitchen/Stations",
+                        ActionButtonText = kitchenStationsCount > 0 ? "Manage Stations" : "Create Stations",
+                        IsConfigured = kitchenStationsCount > 0,
+                        CurrentCount = kitchenStationsCount,
+                        CountBadgeText = kitchenStationsCount > 0 ? $"{kitchenStationsCount} Station(s) Available" : "Needs Setup",
+                        IsUnlocked = true,
+                        DependencyNote = "Menu items depend on Kitchen Stations for automated order ticket routing."
+                    },
+
+                    // Step 3: Dining Table Sections (Floor & Seating)
+                    new SetupWizardStep
+                    {
+                        StepNumber = 3,
+                        StepKey = "table_sections",
+                        Phase = "Floor & Seating",
+                        Title = "Dining Table Sections",
+                        Subtitle = "Organize dining floor into zones (AC Hall, Patio, Rooftop, Bar)",
+                        Description = "Define distinct dining areas and sections in your restaurant. Dining tables must belong to a section for floor management and guest seating.",
+                        IconCss = "fas fa-layer-group",
+                        ThemeColor = "#0284c7",
+                        TargetUrl = "/Reservation/TableSections",
+                        ActionButtonText = tableSectionsCount > 0 ? "Manage Sections" : "Create Sections",
+                        IsConfigured = tableSectionsCount > 0,
+                        CurrentCount = tableSectionsCount,
+                        CountBadgeText = tableSectionsCount > 0 ? $"{tableSectionsCount} Section(s) Available" : "Needs Setup",
+                        IsUnlocked = true,
+                        DependencyNote = "Tables require a Table Section to be created first."
+                    },
+
+                    // Step 4: Floor Layout & Dining Tables (Floor & Seating - DEPENDS ON Table Sections)
+                    new SetupWizardStep
+                    {
+                        StepNumber = 4,
+                        StepKey = "tables",
+                        Phase = "Floor & Seating",
+                        Title = "Dining Tables & Seating",
+                        Subtitle = "Create table numbers (T1, T2, T3) and seat capacities",
+                        Description = "Add specific dining tables with chair capacity in each section. Required to seat guests, track live table turnover, and punch Dine-In POS orders.",
+                        IconCss = "fas fa-chair",
+                        ThemeColor = "#0369a1",
+                        TargetUrl = "/Reservation/Tables",
+                        ActionButtonText = tableCount > 0 ? "Manage Tables" : "Setup Tables",
+                        IsConfigured = tableCount > 0,
+                        CurrentCount = tableCount,
+                        CountBadgeText = tableCount > 0 ? $"{tableCount} Table(s) Available" : "Needs Setup",
+                        IsUnlocked = tableSectionsCount > 0,
+                        DependencyNote = "Requires at least 1 Table Section (Step 3) to place dining tables.",
+                        DependsOnStepNumbers = new List<int> { 3 }
+                    },
+
+                    // Step 5: Units of Measurement (Menu Catalog)
+                    new SetupWizardStep
+                    {
+                        StepNumber = 5,
+                        StepKey = "uom",
+                        Phase = "Menu Catalog",
+                        Title = "Units of Measurement (UOM)",
+                        Subtitle = "Setup units for stock and dishes (Portion, Plate, Glass, Pcs, Kg)",
+                        Description = "Standardize portioning and inventory units across kitchen ingredients, billing, and recipe cost estimation.",
+                        IconCss = "fas fa-scale-balanced",
+                        ThemeColor = "#059669",
+                        TargetUrl = "/Uom",
+                        ActionButtonText = uomCount > 0 ? "Manage UOM" : "Add Units",
+                        IsConfigured = uomCount > 0,
+                        CurrentCount = uomCount,
+                        CountBadgeText = uomCount > 0 ? $"{uomCount} Unit(s) Available" : "Needs Setup",
+                        IsUnlocked = true,
+                        DependencyNote = "Used for accurate portion sizing and recipe ingredient tracking."
+                    },
+
+                    // Step 6: Food Categories & Sub-Categories (Menu Catalog)
+                    new SetupWizardStep
+                    {
+                        StepNumber = 6,
+                        StepKey = "categories",
+                        Phase = "Menu Catalog",
+                        Title = "Food Categories & Sub-Categories",
+                        Subtitle = "Organize menu into Starters, Main Course, Drinks, Desserts",
+                        Description = "Group your dishes into structured categories and subcategories for fast POS search, recipe management, and accurate sales reporting.",
+                        IconCss = "fas fa-tags",
+                        ThemeColor = "#8b5cf6",
+                        TargetUrl = "/Category",
+                        ActionButtonText = (categoryCount > 0 || subCategoryCount > 0) ? "Manage Categories" : "Add Categories",
+                        IsConfigured = (categoryCount > 0 || subCategoryCount > 0),
+                        CurrentCount = categoryCount,
+                        CountBadgeText = (categoryCount > 0 || subCategoryCount > 0) ? $"{categoryCount} Categories, {subCategoryCount} Sub-Categories Available" : "Needs Setup",
+                        IsUnlocked = true,
+                        DependencyNote = "Menu items must belong to a Category and Subcategory."
+                    },
+
+                    // Step 7: Menu Items & Pricing (Menu Catalog - DEPENDS ON Stations + Categories)
+                    new SetupWizardStep
+                    {
+                        StepNumber = 7,
+                        StepKey = "menu_items",
+                        Phase = "Menu Catalog",
+                        Title = "Menu Items & Pricing",
+                        Subtitle = "Add dishes with price, tax, category & kitchen routing",
+                        Description = "Build your complete food and beverage catalog with prices, GST tax rates, station assignments, and delicious descriptions.",
+                        IconCss = "fas fa-utensils",
+                        ThemeColor = "#d97706",
+                        TargetUrl = "/Menu",
+                        ActionButtonText = menuItemCount > 0 ? "Manage Menu Items" : "Add Dishes",
+                        IsConfigured = menuItemCount > 0,
+                        CurrentCount = menuItemCount,
+                        CountBadgeText = menuItemCount > 0 ? $"{menuItemCount} Item(s) in Catalog" : "Needs Setup",
+                        IsUnlocked = (kitchenStationsCount > 0 && (categoryCount > 0 || subCategoryCount > 0)),
+                        DependencyNote = "Requires at least 1 Kitchen Station (Step 2) and 1 Category (Step 6) created first.",
+                        DependsOnStepNumbers = new List<int> { 2, 6 }
+                    },
+
+                    // Step 8: Payment QR & Cash Counter Setup (Payments & POS)
+                    new SetupWizardStep
+                    {
+                        StepNumber = 8,
+                        StepKey = "upi_payments",
+                        Phase = "Payments & POS",
+                        Title = "Payment QR & Counter Setup",
+                        Subtitle = "Configure dynamic UPI QR code payments and payment methods",
+                        Description = "Setup dynamic UPI QR code payments and configure payment modes for seamless settlement at billing time.",
+                        IconCss = "fas fa-qrcode",
+                        ThemeColor = "#0d9488",
+                        TargetUrl = "/UPISettings",
+                        ActionButtonText = (upiCount > 0 || restaurantSettingsCount > 0) ? "Manage Payments" : "Setup Payments",
+                        IsConfigured = (upiCount > 0 || restaurantSettingsCount > 0),
+                        CurrentCount = upiCount,
+                        CountBadgeText = (upiCount > 0 || restaurantSettingsCount > 0) ? "Payments Configured" : "Needs Setup",
+                        IsUnlocked = restaurantSettingsCount > 0,
+                        DependencyNote = "Requires Restaurant Profile (Step 1) to configure business payment methods.",
+                        DependsOnStepNumbers = new List<int> { 1 }
+                    },
+
+                    // Step 9: Launch Point of Sale (POS) (Payments & POS - DEPENDS ON Tables + Menu Items)
+                    new SetupWizardStep
+                    {
+                        StepNumber = 9,
+                        StepKey = "pos_ready",
+                        Phase = "Payments & POS",
+                        Title = "Point of Sale (POS) Launch",
+                        Subtitle = "Start punching live orders, seat guests, and print bills!",
+                        Description = "Your restaurant is ready! Take your first live order on the point of sale screen, seat guests, and generate instant KOTs.",
+                        IconCss = "fas fa-cash-register",
+                        ThemeColor = "#10b981",
+                        TargetUrl = "/Order/Create",
+                        ActionButtonText = "Launch POS Screen",
+                        IsConfigured = (tableCount > 0 && menuItemCount > 0),
+                        CurrentCount = (tableCount > 0 && menuItemCount > 0) ? 1 : 0,
+                        CountBadgeText = (tableCount > 0 && menuItemCount > 0) ? "Ready to Sell" : "Needs Tables & Dishes",
+                        IsUnlocked = (tableCount > 0 && menuItemCount > 0),
+                        DependencyNote = "Requires Dining Tables (Step 4) and Menu Items (Step 7) to start selling.",
+                        DependsOnStepNumbers = new List<int> { 4, 7 }
+                    }
+                };
+
+                vm.Steps = steps;
+                vm.TotalStepsCount = steps.Count;
+                vm.CompletedStepsCount = steps.Count(s => s.IsConfigured);
+                vm.ReadinessPercentage = vm.TotalStepsCount > 0 
+                    ? (int)Math.Round((double)vm.CompletedStepsCount / vm.TotalStepsCount * 100.0) 
+                    : 0;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error assembling SetupWizard data for user {UserId}", userId);
+            }
+
+            return vm;
         }
 
         public IActionResult Privacy()

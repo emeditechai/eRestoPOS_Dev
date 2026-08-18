@@ -9,7 +9,7 @@
 -- Date    : 2026-08-16
 -- =============================================================================
 
-PRINT '-- Step 1: Add from_Signup column to dbo.Users (if missing) --';
+PRINT '-- Step 1: Add from_Signup and tracking columns to dbo.Users (if missing) --';
 IF OBJECT_ID(N'dbo.Users', N'U') IS NOT NULL
 BEGIN
     IF COL_LENGTH('dbo.Users', 'from_Signup') IS NULL
@@ -22,11 +22,44 @@ BEGIN
         ALTER TABLE dbo.Users ADD TermsAcceptedAt DATETIME NULL;
         PRINT '  Column TermsAcceptedAt added to dbo.Users.';
     END
-    ELSE
-        PRINT '  Column TermsAcceptedAt already exists in dbo.Users.';
+    IF COL_LENGTH('dbo.Users', 'SignupIpAddress') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Users ADD SignupIpAddress NVARCHAR(100) NULL;
+        PRINT '  Column SignupIpAddress added to dbo.Users.';
+    END
+    IF COL_LENGTH('dbo.Users', 'SignupUserAgent') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Users ADD SignupUserAgent NVARCHAR(500) NULL;
+        PRINT '  Column SignupUserAgent added to dbo.Users.';
+    END
+    IF COL_LENGTH('dbo.Users', 'SignupBrowser') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Users ADD SignupBrowser NVARCHAR(100) NULL;
+        PRINT '  Column SignupBrowser added to dbo.Users.';
+    END
+    IF COL_LENGTH('dbo.Users', 'SignupOS') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Users ADD SignupOS NVARCHAR(100) NULL;
+        PRINT '  Column SignupOS added to dbo.Users.';
+    END
+    IF COL_LENGTH('dbo.Users', 'SignupDevice') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Users ADD SignupDevice NVARCHAR(50) NULL;
+        PRINT '  Column SignupDevice added to dbo.Users.';
+    END
+    IF COL_LENGTH('dbo.Users', 'SignupDate') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Users ADD SignupDate DATETIME NULL;
+        PRINT '  Column SignupDate added to dbo.Users.';
+    END
+    IF COL_LENGTH('dbo.Users', 'SetupWizardCompleted') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Users ADD SetupWizardCompleted BIT NOT NULL DEFAULT 0;
+        PRINT '  Column SetupWizardCompleted added to dbo.Users.';
+    END
 END
 
-PRINT '-- Step 1b: Add from_Signup column to dbo.Branches (if missing) --';
+PRINT '-- Step 1b: Add from_Signup and tracking columns to dbo.Branches (if missing) --';
 IF OBJECT_ID(N'dbo.Branches', N'U') IS NOT NULL
 BEGIN
     IF COL_LENGTH('dbo.Branches', 'from_Signup') IS NULL
@@ -34,8 +67,26 @@ BEGIN
         ALTER TABLE dbo.Branches ADD from_Signup BIT NOT NULL DEFAULT 0;
         PRINT '  Column from_Signup added to dbo.Branches.';
     END
-    ELSE
-        PRINT '  Column from_Signup already exists in dbo.Branches.';
+    IF COL_LENGTH('dbo.Branches', 'CreatedIpAddress') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Branches ADD CreatedIpAddress NVARCHAR(100) NULL;
+        PRINT '  Column CreatedIpAddress added to dbo.Branches.';
+    END
+    IF COL_LENGTH('dbo.Branches', 'CreatedUserAgent') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Branches ADD CreatedUserAgent NVARCHAR(500) NULL;
+        PRINT '  Column CreatedUserAgent added to dbo.Branches.';
+    END
+    IF COL_LENGTH('dbo.Branches', 'CreatedBrowser') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Branches ADD CreatedBrowser NVARCHAR(100) NULL;
+        PRINT '  Column CreatedBrowser added to dbo.Branches.';
+    END
+    IF COL_LENGTH('dbo.Branches', 'CreatedDevice') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Branches ADD CreatedDevice NVARCHAR(50) NULL;
+        PRINT '  Column CreatedDevice added to dbo.Branches.';
+    END
 END
 
 -- =============================================================================
