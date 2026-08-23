@@ -7092,55 +7092,25 @@ END", connection))
         private async Task<(bool Success, string ErrorMessage, int ProcessingTimeMs)> SendEmailWithBillAsync(
             MailConfigurationViewModel mailConfig, string toEmail, string subject, string body, PaymentViewModel model, RestaurantSettings settings)
         {
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            
-            try
+            if (string.IsNullOrEmpty(toEmail))
             {
-                if (string.IsNullOrEmpty(toEmail))
-                {
-                    return (false, "Email address is empty", 0);
-                }
-
-                var smtpServer = mailConfig.SmtpServer;
-                if (!smtpServer.StartsWith("smtp.", StringComparison.OrdinalIgnoreCase) && 
-                    !smtpServer.StartsWith("mail.", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (smtpServer.Contains("gmail.com"))
-                        smtpServer = "smtp.gmail.com";
-                    else if (smtpServer.Contains("outlook.com") || smtpServer.Contains("hotmail.com"))
-                        smtpServer = "smtp.office365.com";
-                }
-
-                using (var client = new System.Net.Mail.SmtpClient(smtpServer, mailConfig.SmtpPort))
-                {
-                    client.EnableSsl = mailConfig.EnableSSL;
-                    client.UseDefaultCredentials = false;
-                    client.Credentials = new System.Net.NetworkCredential(mailConfig.SmtpUsername, mailConfig.SmtpPassword);
-                    client.DeliveryMethod = System.Net.Mail.SmtpDeliveryMethod.Network;
-                    client.Timeout = 30000;
-
-                    using (var message = new System.Net.Mail.MailMessage())
-                    {
-                        message.From = new System.Net.Mail.MailAddress(mailConfig.FromEmail, mailConfig.FromName);
-                        message.To.Add(toEmail);
-                        message.Subject = subject;
-                        message.Body = body;
-                        message.IsBodyHtml = true;
-                        message.Priority = System.Net.Mail.MailPriority.Normal;
-
-                        await client.SendMailAsync(message);
-                    }
-                }
-
-                stopwatch.Stop();
-                return (true, null, (int)stopwatch.ElapsedMilliseconds);
+                return (false, "Email address is empty", 0);
             }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                _logger?.LogError(ex, "Error sending bill email to {Email}", toEmail);
-                return (false, ex.Message, (int)stopwatch.ElapsedMilliseconds);
-            }
+
+            var result = await MailKitEmailHelper.SendEmailAsync(
+                smtpServer: mailConfig.SmtpServer,
+                smtpPort: mailConfig.SmtpPort,
+                smtpUsername: mailConfig.SmtpUsername,
+                smtpPassword: mailConfig.SmtpPassword,
+                enableSsl: mailConfig.EnableSSL,
+                fromEmail: mailConfig.FromEmail,
+                fromName: mailConfig.FromName,
+                toEmail: toEmail,
+                subject: subject,
+                htmlBody: body,
+                logger: _logger);
+
+            return (result.Success, result.ErrorMessage, result.ProcessingTimeMs);
         }
 
         private int? GetOrderBranchId(int orderId)
@@ -7436,51 +7406,25 @@ END", connection))
         private async Task<(bool Success, string ErrorMessage)> SendEmailAsync(
             MailConfigurationData mailConfig, string toEmail, string subject, string body)
         {
-            try
+            if (string.IsNullOrEmpty(toEmail))
             {
-                if (string.IsNullOrEmpty(toEmail))
-                {
-                    return (false, "Email address is empty");
-                }
-
-                var smtpServer = mailConfig.SmtpServer;
-                if (!smtpServer.StartsWith("smtp.", StringComparison.OrdinalIgnoreCase) && 
-                    !smtpServer.StartsWith("mail.", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (smtpServer.Contains("gmail.com"))
-                        smtpServer = "smtp.gmail.com";
-                    else if (smtpServer.Contains("outlook.com") || smtpServer.Contains("hotmail.com"))
-                        smtpServer = "smtp.office365.com";
-                }
-
-                using (var client = new System.Net.Mail.SmtpClient(smtpServer, mailConfig.SmtpPort))
-                {
-                    client.EnableSsl = mailConfig.EnableSSL;
-                    client.UseDefaultCredentials = false;
-                    client.Credentials = new System.Net.NetworkCredential(mailConfig.SmtpUsername, mailConfig.SmtpPassword);
-                    client.DeliveryMethod = System.Net.Mail.SmtpDeliveryMethod.Network;
-                    client.Timeout = 30000;
-
-                    using (var message = new System.Net.Mail.MailMessage())
-                    {
-                        message.From = new System.Net.Mail.MailAddress(mailConfig.FromEmail, mailConfig.FromName);
-                        message.To.Add(toEmail);
-                        message.Subject = subject;
-                        message.Body = body;
-                        message.IsBodyHtml = true;
-                        message.Priority = System.Net.Mail.MailPriority.Normal;
-
-                        await client.SendMailAsync(message);
-                    }
-                }
-
-                return (true, null);
+                return (false, "Email address is empty");
             }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Error sending email to {Email}", toEmail);
-                return (false, ex.Message);
-            }
+
+            var result = await MailKitEmailHelper.SendEmailAsync(
+                smtpServer: mailConfig.SmtpServer,
+                smtpPort: mailConfig.SmtpPort,
+                smtpUsername: mailConfig.SmtpUsername,
+                smtpPassword: mailConfig.SmtpPassword,
+                enableSsl: mailConfig.EnableSSL,
+                fromEmail: mailConfig.FromEmail,
+                fromName: mailConfig.FromName,
+                toEmail: toEmail,
+                subject: subject,
+                htmlBody: body,
+                logger: _logger);
+
+            return (result.Success, result.ErrorMessage);
         }
 
         private async Task<MailConfigurationData> GetMailConfigurationForBillAsync(SqlConnection connection)

@@ -1,8 +1,6 @@
 using System;
 using System.Data;
 using System.Diagnostics;
-using System.Net;
-using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
@@ -66,45 +64,37 @@ namespace RestaurantManagementSystem.Services
                     return (false, "Mail configuration is missing or inactive");
                 }
 
-                var smtpServer = NormalizeSmtpServer(mailConfig.SmtpServer);
-
-                using (var client = new SmtpClient(smtpServer, mailConfig.SmtpPort))
-                {
-                    client.EnableSsl = mailConfig.EnableSSL;
-                    client.UseDefaultCredentials = false;
-                    client.Credentials = new NetworkCredential(mailConfig.SmtpUsername, mailConfig.SmtpPassword);
-                    client.DeliveryMethod = SmtpDeliveryMethod.Network;
-                    client.Timeout = 30000;
-
-                    using (var message = new MailMessage())
-                    {
-                        message.From = new MailAddress(mailConfig.FromEmail, mailConfig.FromName);
-                        message.To.Add(toEmail);
-                        message.Subject = subject;
-                        message.Body = htmlBody;
-                        message.IsBodyHtml = true;
-                        message.Priority = MailPriority.Normal;
-
-                        await client.SendMailAsync(message);
-                    }
-                }
+                var sendResult = await MailKitEmailHelper.SendEmailAsync(
+                    smtpServer: mailConfig.SmtpServer,
+                    smtpPort: mailConfig.SmtpPort,
+                    smtpUsername: mailConfig.SmtpUsername,
+                    smtpPassword: mailConfig.SmtpPassword,
+                    enableSsl: mailConfig.EnableSSL,
+                    fromEmail: mailConfig.FromEmail,
+                    fromName: mailConfig.FromName,
+                    toEmail: toEmail,
+                    subject: subject,
+                    htmlBody: htmlBody,
+                    logger: _logger);
 
                 stopwatch.Stop();
+                var elapsedMs = sendResult.ProcessingTimeMs > 0 ? sendResult.ProcessingTimeMs : (int)stopwatch.ElapsedMilliseconds;
+
                 await LogEmailAsync(
                     toEmail,
                     subject,
                     htmlBody,
-                    status: "Success",
-                    errorMessage: null,
-                    processingTimeMs: (int)stopwatch.ElapsedMilliseconds,
+                    status: sendResult.Success ? "Success" : "Failed",
+                    errorMessage: sendResult.ErrorMessage,
+                    processingTimeMs: elapsedMs,
                     fromEmail: mailConfig.FromEmail,
-                    smtpServer: smtpServer,
+                    smtpServer: mailConfig.SmtpServer,
                     smtpPort: mailConfig.SmtpPort,
                     smtpUsername: mailConfig.SmtpUsername,
                     enableSsl: mailConfig.EnableSSL,
                     branchId: branchId);
 
-                return (true, null);
+                return (sendResult.Success, sendResult.ErrorMessage);
             }
             catch (Exception ex)
             {
@@ -237,22 +227,7 @@ namespace RestaurantManagementSystem.Services
             }
         }
 
-        private static string NormalizeSmtpServer(string smtpServer)
-        {
-            if (string.IsNullOrWhiteSpace(smtpServer)) return smtpServer;
-
-            if (!smtpServer.StartsWith("smtp.", StringComparison.OrdinalIgnoreCase) &&
-                !smtpServer.StartsWith("mail.", StringComparison.OrdinalIgnoreCase))
-            {
-                if (smtpServer.Contains("gmail.com", StringComparison.OrdinalIgnoreCase))
-                    return "smtp.gmail.com";
-                if (smtpServer.Contains("outlook.com", StringComparison.OrdinalIgnoreCase) ||
-                    smtpServer.Contains("hotmail.com", StringComparison.OrdinalIgnoreCase))
-                    return "smtp.office365.com";
-            }
-
-            return smtpServer;
-        }
+        private static string NormalizeSmtpServer(string smtpServer) => MailKitEmailHelper.NormalizeSmtpServer(smtpServer);
 
         private async Task LogEmailAsync(
             string toEmail,

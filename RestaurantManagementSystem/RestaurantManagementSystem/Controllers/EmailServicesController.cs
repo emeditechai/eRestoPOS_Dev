@@ -867,55 +867,23 @@ namespace RestaurantManagementSystem.Controllers
         private async Task<(bool Success, string? ErrorMessage, int ProcessingTimeMs)> SendEmailAsync(
             MailConfigurationViewModel mailConfig, string? toEmail, string subject, string body)
         {
-            var stopwatch = Stopwatch.StartNew();
-            
-            try
+            if (string.IsNullOrEmpty(toEmail))
             {
-                if (string.IsNullOrEmpty(toEmail))
-                {
-                    return (false, "Email address is empty", 0);
-                }
-
-                var smtpServer = mailConfig.SmtpServer;
-                if (!smtpServer.StartsWith("smtp.", StringComparison.OrdinalIgnoreCase) && 
-                    !smtpServer.StartsWith("mail.", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (smtpServer.Contains("gmail.com"))
-                        smtpServer = "smtp.gmail.com";
-                    else if (smtpServer.Contains("outlook.com") || smtpServer.Contains("hotmail.com"))
-                        smtpServer = "smtp.office365.com";
-                }
-
-                using (var client = new SmtpClient(smtpServer, mailConfig.SmtpPort))
-                {
-                    client.EnableSsl = mailConfig.EnableSSL;
-                    client.UseDefaultCredentials = false;
-                    client.Credentials = new NetworkCredential(mailConfig.SmtpUsername, mailConfig.SmtpPassword);
-                    client.DeliveryMethod = SmtpDeliveryMethod.Network;
-                    client.Timeout = 30000;
-
-                    using (var message = new MailMessage())
-                    {
-                        message.From = new MailAddress(mailConfig.FromEmail, mailConfig.FromName);
-                        message.To.Add(toEmail);
-                        message.Subject = subject;
-                        message.Body = body;
-                        message.IsBodyHtml = true;
-                        message.Priority = MailPriority.Normal;
-
-                        await client.SendMailAsync(message);
-                    }
-                }
-
-                stopwatch.Stop();
-                return (true, null, (int)stopwatch.ElapsedMilliseconds);
+                return (false, "Email address is empty", 0);
             }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                _logger.LogError(ex, "Error sending email to {Email}", toEmail);
-                return (false, ex.Message, (int)stopwatch.ElapsedMilliseconds);
-            }
+
+            return await MailKitEmailHelper.SendEmailAsync(
+                smtpServer: mailConfig.SmtpServer,
+                smtpPort: mailConfig.SmtpPort,
+                smtpUsername: mailConfig.SmtpUsername,
+                smtpPassword: mailConfig.SmtpPassword,
+                enableSsl: mailConfig.EnableSSL,
+                fromEmail: mailConfig.FromEmail,
+                fromName: mailConfig.FromName,
+                toEmail: toEmail,
+                subject: subject,
+                htmlBody: body,
+                logger: _logger);
         }
 
         private async Task<MailConfigurationViewModel?> GetMailConfigurationAsync(int? branchId)

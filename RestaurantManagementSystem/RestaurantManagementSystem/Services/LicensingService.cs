@@ -1,11 +1,11 @@
 using System.Net;
-using System.Net.Mail;
 using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
+using RestaurantManagementSystem.Utilities;
 
 namespace RestaurantManagementSystem.Services
 {
@@ -1789,74 +1789,55 @@ WHERE ChallengeId = @ChallengeId;";
 
         private async Task<(bool Success, string Message)> SendRegistrationOtpEmailAsync(CentralMailConfiguration configuration, LicenseRegistrationViewModel model, string toEmail, string otpCode, DateTime expiresAt)
         {
-            try
-            {
-                var smtpServer = NormalizeSmtpServer(configuration.SmtpServer);
+            var body = BuildRegistrationOtpEmailBody(model, otpCode, expiresAt);
+            var subject = $"eRestoPOS License OTP - {otpCode}";
 
-                using var client = new SmtpClient(smtpServer, configuration.SmtpPort)
-                {
-                    EnableSsl = configuration.EnableSsl,
-                    UseDefaultCredentials = false,
-                    Credentials = new NetworkCredential(configuration.SmtpUsername, configuration.SmtpPassword),
-                    DeliveryMethod = SmtpDeliveryMethod.Network,
-                    Timeout = 30000
-                };
+            var result = await MailKitEmailHelper.SendEmailAsync(
+                smtpServer: configuration.SmtpServer,
+                smtpPort: configuration.SmtpPort,
+                smtpUsername: configuration.SmtpUsername,
+                smtpPassword: configuration.SmtpPassword,
+                enableSsl: configuration.EnableSsl,
+                fromEmail: configuration.FromEmail,
+                fromName: configuration.FromName,
+                toEmail: toEmail.Trim(),
+                subject: subject,
+                htmlBody: body,
+                logger: _logger);
 
-                using var message = new MailMessage
-                {
-                    From = new MailAddress(configuration.FromEmail, configuration.FromName),
-                    Subject = $"eRestoPOS License OTP - {otpCode}",
-                    Body = BuildRegistrationOtpEmailBody(model, otpCode, expiresAt),
-                    IsBodyHtml = true,
-                    Priority = MailPriority.High
-                };
-
-                message.To.Add(toEmail.Trim());
-                await client.SendMailAsync(message);
-
-                return (true, "OTP sent successfully.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send registration OTP email to {ToEmail}", toEmail);
-                return (false, $"Unable to send OTP email. {ex.Message}");
-            }
+            return result.Success
+                ? (true, "OTP sent successfully.")
+                : (false, $"Unable to send OTP email. {result.ErrorMessage}");
         }
 
         private async Task<(bool Success, string Message)> SendWelcomeEmailAsync(CentralMailConfiguration configuration, ClientAppLicense license)
         {
-            try
+            var body = BuildWelcomeEmailBody(license);
+            var subject = $"Welcome to eRestoPOS — License Registered ({license.ClientCode})";
+            var toEmail = license.EmailID?.Trim() ?? string.Empty;
+
+            var result = await MailKitEmailHelper.SendEmailAsync(
+                smtpServer: configuration.SmtpServer,
+                smtpPort: configuration.SmtpPort,
+                smtpUsername: configuration.SmtpUsername,
+                smtpPassword: configuration.SmtpPassword,
+                enableSsl: configuration.EnableSsl,
+                fromEmail: configuration.FromEmail,
+                fromName: configuration.FromName,
+                toEmail: toEmail,
+                subject: subject,
+                htmlBody: body,
+                logger: _logger);
+
+            if (result.Success)
             {
-                var smtpServer = NormalizeSmtpServer(configuration.SmtpServer);
-
-                using var client = new SmtpClient(smtpServer, configuration.SmtpPort)
-                {
-                    EnableSsl = configuration.EnableSsl,
-                    UseDefaultCredentials = false,
-                    Credentials = new NetworkCredential(configuration.SmtpUsername, configuration.SmtpPassword),
-                    DeliveryMethod = SmtpDeliveryMethod.Network,
-                    Timeout = 30000
-                };
-
-                using var message = new MailMessage
-                {
-                    From = new MailAddress(configuration.FromEmail, configuration.FromName),
-                    Subject = $"Welcome to eRestoPOS — License Registered ({license.ClientCode})",
-                    Body = BuildWelcomeEmailBody(license),
-                    IsBodyHtml = true,
-                    Priority = MailPriority.Normal
-                };
-
-                message.To.Add(license.EmailID?.Trim() ?? string.Empty);
-                await client.SendMailAsync(message);
-
                 _logger.LogInformation("Welcome email sent to {EmailID} for client {ClientCode}", license.EmailID, license.ClientCode);
                 return (true, "Welcome email sent successfully.");
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogError(ex, "Failed to send welcome email to {EmailID} for client {ClientCode}", license.EmailID, license.ClientCode);
-                return (false, $"Unable to send welcome email. {ex.Message}");
+                _logger.LogError("Failed to send welcome email to {EmailID} for client {ClientCode}: {Error}", license.EmailID, license.ClientCode, result.ErrorMessage);
+                return (false, $"Unable to send welcome email. {result.ErrorMessage}");
             }
         }
 
@@ -3828,37 +3809,25 @@ WHERE ChallengeId = @ChallengeId;";
 
         private async Task<(bool Success, string Message)> SendHardwareRenewalOtpEmailAsync(CentralMailConfiguration configuration, PendingHardwareRenewalOtp pending, ClientAppLicense remoteLicense, string toEmail, string otpCode, DateTime expiresAt)
         {
-            try
-            {
-                var smtpServer = NormalizeSmtpServer(configuration.SmtpServer);
+            var body = BuildHardwareRenewalOtpEmailBody(remoteLicense, otpCode, expiresAt);
+            var subject = $"eRestoPOS Hardware Renewal OTP - {otpCode}";
 
-                using var client = new SmtpClient(smtpServer, configuration.SmtpPort)
-                {
-                    EnableSsl = configuration.EnableSsl,
-                    UseDefaultCredentials = false,
-                    Credentials = new NetworkCredential(configuration.SmtpUsername, configuration.SmtpPassword),
-                    DeliveryMethod = SmtpDeliveryMethod.Network,
-                    Timeout = 30000
-                };
+            var result = await MailKitEmailHelper.SendEmailAsync(
+                smtpServer: configuration.SmtpServer,
+                smtpPort: configuration.SmtpPort,
+                smtpUsername: configuration.SmtpUsername,
+                smtpPassword: configuration.SmtpPassword,
+                enableSsl: configuration.EnableSsl,
+                fromEmail: configuration.FromEmail,
+                fromName: configuration.FromName,
+                toEmail: toEmail.Trim(),
+                subject: subject,
+                htmlBody: body,
+                logger: _logger);
 
-                using var message = new MailMessage
-                {
-                    From = new MailAddress(configuration.FromEmail, configuration.FromName),
-                    Subject = $"eRestoPOS Hardware Renewal OTP - {otpCode}",
-                    Body = BuildHardwareRenewalOtpEmailBody(remoteLicense, otpCode, expiresAt),
-                    IsBodyHtml = true,
-                    Priority = MailPriority.High
-                };
-
-                message.To.Add(toEmail.Trim());
-                await client.SendMailAsync(message);
-                return (true, "OTP sent successfully.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send hardware renewal OTP email to {ToEmail}", toEmail);
-                return (false, $"Unable to send OTP email. {ex.Message}");
-            }
+            return result.Success
+                ? (true, "OTP sent successfully.")
+                : (false, $"Unable to send OTP email. {result.ErrorMessage}");
         }
 
         private static string BuildHardwareRenewalOtpEmailBody(ClientAppLicense license, string otpCode, DateTime expiresAt)
